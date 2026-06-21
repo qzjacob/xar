@@ -1,0 +1,53 @@
+# XAR — turnkey stack. Set ANTHROPIC_API_KEY in .env, then: docker compose up
+# Web UI -> http://localhost:8000
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: xar
+      POSTGRES_PASSWORD: xar
+      POSTGRES_DB: xar
+    volumes:
+      - xar_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xar"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "5432:5432"
+
+  app:
+    build: .
+    env_file: .env
+    environment:
+      XAR_DATABASE_URL: postgresql://xar:xar@db:5432/xar
+      XAR_OBJECT_STORE: file:///data/objects
+    depends_on:
+      db:
+        condition: service_healthy
+    command: bash -lc "xar init && xar serve --host 0.0.0.0 --port 8000"
+    volumes:
+      - xar_data:/data
+      - xar_models:/root/.cache  # fastembed model cache (persist across restarts)
+    ports:
+      - "8000:8000"
+
+  # Optional WeChat Official Account source. Enable with:
+  #   docker compose --profile wechat up -d
+  # Then open http://localhost:8001, log in (scan WeChat QR), subscribe 公众号.
+  # The app auto-reads it because WERSS_BASE_URL is wired to the service below.
+  werss:
+    image: rachelos/we-mp-rss:latest
+    profiles: ["wechat"]
+    volumes:
+      - werss_data:/app/data
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+
+volumes:
+  xar_pgdata:
+  xar_data:
+  xar_models:
+  werss_data:

@@ -1,0 +1,30 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: xar
+          POSTGRES_PASSWORD: xar
+          POSTGRES_DB: xar
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U xar" --health-interval 5s
+          --health-timeout 3s --health-retries 20
+    env:
+      XAR_DATABASE_URL: postgresql://xar:xar@localhost:5432/xar
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[dev]"
+      - name: License-clean gate
+        run: python scripts/check_licenses.py
+      - name: Lint
+        run: ruff check src || true
+      - name: Schema init + offline smoke test (no LLM key)
+        run: pytest -q

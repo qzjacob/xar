@@ -1,0 +1,65 @@
+[project]
+name = "xar"
+version = "0.1.0"
+description = "XAR — open-source industry-chain investment research platform (filings/news/jobs -> temporal knowledge graph + RAG -> multi-agent deep reports)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "XAR" }]
+
+dependencies = [
+    # core
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "typer>=0.12",
+    "rich>=13.7",
+    "httpx>=0.27",
+    "tenacity>=8.4",
+    "python-dateutil>=2.9",
+    # api
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "jinja2>=3.1",
+    # storage
+    "psycopg[binary,pool]>=3.2",
+    "pgvector>=0.3",
+    # models
+    "litellm>=1.44",
+    "anthropic>=0.40",
+    "fastembed>=0.3",
+    # ingestion
+    "edgartools>=3.0",
+    "trafilatura>=1.10",
+    # parsing (docling optional-heavy; pdfplumber as the always-available fallback)
+    "pdfplumber>=0.11",
+]
+
+[project.optional-dependencies]
+# Heavier / swappable backends — not required for the turnkey path.
+cn = ["akshare>=1.14", "adata>=2.0"]
+# Free global prices + fundamentals (Yahoo) and the catalyst backtest.
+market = ["yfinance>=0.2.40"]
+parse-deep = ["docling>=2.0"]
+graph = ["graphiti-core>=0.3", "neo4j>=5.20"]
+orchestration = ["dagster>=1.7", "dagster-webserver>=1.7"]
+eval = ["arize-phoenix>=4.0"]
+crawl = ["crawl4ai>=0.3", "playwright>=1.45"]
+dev = ["pytest>=8.2", "pytest-asyncio>=0.23", "ruff>=0.5"]
+
+[project.scripts]
+xar = "xar.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/xar"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

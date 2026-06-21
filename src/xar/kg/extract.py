@@ -1,0 +1,146 @@
+"""LLM extraction of nodes/edges/catalyst-events from documents into the
+bitemporal KG. Schema-constrained (ontology), entity-resolved before write,
+event-deduped across sources. Uses the fast (Haiku) tier for cost control."""
+from __future__ import annotations
+
+from ..ingestion.registry import company_by_id
+from ..logging import get_logger
+from ..models import llm
+from ..ontology import (CATALYST_TYPES, EDGE_TYPES, NODE_TYPES, ExtractionResult,
+                        NodeType)
+from ..storage import db
+from . import resolve, store
+
+log = get_logger("xar.kg.extract")
+
+# Extraction is theme-aware: the anchor company's theme picks the industry framing
+# so software filings yield software facts (not optical ones), etc.
+_THEME_FOCUS = {
+    "ai_optical": "the AI optical-interconnect / optical-module supply chain",
+    "ai_chip": "the AI compute semiconductor / chip supply chain",
+    "ai_software": ("the enterprise AI-software / SaaS adoption landscape — AI agents, "
+                    "copilots, dev & AI infrastructure, observability, data platforms, "
+                    "cybersecurity, CRM, marketing, ERP/HR and vertical SaaS"),
+    "space_exploration": ("the space-exploration supply chain — launch & rockets, propulsion, "
+                          "satellites & constellations, orbital/space data centers, ground stations "
+                          "& terminals, space-grade components, EO/SATCOM/PNT applications and space defense"),
+    "humanoid_robotics": ("the humanoid-robotics supply chain — actuators/harmonic reducers/roller "
+                          "screws, frameless torque motors, force/vision/tactile sensors, onboard "
+                          "compute & embodied-AI (VLA), batteries/power, dexterous hands, lightweight "
+                          "materials and humanoid OEM integrators"),
+}
+_DEFAULT_FOCUS = "AI technology investment supply chains"
+
+
+def _focus_for(company_id: str | None) -> str:
+    if company_id:
+        c = company_by_id(company_id)
+        if c:
+            for t in c.get("themes", []):
+                if t in _THEME_FOCUS:
+                    return _THEME_FOCUS[t]
+    return _DEFAULT_FOCUS
+
+
+def _system_for(focus: str) -> str:
+    return ("You are a meticulous financial supply-chain analyst extracting a knowledge "
+            f"graph for {focus}. Extract ONLY facts explicitly supported by the text. "
+            "Prefer precision over recall. Every edge and event must include a short "
+            "verbatim evidence quote.")
+
+
+def extract_from_document(doc_id: str, run_id: str | None = None, max_chars: int = 12000) -> dict:
+    rows = db.query("SELECT id, company_id, source, doc_type, title, text FROM documents WHERE id=%s",
+                    (doc_id,))
+    if not rows:
+        return {}
+    d = rows[0]
+    text = (d["text"] or "")[:max_chars]
+    if len(text) < 80:
+        return {}
+
+    focus = _focus_for(d["company_id"])
+    prompt = (
+        f"Document: {d['title']} (source={d['source']}, type={d['doc_type']})\n"
+        f"Anchor company id (if any): {d['company_id']}\n\n"
+        f"Allowed node_type values: {NODE_TYPES}\n"
+        f"Allowed edge rel_type values: {EDGE_TYPES}\n"
+        f"Allowed event_type values: {CATALYST_TYPES}\n\n"
+        "Extract entities (companies, components, customers, tech routes), "
+        "supply-chain / adoption relations (with dates if stated), and dated catalyst "
+        f"events relevant to investors in {focus}.\n\nTEXT:\n" + text
+    )
+    result = llm.complete_json(prompt, ExtractionResult, system=_system_for(focus), tier="fast",
+                               node="kg_extract", run_id=run_id, max_tokens=4000)
+
+    name_to_id: dict[str, str] = {}
+    for n in result.nodes:
+        if n.node_type not in NODE_TYPES:
+            continue
+        nid, _ = resolve.resolve_or_create(n.name, n.node_type, tickers=n.tickers, attrs=n.attrs)
+        name_to_id[n.name.strip().lower()] = nid
+
+    def nid_for(name: str, fallback_type: str = NodeType.UPSTREAM_COMPONENT.value) -> str | None:
+        key = name.strip().lower()
+        if key in name_to_id:
+            return name_to_id[key]
+        rid, _ = resolve.resolve_or_create(name, fallback_type)
+        name_to_id[key] = rid
+        return rid
+
+    n_edges = 0
+    for e in result.edges:
+        if e.rel_type not in EDGE_TYPES:
+            continue
+        src = nid_for(e.src)
+        dst = nid_for(e.dst)
+        if not src or not dst or src == dst:
+            continue
+        store.add_edge(src, dst, e.rel_type, valid_from=store.parse_date(e.valid_from),
+                       valid_to=store.parse_date(e.valid_to), confidence=e.confidence,
+                       source_doc_id=doc_id, license_tag="extracted")
+        n_edges += 1
+
+    n_events = 0
+    for ev in result.events:
+        if ev.event_type not in CATALYST_TYPES:
+            continue
+        company_node = d["company_id"]
+        rid, _ = resolve.resolve(ev.company)
+        company_node = rid or d["company_id"]
+        added = store.add_event(
+            company_node, company_node, ev.event_type,
+            event_date=store.parse_date(ev.event_date), magnitude=ev.magnitude,
+            polarity=ev.polarity, tech_route_tag=ev.tech_route_tag, summary=ev.summary,
+            confidence=ev.confidence, source_doc_id=doc_id, license_tag="extracted",
+        )
+        n_events += int(added)
+
+    out = {"nodes": len(result.nodes), "edges": n_edges, "events": n_events}
+    log.info("extracted %s: %s", doc_id, out)
+    return out
+
+
+def build_kg(limit: int | None = None, run_id: str | None = None) -> dict:
+    """Extract KG from documents not yet processed. Prioritizes catalyst-rich
+    sources (8-K, announcements, news) before bulk filings."""
+    store.bootstrap_seed()
+    order = ("CASE source WHEN 'edgar' THEN (CASE WHEN doc_type='8-K' THEN 0 ELSE 2 END) "
+             "WHEN 'cninfo' THEN 1 WHEN 'news' THEN 1 WHEN 'wechat' THEN 1 "
+             "WHEN 'social' THEN 1 ELSE 3 END")
+    sql = f"""SELECT d.id FROM documents d
+              WHERE d.permission <> 'red'
+                AND NOT EXISTS (SELECT 1 FROM kg_edges e WHERE e.source_doc_id=d.id)
+                AND NOT EXISTS (SELECT 1 FROM kg_events v WHERE v.source_doc_id=d.id)
+              ORDER BY {order}, d.published_at DESC NULLS LAST"""
+    if limit:
+        sql += f" LIMIT {int(limit)}"
+    totals = {"docs": 0, "nodes": 0, "edges": 0, "events": 0}
+    for row in db.query(sql):
+        r = extract_from_document(row["id"], run_id=run_id)
+        if r:
+            totals["docs"] += 1
+            for k in ("nodes", "edges", "events"):
+                totals[k] += r.get(k, 0)
+    log.info("build_kg totals: %s", totals)
+    return totals

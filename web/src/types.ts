@@ -1,0 +1,253 @@
+// ===========================================================================
+// XAR front-end domain model — the single source of truth every component and
+// the mock/API layer share. Keep this in sync with the backend ontology
+// (catalyst taxonomy, chain segments, permission/source tags).
+// ===========================================================================
+
+export type Market = "ALL" | "US" | "CN" | "JP" | "KR" | "HK";
+export const MARKETS: Market[] = ["ALL", "US", "CN", "JP", "KR", "HK"];
+
+export type Period = "1W" | "1M" | "3M" | "YTD";
+export const PERIODS: Period[] = ["1W", "1M", "3M", "YTD"];
+
+export type Polarity = "positive" | "negative" | "neutral";
+
+/** Where a signal came from (mirrors XAR ingestion sources). */
+export type SignalSource =
+  | "filing"
+  | "wechat"
+  | "prediction_market"
+  | "estimate"
+  | "insider"
+  | "news";
+
+/** The 10-type catalyst taxonomy (mirrors xar.ontology.catalysts). */
+export type CatalystType =
+  | "capex_guidance"
+  | "order"
+  | "qualification"
+  | "product_ramp"
+  | "accelerator_launch"
+  | "capacity_expansion"
+  | "supply_constraint"
+  | "earnings"
+  | "equity_investment"
+  | "tech_substitution";
+
+/** Segment-level cycle phase along the chain. */
+export type SegmentRegime =
+  | "accelerating"
+  | "expansion"
+  | "peaking"
+  | "cooling"
+  | "trough";
+
+export interface Theme {
+  id: string;
+  name: string;
+  nameCn: string;
+  active: boolean;
+  segmentCount?: number;
+}
+
+export interface Segment {
+  id: string;
+  name: string; // English label
+  nameCn: string; // Chinese label
+  tier: number; // chain order: 1 = most upstream
+  alpha: number; // 0..100 opportunity score
+  momentum: number; // -100..100
+  changeW: number; // Δ 1W, %
+  changeM: number; // Δ 1M, %
+  valuationPctile: number; // 0..100 (higher = richer / more expensive)
+  crowding: number; // 0..100 (higher = more crowded)
+  supplyTightness: number; // 0..100 (higher = tighter supply)
+  earningsRevision: number; // -100..100 (consensus revision breadth)
+  companies: number; // # covered names
+  regime: SegmentRegime;
+  spark: number[]; // small price/score series
+  markets: Market[]; // markets the segment spans
+  note?: string; // one-line thesis
+  thesisCn?: string; // AI-adoption-wave thesis (why this segment benefits when it does)
+}
+
+export interface Company {
+  id: string;
+  ticker: string;
+  name: string;
+  nameCn?: string;
+  segmentId: string;
+  market: Market; // primary listing
+  marketCap: number; // USD bn
+  priceChange: number; // Δ price %, selected period
+  revGrowth: number; // YoY revenue growth %
+  grossMargin: number; // %
+  estRevision: number; // -100..100 recent consensus revision
+  conviction: number; // 1..5 internal conviction
+  watched: boolean;
+  signals: CatalystType[]; // recent signal badges
+  spark: number[];
+  role: string; // chain role label
+}
+
+export interface Signal {
+  id: string;
+  type: CatalystType;
+  polarity: Polarity;
+  source: SignalSource;
+  companyId?: string;
+  ticker?: string;
+  segmentId: string;
+  title: string;
+  magnitude?: string;
+  ts: string; // ISO timestamp
+  confidence: number; // 0..1
+}
+
+export interface Catalyst {
+  id: string;
+  date: string; // ISO date (YYYY-MM-DD)
+  type: CatalystType;
+  polarity: Polarity;
+  title: string;
+  ticker?: string;
+  segmentId?: string;
+  importance: 1 | 2 | 3; // 3 = high
+}
+
+export interface RegimeDriver {
+  label: string;
+  polarity: Polarity;
+}
+
+export interface Regime {
+  label: string;
+  labelCn: string;
+  phase: SegmentRegime;
+  score: number; // 0..100 composite cycle score
+  trend: number; // Δ vs last period
+  breadth: number; // 0..100 % of segments expanding
+  drivers: RegimeDriver[];
+  updatedAt: string; // ISO
+}
+
+export interface Opportunity {
+  id: string;
+  title: string;
+  detail: string;
+  segmentId?: string;
+  ticker?: string;
+  score: number; // 0..100 conviction
+}
+
+export interface RiskItem {
+  id: string;
+  title: string;
+  detail: string;
+  severity: "high" | "medium" | "low";
+}
+
+export interface ActionItem {
+  id: string;
+  label: string;
+  kind: "review" | "add" | "rerate" | "trim";
+  ticker?: string;
+  done: boolean;
+}
+
+export interface Decision {
+  houseView: string;
+  houseViewCn: string;
+  opportunities: Opportunity[];
+  risks: RiskItem[];
+  actions: ActionItem[];
+}
+
+export interface CoverageMeta {
+  themes: Theme[];
+  companyCount: number;
+  segmentCount: number;
+  updatedAt: string; // ISO
+}
+
+// --- composite + detail payloads (from /api/ui/*) --------------------------
+export interface Overview {
+  regime: Regime;
+  segments: Segment[];
+  decision: Decision;
+  coverage: CoverageMeta;
+}
+
+export interface PriceBar {
+  d: string;
+  close: number;
+}
+
+export interface FundamentalRow {
+  metric: string;
+  value: number;
+  unit: string;
+}
+
+export interface SupplyEdge {
+  id: string;
+  name: string;
+  rel: string;
+  confidence: number;
+}
+
+export interface SupplyChain {
+  suppliers: SupplyEdge[];
+  customers: SupplyEdge[];
+  invests_in: SupplyEdge[];
+  tech_routes: SupplyEdge[];
+  single_source_risks: { src: string | null; dst: string | null }[];
+}
+
+export interface CompanyDetail {
+  company: Company;
+  segment: { id: string; name: string; nameCn: string };
+  prices: PriceBar[];
+  fundamentals: FundamentalRow[];
+  signals: Signal[];
+  supplyChain: SupplyChain;
+}
+
+export interface SegmentDetail {
+  segment: Segment;
+  companies: Company[];
+  signals: Signal[];
+}
+
+/** Human-readable labels for catalyst types (EN + CN). */
+export const CATALYST_LABEL: Record<CatalystType, { en: string; cn: string }> = {
+  capex_guidance: { en: "Capex Guidance", cn: "资本开支指引" },
+  order: { en: "Order", cn: "订单" },
+  qualification: { en: "Qualification", cn: "客户认证" },
+  product_ramp: { en: "Product Ramp", cn: "新品放量" },
+  accelerator_launch: { en: "Accelerator Launch", cn: "加速器发布" },
+  capacity_expansion: { en: "Capacity Expansion", cn: "产能扩张" },
+  supply_constraint: { en: "Supply Constraint", cn: "供给约束" },
+  earnings: { en: "Earnings", cn: "业绩/指引" },
+  equity_investment: { en: "Equity Investment", cn: "股权投资" },
+  tech_substitution: { en: "Tech Substitution", cn: "技术替代" },
+};
+
+/** Labels for signal sources. */
+export const SOURCE_LABEL: Record<SignalSource, string> = {
+  filing: "Filing",
+  wechat: "公众号",
+  prediction_market: "Prediction Mkt",
+  estimate: "Estimate",
+  insider: "Insider",
+  news: "News",
+};
+
+/** Labels for segment regime phases (EN + CN). */
+export const REGIME_LABEL: Record<SegmentRegime, { en: string; cn: string }> = {
+  accelerating: { en: "Accelerating", cn: "加速" },
+  expansion: { en: "Expansion", cn: "扩张" },
+  peaking: { en: "Peaking", cn: "见顶" },
+  cooling: { en: "Cooling", cn: "降温" },
+  trough: { en: "Trough", cn: "筑底" },
+};

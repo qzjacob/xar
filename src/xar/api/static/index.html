@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>XAR · 产业链投研平台</title>
+<style>
+  :root { --bg:#0f1419; --panel:#171c24; --line:#262d38; --fg:#e6e9ef; --mut:#8b95a5;
+          --acc:#4aa3ff; --good:#39d98a; --warn:#ffb454; --bad:#ff6b6b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.55 -apple-system,Segoe UI,Roboto,"PingFang SC",sans-serif;
+         background:var(--bg); color:var(--fg); }
+  header { padding:14px 22px; border-bottom:1px solid var(--line); display:flex;
+           align-items:center; gap:14px; }
+  header h1 { font-size:17px; margin:0; letter-spacing:.5px; }
+  .pill { font-size:11px; padding:2px 8px; border-radius:10px; background:var(--panel); color:var(--mut); }
+  .ok { color:var(--good); } .no { color:var(--bad); }
+  main { display:grid; grid-template-columns:300px 1fr; gap:0; height:calc(100vh - 53px); }
+  aside { border-right:1px solid var(--line); overflow:auto; padding:14px; }
+  section.work { overflow:auto; padding:20px 28px; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:1px; color:var(--mut); margin:18px 0 8px; }
+  button { background:var(--acc); color:#04111f; border:0; border-radius:6px; padding:7px 12px;
+           font-weight:600; cursor:pointer; }
+  button.ghost { background:var(--panel); color:var(--fg); border:1px solid var(--line); }
+  button:disabled { opacity:.5; cursor:wait; }
+  select, input { background:var(--panel); color:var(--fg); border:1px solid var(--line);
+                  border-radius:6px; padding:7px; width:100%; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  td,th { text-align:left; padding:5px 6px; border-bottom:1px solid var(--line); }
+  th { color:var(--mut); font-weight:500; }
+  .co { cursor:pointer; } .co:hover { background:#1d242e; }
+  .row { display:flex; gap:8px; align-items:center; margin:8px 0; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 20px; margin-bottom:16px; }
+  .metrics span { display:inline-block; margin-right:16px; font-size:12px; }
+  .report h1,.report h2,.report h3 { color:var(--fg); }
+  .report h1 { font-size:20px; border-bottom:1px solid var(--line); padding-bottom:8px; }
+  .report h2 { font-size:15px; text-transform:none; letter-spacing:0; color:var(--acc); }
+  .report code { background:#0b0f14; padding:1px 5px; border-radius:4px; }
+  .cite { color:var(--acc); font-size:11px; vertical-align:super; }
+  .timeline li { margin:4px 0; }
+  .pos { color:var(--good); } .neg { color:var(--bad); } .neu { color:var(--mut); }
+  .muted { color:var(--mut); }
+  .spin { display:inline-block; width:14px; height:14px; border:2px solid var(--line);
+          border-top-color:var(--acc); border-radius:50%; animation:s 1s linear infinite; }
+  @keyframes s { to { transform:rotate(360deg);} }
+</style>
+</head>
+<body>
+<header>
+  <h1>XAR · 产业链投研平台</h1>
+  <span class="pill" id="health">…</span>
+  <span class="pill" id="modelinfo"></span>
+  <span style="flex:1"></span>
+  <span class="pill muted">filings → temporal KG + RAG → multi-agent reports</span>
+</header>
+<main>
+  <aside>
+    <div class="row">
+      <button id="ingestAll" class="ghost" style="flex:1">采集全部公司</button>
+    </div>
+    <p class="muted" style="font-size:11px">采集=拉取公告/财报 → 解析+嵌入 → 抽取知识图谱（后台运行，需已配置 ANTHROPIC_API_KEY）。</p>
+    <h2>公司 Companies</h2>
+    <table id="companies"><tbody></tbody></table>
+  </aside>
+  <section class="work">
+    <div class="card">
+      <div class="row">
+        <select id="company" style="flex:2"></select>
+        <select id="kind" style="flex:1">
+          <option value="deep_report">深度报告</option>
+          <option value="tracking_summary">跟踪摘要</option>
+          <option value="takeaways">投资启示</option>
+        </select>
+        <button id="run">生成报告</button>
+      </div>
+      <div class="muted" style="font-size:12px">报告生成需经多 Agent 流水线（约 1–3 分钟）；完成后进入待人工审批状态。</div>
+    </div>
+    <div id="status"></div>
+    <div id="graphcard"></div>
+    <div id="reportcard"></div>
+  </section>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const api = (p, opt) => fetch(p, opt).then(r => r.json());
+
+function md(t){ // tiny markdown renderer
+  t = t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  t = t.replace(/\[(\d+)\]/g,'<sup class="cite">[$1]</sup>');
+  t = t.replace(/^### (.*)$/gm,'<h3>$1</h3>').replace(/^## (.*)$/gm,'<h2>$1</h2>').replace(/^# (.*)$/gm,'<h1>$1</h1>');
+  t = t.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>');
+  t = t.replace(/^\s*[-*] (.*)$/gm,'<li>$1</li>').replace(/(<li>[\s\S]*?<\/li>)/g,'<ul>$1</ul>');
+  t = t.replace(/^---$/gm,'<hr/>');
+  return t.split(/\n\n+/).map(b => /^<(h\d|ul|hr|li)/.test(b.trim())?b:'<p>'+b+'</p>').join('\n');
+}
+
+async function loadHealth(){
+  const h = await api('/api/health');
+  $('#health').innerHTML = h.ok ? '<span class="ok">● DB ok</span>' : '<span class="no">● DB down</span>';
+  $('#modelinfo').textContent = (h.llm_configured?'LLM ✓ ':'LLM ✗(set ANTHROPIC_API_KEY) ')
+     + h.model_strong + ' / ' + h.model_fast;
+}
+async function loadCompanies(){
+  const cs = await api('/api/companies');
+  const sel = $('#company'); sel.innerHTML='';
+  const tb = $('#companies tbody'); tb.innerHTML='';
+  cs.forEach(c=>{
+    const o=document.createElement('option'); o.value=c.id; o.textContent=c.name; sel.appendChild(o);
+    const tr=document.createElement('tr'); tr.className='co';
+    tr.innerHTML=`<td>${c.name}</td><td class="muted">${c.region||''}</td><td>${c.docs}d/${c.events}e</td>`;
+    tr.onclick=()=>{ sel.value=c.id; showGraph(c.id); };
+    tb.appendChild(tr);
+  });
+}
+async function showGraph(cid){
+  const g = await api('/api/graph/'+cid);
+  const sc = g.supply_chain||{};
+  const ev = g.events||[];
+  const list = a => (a&&a.length)? a.map(x=>`<li>${x.src_name||''} ${x.rel_type?('→ '+x.rel_type+' →'):''} ${x.dst_name||''}</li>`).join('') : '<li class="muted">—</li>';
+  const evli = ev.slice(0,25).map(e=>`<li><span class="muted">${e.event_date||'?'}</span>
+      <b>${e.event_type}</b> <span class="${e.polarity==='positive'?'pos':e.polarity==='negative'?'neg':'neu'}">${e.polarity}</span>
+      ${e.tech_route_tag?('· '+e.tech_route_tag):''} ${e.magnitude?('· '+e.magnitude):''}<br/>
+      <span class="muted">${e.summary||''}</span></li>`).join('') || '<li class="muted">尚无事件，先采集数据。</li>';
+  $('#graphcard').innerHTML = `<div class="card">
+    <h2>供应链 Supply chain</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div><b>客户/供应/股权</b><ul>${list((sc.customers||[]).concat(sc.suppliers||[],sc.invests_in||[]))}</ul></div>
+      <div><b>单一来源风险</b><ul>${list(sc.single_source_risks)}</ul></div>
+    </div>
+    <h2>催化剂时间轴 Catalyst timeline</h2>
+    <ul class="timeline">${evli}</ul></div>`;
+}
+async function runReport(){
+  const btn=$('#run'); btn.disabled=true;
+  $('#status').innerHTML='<div class="card"><span class="spin"></span> 多 Agent 流水线运行中…（采集→图谱→分析师→多空辩论→风险→主编→证据闸）</div>';
+  try{
+    const r = await api('/api/report',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({kind:$('#kind').value, company_id:$('#company').value})});
+    renderReport(r);
+  }catch(e){ $('#status').innerHTML='<div class="card no">运行失败：'+e+'</div>'; }
+  btn.disabled=false;
+}
+function renderReport(r){
+  if(r.error){ $('#status').innerHTML='<div class="card no">'+r.error+'</div>'; return; }
+  const m=r.metrics||{};
+  const badge = v=>`<span style="color:${v>=.7?'var(--good)':v>=.5?'var(--warn)':'var(--bad)'}">${v}</span>`;
+  $('#status').innerHTML = `<div class="card">
+     <div class="row"><b>状态：</b> ${r.status} ${r.status==='awaiting_approval'?
+        `<button id="approve">人工审批通过 ✓</button>`:''}</div>
+     <div class="metrics">
+       <span>证据覆盖度 ${badge(m.evidence_coverage)}</span>
+       <span>数值对账 ${badge(m.numeric_grounding)}</span>
+       <span>幻觉风险 <span style="color:${m.hallucination_risk<.3?'var(--good)':m.hallucination_risk<.5?'var(--warn)':'var(--bad)'}">${m.hallucination_risk}</span></span>
+       <span class="muted">引用 ${m.citation_count} 条</span>
+     </div>
+     ${m.judge_notes?`<div class="muted" style="font-size:12px">judge: ${m.judge_notes}</div>`:''}
+   </div>`;
+  $('#reportcard').innerHTML = `<div class="card report">${md(r.content_md||'')}</div>`;
+  const ap=$('#approve'); if(ap) ap.onclick=async()=>{ const x=await api('/api/report/'+r.run_id+'/approve',{method:'POST'});
+     renderReport({...r,...x,metrics:m}); };
+}
+$('#ingestAll').onclick=async()=>{
+  await api('/api/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  alert('采集任务已在后台启动。完成后刷新查看文档/事件数。');
+};
+$('#run').onclick=runReport;
+loadHealth(); loadCompanies();
+</script>
+</body>
+</html>

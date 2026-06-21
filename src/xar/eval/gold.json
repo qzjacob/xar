@@ -1,0 +1,17 @@
+{
+  "description": "Seed gold set for retrieval/report eval. Extend with your own annotated Q/A over your filings. Each item: a question + the company it concerns + keywords that should appear in a correct grounded answer.",
+  "retrieval": [
+    {"q": "What are NVIDIA's most recent revenue trends?", "company_id": "nvidia", "expect_keywords": ["revenue", "data center"]},
+    {"q": "Coherent optical/networking segment and AI demand", "company_id": "coherent", "expect_keywords": ["optical", "datacom"]},
+    {"q": "Lumentum EML laser capacity and orders", "company_id": "lumentum", "expect_keywords": ["laser", "capacity"]},
+    {"q": "Fabrinet optical communications revenue", "company_id": "fabrinet", "expect_keywords": ["optical", "communications"]}
+  ],
+  "report_rubric": [
+    "Thesis stated in the first section",
+    "Supply-chain position covered (suppliers/customers/single-source)",
+    "At least 3 dated catalysts referenced",
+    "Bull and bear cases both present",
+    "Every numeric claim carries a [n] citation",
+    "Non-advice disclaimer present"
+  ]
+}
