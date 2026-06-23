@@ -144,8 +144,19 @@ export function SegmentPage() {
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
               <Badge className="bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-100">
-                <span className="tnum">Tier {segment.tier}</span>
-                <span className="text-brand-400">· upstream→downstream</span>
+                {segment.cycle ? (
+                  <>
+                    <span className="tnum">{segment.cycle.label}</span>
+                    <span className="text-brand-400">
+                      · {segment.cycle.labelCn} · 周期位次 {segment.cycle.rank}/5
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="tnum">Tier {segment.tier}</span>
+                    <span className="text-brand-400">· upstream→downstream</span>
+                  </>
+                )}
               </Badge>
               {segment.markets.map((m) => (
                 <Badge

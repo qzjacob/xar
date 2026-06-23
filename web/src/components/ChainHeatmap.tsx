@@ -45,12 +45,19 @@ export function ChainHeatmap({
 }) {
   const rows = [...segments].sort((a, b) => a.tier - b.tier);
   const hasSelection = selectedSegmentId != null;
+  // Cycle themes reuse this matrix but order by cycle rank instead of chain tier.
+  const isCycle = rows.some((s) => s.axis === "cycle" || s.cycle != null);
+  const title = isCycle ? "Cycle Map" : "Chain Heatmap";
+  const titleCn = isCycle ? "经济周期图" : "产业链热力图";
+  const axisHint = isCycle
+    ? "Early-cycle → late-cycle / defensive · greener = stronger; valuation & crowding inverted (red = stretched)"
+    : "Upstream → downstream · greener = stronger; valuation & crowding inverted (red = stretched)";
 
   return (
     <Card>
       <SectionHeader
-        title="Chain Heatmap"
-        titleCn="产业链热力图"
+        title={title}
+        titleCn={titleCn}
         icon={<LayoutGrid size={15} strokeWidth={2} />}
         right={
           <div className="flex items-center gap-1.5 text-2xs uppercase tracking-wide text-slate-400">
@@ -67,9 +74,26 @@ export function ChainHeatmap({
         }
       />
 
-      <div className="px-4 pt-2.5 text-2xs text-slate-400">
-        Upstream → downstream · greener = stronger; valuation & crowding inverted (red = stretched)
-      </div>
+      <div className="px-4 pt-2.5 text-2xs text-slate-400">{axisHint}</div>
+
+      {isCycle && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pt-1 text-2xs text-slate-400">
+          {[
+            ["EC", "Early 早周期"],
+            ["MC", "Mid 中周期"],
+            ["LC", "Late 晚周期"],
+            ["DEF", "Defensive 防御"],
+            ["CC", "Counter 逆周期"],
+          ].map(([code, lbl]) => (
+            <span key={code} className="flex items-center gap-1">
+              <span className="rounded bg-brand-50 px-1 font-semibold text-brand-900">
+                {code}
+              </span>
+              {lbl}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="scroll-thin overflow-x-auto px-2 pb-3 pt-1.5">
         <div className="min-w-[760px]">
@@ -116,8 +140,11 @@ export function ChainHeatmap({
                   >
                     {/* label cell */}
                     <div className="flex min-w-0 flex-1 items-center gap-2 pl-1">
-                      <span className="tnum flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-brand-50 text-2xs font-semibold text-brand-900">
-                        {s.tier}
+                      <span
+                        className="tnum flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md bg-brand-50 px-1 text-2xs font-semibold text-brand-900"
+                        title={s.cycle ? `${s.cycle.label} · ${s.cycle.labelCn}` : undefined}
+                      >
+                        {s.cycle ? s.cycle.short : s.tier}
                       </span>
                       <span
                         className={cn("h-1.5 w-1.5 shrink-0 rounded-full", regimeDot(s.regime))}

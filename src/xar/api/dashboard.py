@@ -14,6 +14,7 @@ import re
 from datetime import datetime, timezone
 
 from ..ingestion.registry import SEGMENTS, THEMES
+from ..ontology import cycle
 from ..retrieval import graphrag
 from ..storage import db, structured
 
@@ -46,6 +47,20 @@ def _us_ticker(tickers: list[str]) -> str:
 
 def _company_seg(c: dict, theme: str) -> str | None:
     return ((c.get("meta") or {}).get("segments") or {}).get(theme)
+
+
+def _theme_kind(theme: str) -> str:
+    """'chain' (supply-chain tier axis) | 'cycle' (economic-cycle position axis)."""
+    return THEMES.get(theme, {}).get("kind", "chain")
+
+
+def _first_seg(theme: str) -> str:
+    """A theme's first segment by tier — the safe fallback for a company whose
+    per-theme segment is missing (replaces a hardcoded optical default so cycle
+    themes don't borrow 'module_maker')."""
+    segs = sorted((s for s, m in SEGMENTS.items() if m.get("theme") == theme),
+                  key=lambda s: SEGMENTS[s].get("tier", 0))
+    return segs[0] if segs else "module_maker"
 
 
 def _spark(closes: list[float], n: int = 12) -> list[float]:
@@ -119,7 +134,7 @@ def _company_row(c: dict, data: dict, val_pctile: dict[str, float], theme: str) 
     est_rev = round(_est_revision(evs))
     net_pol = sum(1 if e["polarity"] == "positive" else -1 if e["polarity"] == "negative" else 0 for e in evs[:12])
     conviction = int(_clamp(round(3 + momentum / 50 + net_pol * 0.3), 1, 5))
-    seg = _company_seg(c, theme) or "module_maker"
+    seg = _company_seg(c, theme) or _first_seg(theme)
     en, cn = _split_name(c["name"])
     mcap = f.get("market_cap")
     market = c.get("region") or "US"
@@ -213,7 +228,7 @@ def _phase(momentum: float) -> str:
 
 def _theme_segment_ids(theme: str) -> list[str]:
     ids = [s for s, m in SEGMENTS.items() if m["theme"] == theme]
-    return sorted(ids, key=lambda s: SEGMENTS[s]["tier"])
+    return sorted(ids, key=lambda s: SEGMENTS[s].get("tier", 0))
 
 
 def _segments_internal(data: dict, val: dict, theme: str) -> list[dict]:
@@ -240,7 +255,8 @@ def _segments_internal(data: dict, val: dict, theme: str) -> list[dict]:
         crowding = round(_clamp(val_pctile * 0.6 + min(ev_density, 40) / 40 * 100 * 0.4, 0, 100))
         alpha = round(_clamp(50 + momentum * 0.35 + est_rev * 0.15, 0, 100))
         out.append({
-            "id": seg_id, "name": meta["name"], "nameCn": meta["nameCn"], "tier": meta["tier"],
+            "id": seg_id, "name": meta["name"], "nameCn": meta["nameCn"], "tier": meta.get("tier", 0),
+            "cycle": cycle.as_dict(meta.get("cycle")), "axis": _theme_kind(theme),
             "thesisCn": meta.get("thesisCn", ""),
             "alpha": alpha, "momentum": momentum, "changeW": change_w, "changeM": change_m,
             "valuationPctile": val_pctile, "crowding": crowding, "supplyTightness": supply_tight,
@@ -329,14 +345,25 @@ def decision(theme: str = DEFAULT_THEME) -> dict:
     reg = regime(theme)
     n_cat = db.query("SELECT count(*) c FROM kg_events WHERE invalidated_at IS NULL "
                      "AND company_id = ANY(%s)", (list(reg_ids) or [""],))[0]["c"]
+    kind = _theme_kind(theme)
     if top and bot:
-        house = (f"{THEMES[theme]['name']} chain in {reg['label'].lower()}. "
-                 f"Strongest link: {top['name']} (alpha {top['alpha']}, momentum {top['momentum']:+d}); "
-                 f"laggard: {bot['name']} (alpha {bot['alpha']}). "
-                 f"{n_cat} live catalysts; {len(risks_edges)} single-source risks flagged.")
-        house_cn = (f"{THEMES[theme]['nameCn']}处于{reg['labelCn']}。最强环节：{top['nameCn'] or top['name']}"
-                    f"（Alpha {top['alpha']}）；最弱：{bot['nameCn'] or bot['name']}。"
-                    f"追踪 {n_cat} 条催化剂，{len(risks_edges)} 处单一供应风险。")
+        unit = "consumer-cycle basket" if kind == "cycle" else "chain"
+        lead_en = "Leading segment" if kind == "cycle" else "Strongest link"
+        lag_en = "lagging segment" if kind == "cycle" else "laggard"
+        tail_en = ("cycle positioning maps trade-down vs high-beta exposure."
+                   if kind == "cycle" else f"{len(risks_edges)} single-source risks flagged.")
+        house = (f"{THEMES[theme]['name']} {unit} in {reg['label'].lower()}. "
+                 f"{lead_en}: {top['name']} (alpha {top['alpha']}, momentum {top['momentum']:+d}); "
+                 f"{lag_en}: {bot['name']} (alpha {bot['alpha']}). "
+                 f"{n_cat} live catalysts; {tail_en}")
+        unit_cn = "消费周期组合" if kind == "cycle" else "产业链"
+        lead_cn = "最强周期段" if kind == "cycle" else "最强环节"
+        lag_cn = "最弱周期段" if kind == "cycle" else "最弱"
+        tail_cn = ("周期定位刻画降级受益 vs 高弹性敞口。" if kind == "cycle"
+                   else f"{len(risks_edges)} 处单一供应风险。")
+        house_cn = (f"{THEMES[theme]['nameCn']}（{unit_cn}）处于{reg['labelCn']}。{lead_cn}：{top['nameCn'] or top['name']}"
+                    f"（Alpha {top['alpha']}）；{lag_cn}：{bot['nameCn'] or bot['name']}。"
+                    f"追踪 {n_cat} 条催化剂，{tail_cn}")
     else:
         house = house_cn = "Awaiting data."
     opportunities = [{"id": f"op_{s['id']}", "title": f"{s['name']} — momentum {s['momentum']:+d}",
@@ -353,8 +380,13 @@ def decision(theme: str = DEFAULT_THEME) -> dict:
                       "detail": f"{e.get('src_name', '?')} → {e.get('dst_name', '?')} flagged single-source.",
                       "severity": "medium"})
     if not risks:
-        risks.append({"id": "rk_gen", "title": "Cyclicality / demand concentration",
-                      "detail": "Chain levered to a narrow set of AI-capex demand drivers.", "severity": "medium"})
+        if kind == "cycle":
+            risks.append({"id": "rk_gen", "title": "Consumer-cycle sensitivity",
+                          "detail": "Basket spans early-cycle high-beta to counter-cyclical trade-down names; "
+                                    "rotation risk as the consumer cycle turns.", "severity": "medium"})
+        else:
+            risks.append({"id": "rk_gen", "title": "Cyclicality / demand concentration",
+                          "detail": "Chain levered to a narrow set of AI-capex demand drivers.", "severity": "medium"})
     cats = catalysts(theme)[:4]
     kindmap = {"earnings": "review", "order": "add", "tech_substitution": "rerate",
                "supply_constraint": "review", "capex_guidance": "review"}
@@ -485,7 +517,8 @@ def landscape(theme: str = DEFAULT_THEME) -> dict:
         hhi = round(sum((p["shareOfSegment"] * 100) ** 2 for p in players)) if total else 0
         meta = SEGMENTS[seg_id]
         out.append({"id": seg_id, "name": meta["name"], "nameCn": meta["nameCn"],
-                    "tier": meta["tier"], "companies": len(members), "hhi": hhi,
+                    "tier": meta.get("tier", 0), "cycle": cycle.as_dict(meta.get("cycle")),
+                    "companies": len(members), "hhi": hhi,
                     "concentration": "concentrated" if hhi >= 2500 else "moderate" if hhi >= 1500 else "fragmented",
                     "topPlayers": players[:8]})
     return {"theme": theme, "shareBasis": "fx_market_cap", "segments": out, "updatedAt": _now()}
@@ -498,7 +531,8 @@ def coverage(theme: str = DEFAULT_THEME) -> dict:
         cnt = sum(1 for c in allc if tid in (c["themes"] or []))
         segc = sum(1 for s in SEGMENTS.values() if s["theme"] == tid)
         themes.append({"id": tid, "name": tinfo["name"], "nameCn": tinfo["nameCn"],
-                       "active": True, "segmentCount": segc, "companyCount": cnt})
+                       "active": True, "kind": tinfo.get("kind", "chain"),
+                       "segmentCount": segc, "companyCount": cnt})
     cur = next((t for t in themes if t["id"] == theme), None)
     return {"themes": themes, "companyCount": cur["companyCount"] if cur else 0,
             "segmentCount": cur["segmentCount"] if cur else 0, "theme": theme, "updatedAt": _now()}
@@ -545,6 +579,7 @@ def company_detail(cid: str, theme: str | None = None) -> dict | None:
             "segment": {"id": seg_id, "name": smeta.get("name", seg_id), "nameCn": smeta.get("nameCn", "")},
             "industry": (c.get("meta") or {}).get("industry"),
             "sector": (c.get("meta") or {}).get("sector"),
+            "cycle": cycle.cycle_of_company(c),
             "kpis": _kpi_block(c, data["funds"].get(cid, {})),
             "prices": prices, "fundamentals": [dict(f) for f in funds], "signals": sigs,
             "supplyChain": supply_chain, "landscape": graphrag.landscape(cid)}
@@ -568,7 +603,8 @@ def segment_detail(sid: str) -> dict | None:
     val = _valuation_pctiles(data["companies"], data["funds"])
     seg = next((s for s in _segments_internal(data, val, theme) if s["id"] == sid), None)
     if not seg:
-        seg = {"id": sid, "name": meta["name"], "nameCn": meta["nameCn"], "tier": meta["tier"],
+        seg = {"id": sid, "name": meta["name"], "nameCn": meta["nameCn"], "tier": meta.get("tier", 0),
+               "cycle": cycle.as_dict(meta.get("cycle")), "axis": _theme_kind(theme),
                "thesisCn": meta.get("thesisCn", ""),
                "alpha": 0, "momentum": 0, "changeW": 0, "changeM": 0, "valuationPctile": 0,
                "crowding": 0, "supplyTightness": 0, "earningsRevision": 0, "companies": 0,

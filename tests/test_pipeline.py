@@ -140,6 +140,30 @@ def test_corroboration_idempotent_and_independent():
     db.execute("DELETE FROM documents WHERE id IN ('docA','docB')")
 
 
+def test_cycle_theme_overview_orders_by_cycle_rank():
+    """A consumer cycle theme renders end-to-end: segments ordered by cycle rank
+    (discount/QSR last), each carrying a serialized cycle profile; coverage marks
+    the theme kind='cycle'; landscape works with no supply chain."""
+    from xar.api import dashboard
+    from xar.ingestion import seed_companies
+
+    seed_companies()
+    ov = dashboard.overview("retail")
+    themes = {t["id"]: t for t in ov["coverage"]["themes"]}
+    assert themes["retail"]["kind"] == "cycle"
+    segs = ov["segments"]
+    assert segs, "no retail segments rendered"
+    tiers = [s["tier"] for s in segs]
+    assert tiers == sorted(tiers)  # ordered along the cycle axis (early→counter)
+    assert all(s.get("cycle") and s["cycle"].get("position") for s in segs)
+    by_id = {s["id"]: s for s in segs}
+    if "ret_discount" in by_id:  # the counter-cyclical end sits last (falls latest)
+        assert by_id["ret_discount"]["tier"] == max(tiers)
+        assert by_id["ret_discount"]["cycle"]["position"] == "counter_cyclical"
+    # 行业格局/HHI is computed from segment membership, not chain edges
+    assert dashboard.landscape("retail")["segments"]
+
+
 def test_ungrounded_extraction_dropped(mocked, monkeypatch):
     """An edge/event whose evidence quote is NOT in the source document is dropped
     rather than written to the KG (review §1.2)."""

@@ -122,6 +122,25 @@ _THEME_TERMS = {
         "supply": "supplier harmonic reducer roller screw actuator motor sensor single source",
         "valuation": "valuation unit economics BOM cost volume ramp TAM", "clock": "humanoid volume ramp",
         "risk": "volume-ramp slippage, BOM cost, actuator/reducer single-source, embodied-AI maturity, customer concentration"},
+    # consumer cycle themes — framed by the consumer/economic cycle, not a supply chain
+    "internet": {
+        "catalyst": "MAU DAU engagement ARPU ad load gross bookings subscriber net adds take rate product launch",
+        "supply": "platform competition network effects regulatory app store dependency moat",
+        "valuation": "valuation EV/revenue user growth ARPU LTV/CAC bookings durability",
+        "clock": "consumer & advertising cycle rotation",
+        "risk": "ad-budget cyclicality, user/engagement saturation, platform/app-store dependency, regulatory, valuation"},
+    "retail": {
+        "catalyst": "same-store sales comparable sales traffic ticket inventory store openings guidance",
+        "supply": "consumer demand pricing promotion private label vendor freight wage cost",
+        "valuation": "valuation P/E comps inventory turns margin trade-down exposure",
+        "clock": "consumer-spending cycle (trade-down vs discretionary)",
+        "risk": "discretionary demand softening, inventory/markdown risk, wage & freight cost, trade-down share shift, valuation"},
+    "restaurants": {
+        "catalyst": "same-store sales traffic check average unit volume unit growth digital mix franchising guidance",
+        "supply": "food labor cost commodity franchisee health pricing throughput delivery",
+        "valuation": "valuation P/E unit economics AUV restaurant-level margin unit growth runway",
+        "clock": "consumer dining cycle (QSR trade-down vs casual)",
+        "risk": "discretionary dining pullback, food & labor inflation, traffic softness, franchisee health, valuation"},
 }
 _DEFAULT_TERMS = {
     "catalyst": "order capacity expansion qualification customer capex product launch",

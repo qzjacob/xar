@@ -75,13 +75,18 @@ def _json(d: dict) -> str:
 def seed_companies() -> int:
     """Load the registry companies into the DB (idempotent)."""
     from ..ontology import classify
+    from ..ontology.cycle import cycle_of_company
     from .registry import COMPANIES
 
     n = 0
     for c in COMPANIES:
         cls = classify(c)
-        meta = _json({"segments": c.get("seg", {}),
-                      "sector": cls["sector"], "industry": cls["industry"]})
+        meta_d = {"segments": c.get("seg", {}),
+                  "sector": cls["sector"], "industry": cls["industry"]}
+        cyc = cycle_of_company(c)  # economic-cycle position (None for chain-theme names)
+        if cyc:
+            meta_d["cycle"] = cyc
+        meta = _json(meta_d)
         db.execute(
             """INSERT INTO companies (id,name,aliases,tickers,region,chain_role,cn_code,themes,meta)
                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)

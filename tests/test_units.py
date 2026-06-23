@@ -80,8 +80,8 @@ def test_metric_packs_span_the_economy():
 
     # every major industry has a non-empty operating-metric pack (the moat breadth)
     for ind in ("software", "semiconductors", "banks", "insurance", "energy_ep",
-                "utilities", "internet_media", "ecommerce", "retail", "pharma",
-                "biotech", "aerospace_defense", "capital_goods", "reits"):
+                "utilities", "internet_media", "ecommerce", "retail", "restaurants",
+                "pharma", "biotech", "aerospace_defense", "capital_goods", "reits"):
         assert mp.kpis_for_industry(ind), f"empty pack: {ind}"
     # canonical keys are globally unique
     keys = [s.key for s in mp.ALL_SPECS]
@@ -175,6 +175,96 @@ def test_wechat_json_feed_parsing():
     assert wechat._parse_date(items[0]["date"]) is not None
     # disabled (no base url) -> safe no-op
     assert wechat.ingest() == [] or wechat.available()
+
+
+def test_cycle_ontology():
+    """The economic-cycle dimension: monotonic rank where counter-cyclical (discount/
+    QSR) sits LATEST (falls last), and a serialized profile carries label+rank."""
+    from xar.ontology import cycle
+    from xar.ontology.cycle import CyclePosition as CP
+    from xar.ontology.cycle import Cyclicality as CY
+
+    assert [cycle.rank(p.value) for p in CP] == [1, 2, 3, 4, 5]
+    assert cycle.rank(CP.COUNTER.value) > cycle.rank(CP.EARLY.value)  # discount falls later than apparel
+    d = cycle.as_dict(cycle.profile(CP.COUNTER, CY.COUNTER_CYCLICAL, 0.6, noteCn="折扣"))
+    assert d["position"] == "counter_cyclical" and d["rank"] == 5 and d["short"] == "CC"
+    assert cycle.as_dict(None) is None
+
+
+def test_cycle_as_dict_uniform_shape():
+    """as_dict() always yields the full frontend CycleInfo shape — for a CycleProfile,
+    a round-tripped dict, AND a partial company-level override (CODE_REVIEW B.1.1:
+    the partial-override path previously dropped 5 required fields → undefined on the
+    client)."""
+    from xar.ontology import cycle
+    from xar.ontology.cycle import CyclePosition as CP
+    from xar.ontology.cycle import Cyclicality as CY
+
+    required = {"position", "cyclicality", "sensitivity", "label", "labelCn", "short", "rank", "note", "noteCn"}
+    full = cycle.as_dict(cycle.profile(CP.MID, CY.CYCLICAL, 1.1))
+    assert set(full) == required
+    # round-trip a serialized dict (the companies.meta.cycle → company_detail path): no legacy en/cn leak
+    rt = cycle.as_dict(full)
+    assert set(rt) == required and "en" not in rt and "cn" not in rt
+    # PARTIAL company-level override now resolves EVERY required field (was the latent bug)
+    part = cycle.as_dict({"position": "mid_cycle"})
+    assert set(part) == required
+    assert part["label"] == "Mid-Cycle" and part["labelCn"] == "中周期" and part["rank"] == 2
+    assert part["short"] == "MC" and part["cyclicality"] == "cyclical" and part["sensitivity"] == 1.0
+
+
+def test_new_consumer_themes_registered():
+    from xar.ingestion.registry import COMPANIES, SEGMENTS, THEMES
+    from xar.ontology import cycle
+
+    for t in ("internet", "retail", "restaurants"):
+        assert THEMES[t]["kind"] == "cycle"
+        segs = [s for s, m in SEGMENTS.items() if m["theme"] == t]
+        assert segs, f"no segments for {t}"
+        for sid in segs:
+            m = SEGMENTS[sid]
+            assert m.get("cycle") is not None
+            assert m["tier"] == cycle.rank(m["cycle"].position)  # tier IS the cycle rank
+    # legacy themes still resolve as chain (back-compat)
+    assert THEMES["ai_optical"].get("kind", "chain") == "chain"
+    # ids + tickers globally unique after adding the rosters
+    ids = [c["id"] for c in COMPANIES]
+    assert len(ids) == len(set(ids))
+    ticks = [tk for c in COMPANIES for tk in c["tickers"]]
+    assert len(ticks) == len(set(ticks))
+
+
+def test_cycle_company_inheritance():
+    """Companies inherit their cycle profile from their segment; an explicit override
+    wins; chain-theme names have none; non-US-cycle tickers are excluded."""
+    from xar.ingestion.registry import COMPANIES, company_by_id
+    from xar.ontology import cycle
+
+    dg = cycle.cycle_of_company(company_by_id("dg"))     # Dollar General — discount
+    gap = cycle.cycle_of_company(company_by_id("gap"))   # Gap — apparel
+    assert dg["position"] == "counter_cyclical"
+    assert dg["rank"] > gap["rank"]                       # discount later-cycle than apparel
+    assert cycle.cycle_of_company(company_by_id("mcd"))["position"] == "counter_cyclical"  # QSR
+    assert cycle.cycle_of_company(company_by_id("dri"))["position"] == "early_cycle"        # casual dining
+    # explicit per-company override beats the segment default
+    over = cycle.cycle_of_company({"cycle": {"position": "defensive"}, "seg": {"retail": "ret_apparel"}})
+    assert over["position"] == "defensive"
+    # chain-theme names carry no cycle profile
+    assert cycle.cycle_of_company(company_by_id("nvidia")) is None
+    # non-US-cycle names are NOT in the rosters
+    ticks = {tk for c in COMPANIES for tk in c["tickers"]}
+    assert not ({"PDD", "BABA", "JD", "YUMC", "CPNG", "MELI"} & ticks)
+
+
+def test_restaurants_pack_and_classification():
+    from xar.ontology import canonical_kpi, classify, kpis_for_industry
+
+    keys = {s.key for s in kpis_for_industry("restaurants")}
+    assert {"same_store_sales", "average_unit_volume", "unit_count", "check_size"} <= keys
+    assert canonical_kpi("AUV") == "average_unit_volume"
+    assert canonical_kpi("comps") == "same_store_sales"
+    rst = {"themes": ["restaurants"], "seg": {"restaurants": "rst_qsr"}}
+    assert classify(rst) == {"industry": "restaurants", "sector": "consumer_discretionary"}
 
 
 def test_providers_gate_without_keys(monkeypatch):

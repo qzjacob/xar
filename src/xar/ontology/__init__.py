@@ -1,6 +1,14 @@
 """Industry-chain ontology — code IS the source of truth (per design §5)."""
-from . import metric_packs, sectors
+from . import cycle, metric_packs, sectors
 from .catalysts import CATALYST_TYPES, LEGACY_CATALYST_TYPES, CatalystType
+from .cycle import (
+    CYCLE_LABELS,
+    CYCLE_RANK,
+    CycleProfile,
+    CyclePosition,
+    Cyclicality,
+    cycle_of_company,
+)
 from .edges import EDGE_TYPES, EdgeType
 from .metric_packs import (
     ALL_METRIC_KEYS,
@@ -79,4 +87,12 @@ __all__ = [
     "edge_iri",
     "metric_packs",
     "sectors",
+    # economic-cycle dimension
+    "cycle",
+    "CyclePosition",
+    "Cyclicality",
+    "CycleProfile",
+    "CYCLE_RANK",
+    "CYCLE_LABELS",
+    "cycle_of_company",
 ]

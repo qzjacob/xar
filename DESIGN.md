@@ -283,6 +283,16 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 
 > 决策/交易层（Thesis→Signal→Position + Palantir 式 actions，接催化剂回测）**已设计、后置实现**（见规划 P5）。
 
+### 5.5 经济周期本体维度 + 消费周期主题（As-Built，2026-06）
+
+在 5 个 **AI 产业链主题**（供应链上下游 `tier` 轴）之外，新增 3 个 **消费周期主题**（互联网 / 零售 / 餐饮服务）。这三类**不适用产业链上下游追踪**，改用一条新的 code-as-truth 本体维度组织——**经济周期位置**：
+
+- **周期本体**（`ontology/cycle.py`）—— `CyclePosition`（5 态：`early_cycle/mid_cycle/late_cycle/defensive/counter_cyclical`）+ `Cyclicality` + `CycleProfile(position,cyclicality,sensitivity,note)`。单调 `CYCLE_RANK`（"越晚下跌排越后"：early=1…counter=5）**直接用作 cycle 主题细分的 `tier`**，使现有细分排序 / 热力图 / landscape **零改复用**。公司经 `cycle_of_company()` 从其细分继承周期画像（可公司级覆盖），落 `companies.meta.cycle`。直接编码用户语义——**折扣零售 = 逆周期、最晚下跌**（rank 5 > 服装 rank 1）。
+- **主题判别**（`registry.THEMES[*].kind`）—— `"chain"`（产业链）| `"cycle"`（经济周期）。新增 3 主题 + 21 细分（按周期位置）+ **84 只美股 roster**（`_consumer()` 构造，无 SEED_EDGES）；主要由非美国经济周期驱动的标的（PDD/BABA/YUMC…）**排除**。细分→`industry`/KPI 包复用既有 `internet_media/ecommerce/retail/consumer_staples`，新增 `restaurants` 行业 + `RESTAURANTS_PACK`（same-store-sales/AUV/traffic/check/unit-count…）。
+- **消费即可用**（零新表）—— `dashboard` 的 `tier` 直取全部加固为 `.get`，回退细分改 theme-aware；细分/公司 payload 带 `cycle` + `axis`，`coverage` 带 `kind`，`decision()` 文案按 kind 切换（"消费周期组合 / 最强·最弱周期段"）。前端把 `ChainHeatmap` 按 `kind` 重标为 **Cycle Map**（按周期位次排序 + EC/MC/LC/DEF/CC 徽标与图例），主题切换器数据驱动自动出现 3 模块。行业格局/HHI 由细分成员市值算出，**无供应链亦可用**。
+
+> 新增任一周期行业 = 加 `THEMES`/`SEGMENTS`(带 `cycle`)/`_consumer` roster + 可选 `sectors`/`metric_packs` 行，**零核心改写**。
+
 ---
 
 ## 6. 多 Agent 报告流水线

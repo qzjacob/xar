@@ -30,6 +30,15 @@ _THEME_FOCUS = {
                           "screws, frameless torque motors, force/vision/tactile sensors, onboard "
                           "compute & embodied-AI (VLA), batteries/power, dexterous hands, lightweight "
                           "materials and humanoid OEM integrators"),
+    "internet": ("the US internet-platform landscape — social & advertising, search, e-commerce, "
+                 "subscription streaming, rideshare/delivery, online travel, payments/fintech and "
+                 "interactive gaming — read through the consumer & ad-spend cycle"),
+    "retail": ("the US retail landscape — grocery & staples, discount/off-price/warehouse, apparel & "
+               "softlines, home improvement, electronics, auto-parts and specialty/brand retail — read "
+               "through the consumer-spending cycle (trade-down vs discretionary)"),
+    "restaurants": ("the US restaurant / foodservice landscape — quick-service (QSR), fast-casual, "
+                    "casual & fine dining, coffee/snack and pizza/delivery — read through the consumer "
+                    "dining cycle (QSR trade-down vs casual-dining discretionary)"),
 }
 _DEFAULT_FOCUS = "AI technology investment supply chains"
 

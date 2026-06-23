@@ -150,8 +150,34 @@ INTERNET_PACK = [
     _s("churn", "Churn", "ratio", False, ("internet_media", "telecom", "software"), aliases=("churn rate",)),
     _s("take_rate", "Take Rate", "ratio", True, ("internet_media", "ecommerce"), aliases=("take rate",)),
     _s("subscribers", "Subscribers", "count", True, ("telecom", "internet_media")),
+    _s("subscriber_net_adds", "Subscriber Net Adds", "count", True, ("internet_media",),
+       aliases=("subscriber net adds", "paid net additions", "membership net adds")),
+    _s("content_spend", "Content Spend", "USD", False, ("internet_media",),
+       aliases=("content spend", "cash content spend", "content amortization")),
+    _s("gross_bookings", "Gross Bookings", "USD", True, ("internet_media", "ecommerce"),
+       aliases=("gross bookings", "total bookings")),
     _s("postpaid_net_adds", "Postpaid Net Adds", "count", True, ("telecom",), aliases=("net adds",)),
     _s("capex_intensity", "Capex Intensity", "ratio", False, ("telecom", "utilities")),
+]
+
+# === RESTAURANTS / foodservice (cycle theme: QSR / casual / fast-casual) ===
+RESTAURANTS_PACK = [
+    _s("unit_count", "Unit Count", "count", True, ("restaurants",),
+       aliases=("restaurant count", "system units", "system-wide units")),
+    _s("net_new_units", "Net New Units", "count", True, ("restaurants",),
+       aliases=("net new restaurants", "unit growth", "net unit growth")),
+    _s("average_unit_volume", "Average Unit Volume", "USD", True, ("restaurants",),
+       aliases=("AUV", "average unit volume", "average weekly sales")),
+    _s("traffic", "Traffic / Transactions", "ratio", True, ("restaurants",),
+       aliases=("traffic", "guest counts", "comparable traffic", "transaction growth")),
+    _s("check_size", "Average Check", "USD", True, ("restaurants",),
+       aliases=("average check", "ticket", "check size")),
+    _s("restaurant_margin", "Restaurant-Level Margin", "ratio", True, ("restaurants",),
+       aliases=("restaurant-level margin", "restaurant level operating margin", "store-level margin")),
+    _s("digital_mix", "Digital Sales Mix", "ratio", True, ("restaurants",),
+       aliases=("digital mix", "digital sales mix", "off-premise mix")),
+    _s("franchise_mix", "Franchise Mix", "ratio", True, ("restaurants",),
+       aliases=("franchise mix", "franchised percentage", "refranchising")),
 ]
 
 # === CONSUMER — ecommerce / retail / staples / autos ===
@@ -161,7 +187,8 @@ CONSUMER_PACK = [
     _s("active_buyers", "Active Buyers", "count", True, ("ecommerce",), aliases=("active customers",)),
     _s("units_sold", "Units Sold", "count", True, ("ecommerce", "retail", "consumer_durables")),
     _s("fulfillment_cost", "Fulfillment Cost", "USD", False, ("ecommerce",)),
-    _s("same_store_sales", "Same-Store Sales", "ratio", True, ("retail",), aliases=("SSS", "comparable sales", "comps")),
+    _s("same_store_sales", "Same-Store Sales", "ratio", True, ("retail", "restaurants"),
+       aliases=("SSS", "comparable sales", "comps", "comp sales", "same-restaurant sales")),
     _s("store_count", "Store Count", "count", True, ("retail",)),
     _s("sales_per_sqft", "Sales per Sq Ft", "USD", True, ("retail",)),
     _s("organic_growth", "Organic Growth", "ratio", True,
@@ -266,8 +293,8 @@ REITS_PACK = [
 
 ALL_SPECS: list[MetricSpec] = (
     CORE_PACK + LANDSCAPE_PACK + SOFTWARE_PACK + SEMI_PACK + INTERNET_PACK
-    + CONSUMER_PACK + HEALTHCARE_PACK + FINANCIALS_PACK + INDUSTRIALS_PACK
-    + ENERGY_PACK + REITS_PACK
+    + RESTAURANTS_PACK + CONSUMER_PACK + HEALTHCARE_PACK + FINANCIALS_PACK
+    + INDUSTRIALS_PACK + ENERGY_PACK + REITS_PACK
 )
 
 # --- derived indexes (computed once at import) ------------------------------

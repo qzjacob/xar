@@ -49,6 +49,7 @@ class Industry(str, Enum):
     # consumer_discretionary
     ECOMMERCE = "ecommerce"
     RETAIL = "retail"
+    RESTAURANTS = "restaurants"              # QSR / casual dining / foodservice
     AUTOS = "autos"
     CONSUMER_DURABLES = "consumer_durables"
     # consumer_staples
@@ -90,6 +91,7 @@ INDUSTRY_SECTOR: dict[str, str] = {
     Industry.TELECOM.value: Sector.COMM_SVCS.value,
     Industry.ECOMMERCE.value: Sector.CONSUMER_DISC.value,
     Industry.RETAIL.value: Sector.CONSUMER_DISC.value,
+    Industry.RESTAURANTS.value: Sector.CONSUMER_DISC.value,
     Industry.AUTOS.value: Sector.CONSUMER_DISC.value,
     Industry.CONSUMER_DURABLES.value: Sector.CONSUMER_DISC.value,
     Industry.STAPLES.value: Sector.CONSUMER_STAPLES.value,
@@ -120,6 +122,7 @@ INDUSTRY_NAICS: dict[str, str] = {
     Industry.TELECOM.value: "517",            # Telecommunications
     Industry.ECOMMERCE.value: "454110",       # Electronic Shopping & Mail-Order Houses
     Industry.RETAIL.value: "44",              # Retail Trade
+    Industry.RESTAURANTS.value: "7225",       # Restaurants & Other Eating Places
     Industry.AUTOS.value: "3361",             # Motor Vehicle Mfg
     Industry.CONSUMER_DURABLES.value: "335",  # Electrical Equipment & Appliances
     Industry.STAPLES.value: "311",            # Food Mfg
@@ -172,6 +175,20 @@ SEG_INDUSTRY: dict[str, str] = {
     "hum_sensors": Industry.SEMICONDUCTORS.value, "hum_compute": Industry.SEMICONDUCTORS.value,
     "hum_power": Industry.CAPITAL_GOODS.value, "hum_hands": Industry.CAPITAL_GOODS.value,
     "hum_materials": Industry.MATERIALS.value, "hum_oem": Industry.CAPITAL_GOODS.value,
+    # internet (cycle theme) — engagement/ads → internet_media; transactional → ecommerce
+    "net_travel": Industry.ECOMMERCE.value, "net_social": Industry.INTERNET_MEDIA.value,
+    "net_search_ads": Industry.INTERNET_MEDIA.value, "net_ecommerce": Industry.ECOMMERCE.value,
+    "net_gig": Industry.INTERNET_MEDIA.value, "net_fintech": Industry.INTERNET_MEDIA.value,
+    "net_gaming": Industry.INTERNET_MEDIA.value, "net_streaming": Industry.INTERNET_MEDIA.value,
+    # retail (cycle theme)
+    "ret_apparel": Industry.RETAIL.value, "ret_electronics": Industry.RETAIL.value,
+    "ret_home_improve": Industry.RETAIL.value, "ret_specialty": Industry.RETAIL.value,
+    "ret_grocery": Industry.STAPLES.value, "ret_auto_parts": Industry.RETAIL.value,
+    "ret_discount": Industry.RETAIL.value,
+    # restaurants (cycle theme)
+    "rst_casual_dining": Industry.RESTAURANTS.value, "rst_fine_dining": Industry.RESTAURANTS.value,
+    "rst_fast_casual": Industry.RESTAURANTS.value, "rst_coffee_snack": Industry.RESTAURANTS.value,
+    "rst_pizza_delivery": Industry.RESTAURANTS.value, "rst_qsr": Industry.RESTAURANTS.value,
 }
 
 # theme -> default industry (last-resort fallback when no segment resolves)
@@ -181,6 +198,9 @@ THEME_INDUSTRY: dict[str, str] = {
     "ai_software": Industry.SOFTWARE.value,
     "space_exploration": Industry.AEROSPACE_DEFENSE.value,
     "humanoid_robotics": Industry.CAPITAL_GOODS.value,
+    "internet": Industry.INTERNET_MEDIA.value,
+    "retail": Industry.RETAIL.value,
+    "restaurants": Industry.RESTAURANTS.value,
 }
 
 

@@ -11,15 +11,24 @@ per theme). New verticals = add a theme + companies here; nothing else changes.
 """
 from __future__ import annotations
 
-from ..ontology import EdgeType, NodeType
+from ..ontology import EdgeType, NodeType, cycle
+from ..ontology.cycle import CyclePosition as CP
+from ..ontology.cycle import Cyclicality as CY
 
 # --- Themes ----------------------------------------------------------------
+# `kind` picks the organizing axis: "chain" = supply-chain tier (upstream→down),
+# "cycle" = economic-cycle position (early→late/defensive). Cycle themes have no
+# SEED_EDGES; their segments order along CYCLE_RANK instead of a chain tier.
 THEMES: dict[str, dict] = {
-    "ai_optical": {"name": "AI Optical Interconnect", "nameCn": "AI 光互连产业链"},
-    "ai_chip": {"name": "AI Chip Supply Chain", "nameCn": "AI 算力芯片产业链"},
-    "ai_software": {"name": "AI Software Adoption Chain", "nameCn": "AI 软件普及链"},
-    "space_exploration": {"name": "Space Exploration", "nameCn": "太空探索产业链"},
-    "humanoid_robotics": {"name": "Humanoid Robotics", "nameCn": "人形机器人产业链"},
+    "ai_optical": {"name": "AI Optical Interconnect", "nameCn": "AI 光互连产业链", "kind": "chain"},
+    "ai_chip": {"name": "AI Chip Supply Chain", "nameCn": "AI 算力芯片产业链", "kind": "chain"},
+    "ai_software": {"name": "AI Software Adoption Chain", "nameCn": "AI 软件普及链", "kind": "chain"},
+    "space_exploration": {"name": "Space Exploration", "nameCn": "太空探索产业链", "kind": "chain"},
+    "humanoid_robotics": {"name": "Humanoid Robotics", "nameCn": "人形机器人产业链", "kind": "chain"},
+    # consumer cycle themes (US-listed; organized by economic-cycle position, not a chain)
+    "internet": {"name": "Internet Platforms", "nameCn": "互联网平台", "kind": "cycle"},
+    "retail": {"name": "US Retail", "nameCn": "美国零售", "kind": "cycle"},
+    "restaurants": {"name": "Restaurants & Foodservice", "nameCn": "餐饮服务", "kind": "cycle"},
 }
 
 # --- Segments (globally-unique ids; tier orders upstream -> downstream) -----
@@ -93,6 +102,66 @@ SEGMENTS: dict[str, dict] = {
     "hum_oem": {"name": "Humanoid OEM / Integrators", "nameCn": "本体整机与集成商", "tier": 8, "theme": "humanoid_robotics",
         "thesisCn": "整机厂/品牌集成商(Tesla Optimus、优必选、宇树等)是下游需求枢纽，拉动全链；多为私有或外采核心部件，上市纯标的有限。"},
 }
+
+
+def _cseg(name: str, nameCn: str, theme: str, pos: CP, cyc: CY, sens: float, thesisCn: str = "") -> dict:
+    """Build a cycle-theme segment: `tier` IS the cycle rank, so the existing
+    dashboard/heatmap ordering renders the early→late/defensive axis unchanged."""
+    return {"name": name, "nameCn": nameCn, "theme": theme, "tier": cycle.rank(pos.value),
+            "cycle": cycle.profile(pos, cyc, sens, noteCn=thesisCn), "thesisCn": thesisCn}
+
+
+# Cycle-theme segments — ordered along CYCLE_RANK (early-cycle→late→defensive→
+# counter-cyclical). Discount retail & QSR sit at the counter-cyclical end ("falls
+# last / benefits from trade-down"), grocery/streaming are defensive, apparel/
+# online-travel/casual-dining are early-cycle high-beta.
+SEGMENTS.update({
+    # --- internet (互联网平台) ---
+    "net_travel": _cseg("Online Travel & Mobility", "在线旅游与出行", "internet", CP.EARLY, CY.CYCLICAL, 1.5,
+        "在线旅游/OTA：纯可选消费、高弹性，复苏先行、衰退先跌；预订量是消费景气先行指标。"),
+    "net_social": _cseg("Social & Advertising", "社交与广告", "internet", CP.EARLY, CY.CYCLICAL, 1.3,
+        "广告型社交：品牌广告预算顺周期，景气下行最先削减；DAU/参与度与广告 eCPM 是先行量。"),
+    "net_search_ads": _cseg("Search & Performance Ads", "搜索与效果广告", "internet", CP.MID, CY.CYCLICAL, 1.1,
+        "搜索/效果广告：意图流量较抗跌（ROI 可量化），广告链中段；零售媒体为新增长极。"),
+    "net_ecommerce": _cseg("E-commerce Platforms", "电商平台", "internet", CP.MID, CY.CYCLICAL, 1.2,
+        "电商平台：可选消费为主，与零售周期同步；GMV/take-rate/履约成本决定单位经济。"),
+    "net_gig": _cseg("Rideshare & Delivery", "出行与外卖", "internet", CP.EARLY, CY.CYCLICAL, 1.4,
+        "出行/外卖平台：可选出行与配送，早周期高弹性；gross bookings 与 take-rate 顺周期。"),
+    "net_fintech": _cseg("Payments & Fintech", "支付与金融科技", "internet", CP.MID, CY.CYCLICAL, 1.2,
+        "支付/金融科技：支付额随消费波动、信贷敏感，顺周期中段；TPV/take-rate 是核心。"),
+    "net_gaming": _cseg("Interactive Gaming", "互动游戏", "internet", CP.MID, CY.CYCLICAL, 1.0,
+        "互动游戏：低价娱乐相对韧性、但新作驱动波动；bookings/MAU 与版号/上线节奏相关。"),
+    "net_streaming": _cseg("Subscription Streaming", "订阅流媒体", "internet", CP.DEFENSIVE, CY.DEFENSIVE, 0.7,
+        "订阅流媒体：订阅黏性高、低价居家娱乐，防御属性；订阅净增/churn/content spend 是关键。"),
+    # --- retail (美国零售) ---
+    "ret_apparel": _cseg("Apparel & Softlines", "服装与软线", "retail", CP.EARLY, CY.CYCLICAL, 1.4,
+        "服装零售：纯可选、时尚库存风险高，景气下行最先承压；同店与库销比是先行量。"),
+    "ret_electronics": _cseg("Electronics & Big-Ticket", "电器与大件", "retail", CP.EARLY, CY.CYCLICAL, 1.3,
+        "电器/消费电子零售：大件可选、利率与换机周期敏感，早周期高弹性。"),
+    "ret_home_improve": _cseg("Home Improvement", "家装零售", "retail", CP.MID, CY.CYCLICAL, 1.2,
+        "家装零售：与房地产成交/利率周期相关，景气中段；客单与 Pro 业务决定韧性。"),
+    "ret_specialty": _cseg("Specialty & Brand Retail", "专业与品牌零售", "retail", CP.MID, CY.CYCLICAL, 1.1,
+        "专业/品牌零售（美妆、运动、宠物等）：可选品类，随消费周期；品牌力决定抗跌性。"),
+    "ret_grocery": _cseg("Grocery & Staples Retail", "食品杂货零售", "retail", CP.DEFENSIVE, CY.DEFENSIVE, 0.5,
+        "食品杂货：非可选刚需、最防御；同店客流稳、但毛利薄，受食品通胀与工资影响。"),
+    "ret_auto_parts": _cseg("Auto Parts Retail", "汽配零售", "retail", CP.DEFENSIVE, CY.DEFENSIVE, 0.6,
+        "汽配零售：经济疲弱时延长持车、以修代换，需求防御；车龄上升是结构顺风。"),
+    "ret_discount": _cseg("Discount / Off-Price / Warehouse", "折扣/Off-Price/仓储会员", "retail", CP.COUNTER, CY.COUNTER_CYCLICAL, 0.6,
+        "折扣/off-price/仓储会员：消费降级直接受益，下行最晚下跌、常逆势走强（用户点名：折扣零售最晚跌）。"),
+    # --- restaurants (餐饮服务) ---
+    "rst_casual_dining": _cseg("Casual Dining", "休闲正餐", "restaurants", CP.EARLY, CY.CYCLICAL, 1.4,
+        "休闲正餐：可选堂食，景气下行最先收缩（客流先减、客单后压）；同店与客流是先行量。"),
+    "rst_fine_dining": _cseg("Polished / Fine Dining", "精致/高端正餐", "restaurants", CP.EARLY, CY.CYCLICAL, 1.3,
+        "高端正餐：高客单可选消费，宴请/商务需求顺周期；高端客群略具韧性但仍周期性。"),
+    "rst_fast_casual": _cseg("Fast Casual", "快休闲", "restaurants", CP.MID, CY.CYCLICAL, 1.1,
+        "快休闲（CMG/CAVA 类）：质价比可选，周期中段；单位经济与 AUV/新店增长是核心。"),
+    "rst_coffee_snack": _cseg("Coffee & Snack", "咖啡与小食", "restaurants", CP.MID, CY.CYCLICAL, 1.0,
+        "咖啡/小食：高频小额、介于可选与习惯刚需之间；客流与会员/数字化黏性决定韧性。"),
+    "rst_pizza_delivery": _cseg("Pizza & Delivery", "披萨与外送", "restaurants", CP.DEFENSIVE, CY.DEFENSIVE, 0.8,
+        "披萨/外送：高性价比便利餐，外卖韧性强，相对防御；数字化占比与单均配送成本是关键。"),
+    "rst_qsr": _cseg("Quick-Service (QSR)", "快餐 (QSR)", "restaurants", CP.COUNTER, CY.COUNTER_CYCLICAL, 0.7,
+        "快餐 QSR：消费降级受益（自正餐/在家做饭向下/向上挤压），下行相对抗跌、最晚承压。"),
+})
 
 # optical chain_role -> optical segment id
 ROLE_TO_SEG = {
@@ -290,7 +359,8 @@ SOFTWARE_COMPANIES = [
     _swe("bill", "BILL", "BILL", "swe_erp_hr", ['BILL']),
     _swe("wk", "Workiva", "WK", "swe_erp_hr", ['Workiva', 'WK']),
     # --- swe_vertical (wave 9) ---
-    _swe("dash", "DoorDash", "DASH", "swe_vertical", ['DoorDash', 'DASH']),
+    # (DoorDash relocated to the `internet` cycle theme — net_gig; it is a gig/
+    #  delivery platform, not enterprise SaaS.)
     _swe("veev", "Veeva", "VEEV", "swe_vertical", ['Veeva', 'VEEV']),
     _swe("iot", "Samsara", "IOT", "swe_vertical", ['Samsara', 'IOT']),
     _swe("tost", "Toast", "TOST", "swe_vertical", ['Toast', 'TOST']),
@@ -494,7 +564,117 @@ ROBOT_COMPANIES = [
     _frontier("300024sz_hum", 'Siasun Robot & Automation 新松机器人', '300024.SZ', "CN", "hum_oem", "humanoid_robotics", ['Siasun Robot & Automation 新松机器人', '300024.SZ', '新松机器人']),
 ]
 
-COMPANIES: list[dict] = OPTICAL_COMPANIES + SHARED_COMPANIES + CHIP_COMPANIES + SOFTWARE_COMPANIES + SPACE_COMPANIES + ROBOT_COMPANIES
+
+def _consumer(cid, name, ticker, seg, theme, aliases, region="US") -> dict:
+    """A US-listed consumer name for a cycle theme. No chain_role semantics / no
+    SEED_EDGES — the segment's CycleProfile (inherited via `seg`) is its axis."""
+    return {"id": cid, "name": name, "tickers": [ticker], "aliases": aliases, "region": region,
+            "chain_role": seg, "cn_code": None, "themes": [theme], "seg": {theme: seg}}
+
+
+# --- internet companies (US-listed; excl. non-US-cycle names PDD/BABA/JD/SE/MELI/CPNG) ---
+INTERNET_COMPANIES = [
+    _consumer("googl", "Alphabet", "GOOGL", "net_search_ads", "internet", ["Alphabet", "Google", "GOOGL"]),
+    _consumer("zillow", "Zillow Group", "ZG", "net_search_ads", "internet", ["Zillow", "ZG", "Z"]),
+    _consumer("meta", "Meta Platforms", "META", "net_social", "internet", ["Meta", "Facebook", "Instagram", "META"]),
+    _consumer("pins", "Pinterest", "PINS", "net_social", "internet", ["Pinterest", "PINS"]),
+    _consumer("snap", "Snap", "SNAP", "net_social", "internet", ["Snap", "Snapchat", "SNAP"]),
+    _consumer("rddt", "Reddit", "RDDT", "net_social", "internet", ["Reddit", "RDDT"]),
+    _consumer("mtch", "Match Group", "MTCH", "net_social", "internet", ["Match Group", "Tinder", "MTCH"]),
+    _consumer("bmbl", "Bumble", "BMBL", "net_social", "internet", ["Bumble", "BMBL"]),
+    _consumer("nflx", "Netflix", "NFLX", "net_streaming", "internet", ["Netflix", "NFLX"]),
+    _consumer("spot", "Spotify", "SPOT", "net_streaming", "internet", ["Spotify", "SPOT"]),
+    _consumer("roku", "Roku", "ROKU", "net_streaming", "internet", ["Roku", "ROKU"]),
+    _consumer("duol", "Duolingo", "DUOL", "net_streaming", "internet", ["Duolingo", "DUOL"]),
+    _consumer("amzn", "Amazon", "AMZN", "net_ecommerce", "internet", ["Amazon", "AMZN"]),
+    _consumer("ebay", "eBay", "EBAY", "net_ecommerce", "internet", ["eBay", "EBAY"]),
+    _consumer("etsy", "Etsy", "ETSY", "net_ecommerce", "internet", ["Etsy", "ETSY"]),
+    _consumer("chwy", "Chewy", "CHWY", "net_ecommerce", "internet", ["Chewy", "CHWY"]),
+    _consumer("wayfair", "Wayfair", "W", "net_ecommerce", "internet", ["Wayfair", "W"]),
+    _consumer("shop", "Shopify", "SHOP", "net_ecommerce", "internet", ["Shopify", "SHOP"]),
+    _consumer("uber", "Uber Technologies", "UBER", "net_gig", "internet", ["Uber", "UBER"]),
+    _consumer("lyft", "Lyft", "LYFT", "net_gig", "internet", ["Lyft", "LYFT"]),
+    _consumer("dash", "DoorDash", "DASH", "net_gig", "internet", ["DoorDash", "DASH"]),
+    _consumer("cart", "Instacart (Maplebear)", "CART", "net_gig", "internet", ["Instacart", "Maplebear", "CART"]),
+    _consumer("bkng", "Booking Holdings", "BKNG", "net_travel", "internet", ["Booking", "Booking.com", "Priceline", "BKNG"]),
+    _consumer("expe", "Expedia Group", "EXPE", "net_travel", "internet", ["Expedia", "EXPE"]),
+    _consumer("abnb", "Airbnb", "ABNB", "net_travel", "internet", ["Airbnb", "ABNB"]),
+    _consumer("pypl", "PayPal", "PYPL", "net_fintech", "internet", ["PayPal", "PYPL"]),
+    # NOTE: Block rebranded its NYSE ticker SQ→XYZ (effective 2025-01-21). XYZ is current — do not "fix" back to SQ.
+    _consumer("block", "Block", "XYZ", "net_fintech", "internet", ["Block", "Square", "Cash App", "XYZ"]),
+    _consumer("afrm", "Affirm", "AFRM", "net_fintech", "internet", ["Affirm", "AFRM"]),
+    _consumer("rblx", "Roblox", "RBLX", "net_gaming", "internet", ["Roblox", "RBLX"]),
+    _consumer("ttwo", "Take-Two Interactive", "TTWO", "net_gaming", "internet", ["Take-Two", "Rockstar", "TTWO"]),
+]
+
+# --- retail companies (US-listed; ret_discount = counter-cyclical trade-down winners) ---
+RETAIL_COMPANIES = [
+    _consumer("wmt", "Walmart", "WMT", "ret_discount", "retail", ["Walmart", "WMT"]),
+    _consumer("cost", "Costco Wholesale", "COST", "ret_discount", "retail", ["Costco", "COST"]),
+    _consumer("bjs", "BJ's Wholesale Club", "BJ", "ret_discount", "retail", ["BJ's", "BJ's Wholesale", "BJ"]),
+    _consumer("tjx", "TJX Companies", "TJX", "ret_discount", "retail", ["TJX", "TJ Maxx", "Marshalls", "TJX"]),
+    _consumer("ross", "Ross Stores", "ROST", "ret_discount", "retail", ["Ross", "Ross Stores", "ROST"]),
+    _consumer("burl", "Burlington Stores", "BURL", "ret_discount", "retail", ["Burlington", "BURL"]),
+    _consumer("ollie", "Ollie's Bargain Outlet", "OLLI", "ret_discount", "retail", ["Ollie's", "OLLI"]),
+    _consumer("five", "Five Below", "FIVE", "ret_discount", "retail", ["Five Below", "FIVE"]),
+    _consumer("dg", "Dollar General", "DG", "ret_discount", "retail", ["Dollar General", "DG"]),
+    _consumer("dltr", "Dollar Tree", "DLTR", "ret_discount", "retail", ["Dollar Tree", "Family Dollar", "DLTR"]),
+    _consumer("kr", "Kroger", "KR", "ret_grocery", "retail", ["Kroger", "KR"]),
+    _consumer("aci", "Albertsons", "ACI", "ret_grocery", "retail", ["Albertsons", "ACI"]),
+    _consumer("sfm", "Sprouts Farmers Market", "SFM", "ret_grocery", "retail", ["Sprouts", "SFM"]),
+    _consumer("azo", "AutoZone", "AZO", "ret_auto_parts", "retail", ["AutoZone", "AZO"]),
+    _consumer("orly", "O'Reilly Automotive", "ORLY", "ret_auto_parts", "retail", ["O'Reilly", "ORLY"]),
+    _consumer("gap", "Gap", "GAP", "ret_apparel", "retail", ["Gap", "Old Navy", "GAP"]),
+    _consumer("anf", "Abercrombie & Fitch", "ANF", "ret_apparel", "retail", ["Abercrombie", "ANF"]),
+    _consumer("aeo", "American Eagle Outfitters", "AEO", "ret_apparel", "retail", ["American Eagle", "AEO"]),
+    _consumer("urbn", "Urban Outfitters", "URBN", "ret_apparel", "retail", ["Urban Outfitters", "Anthropologie", "URBN"]),
+    _consumer("lulu", "Lululemon Athletica", "LULU", "ret_apparel", "retail", ["Lululemon", "LULU"]),
+    _consumer("bby", "Best Buy", "BBY", "ret_electronics", "retail", ["Best Buy", "BBY"]),
+    _consumer("hd", "Home Depot", "HD", "ret_home_improve", "retail", ["Home Depot", "HD"]),
+    _consumer("low", "Lowe's", "LOW", "ret_home_improve", "retail", ["Lowe's", "LOW"]),
+    _consumer("tgt", "Target", "TGT", "ret_specialty", "retail", ["Target", "TGT"]),
+    _consumer("ulta", "Ulta Beauty", "ULTA", "ret_specialty", "retail", ["Ulta", "Ulta Beauty", "ULTA"]),
+    _consumer("dks", "Dick's Sporting Goods", "DKS", "ret_specialty", "retail", ["Dick's", "DKS"]),
+    _consumer("tsco", "Tractor Supply", "TSCO", "ret_specialty", "retail", ["Tractor Supply", "TSCO"]),
+    _consumer("rh", "RH (Restoration Hardware)", "RH", "ret_specialty", "retail", ["RH", "Restoration Hardware"]),
+    _consumer("wsm", "Williams-Sonoma", "WSM", "ret_specialty", "retail", ["Williams-Sonoma", "Pottery Barn", "WSM"]),
+    _consumer("kmx", "CarMax", "KMX", "ret_specialty", "retail", ["CarMax", "KMX"]),
+]
+
+# --- restaurant companies (US-listed; rst_qsr = counter-cyclical trade-down) ---
+RESTAURANT_COMPANIES = [
+    _consumer("mcd", "McDonald's", "MCD", "rst_qsr", "restaurants", ["McDonald's", "MCD"]),
+    _consumer("wen", "Wendy's", "WEN", "rst_qsr", "restaurants", ["Wendy's", "WEN"]),
+    _consumer("yum", "Yum! Brands", "YUM", "rst_qsr", "restaurants", ["Yum Brands", "KFC", "Taco Bell", "Pizza Hut", "YUM"]),
+    _consumer("qsr", "Restaurant Brands Intl", "QSR", "rst_qsr", "restaurants", ["Restaurant Brands", "Burger King", "Tim Hortons", "QSR"]),
+    _consumer("jack", "Jack in the Box", "JACK", "rst_qsr", "restaurants", ["Jack in the Box", "JACK"]),
+    _consumer("loco", "El Pollo Loco", "LOCO", "rst_qsr", "restaurants", ["El Pollo Loco", "LOCO"]),
+    _consumer("dpz", "Domino's Pizza", "DPZ", "rst_pizza_delivery", "restaurants", ["Domino's", "DPZ"]),
+    _consumer("pzza", "Papa John's", "PZZA", "rst_pizza_delivery", "restaurants", ["Papa John's", "PZZA"]),
+    _consumer("cmg", "Chipotle Mexican Grill", "CMG", "rst_fast_casual", "restaurants", ["Chipotle", "CMG"]),
+    _consumer("cava", "CAVA Group", "CAVA", "rst_fast_casual", "restaurants", ["CAVA", "CAVA Group"]),
+    _consumer("sg", "Sweetgreen", "SG", "rst_fast_casual", "restaurants", ["Sweetgreen", "SG"]),
+    _consumer("wing", "Wingstop", "WING", "rst_fast_casual", "restaurants", ["Wingstop", "WING"]),
+    _consumer("shak", "Shake Shack", "SHAK", "rst_fast_casual", "restaurants", ["Shake Shack", "SHAK"]),
+    _consumer("sbux", "Starbucks", "SBUX", "rst_coffee_snack", "restaurants", ["Starbucks", "SBUX"]),
+    _consumer("bros", "Dutch Bros", "BROS", "rst_coffee_snack", "restaurants", ["Dutch Bros", "BROS"]),
+    _consumer("dri", "Darden Restaurants", "DRI", "rst_casual_dining", "restaurants", ["Darden", "Olive Garden", "DRI"]),
+    _consumer("txrh", "Texas Roadhouse", "TXRH", "rst_casual_dining", "restaurants", ["Texas Roadhouse", "TXRH"]),
+    _consumer("eat", "Brinker International", "EAT", "rst_casual_dining", "restaurants", ["Brinker", "Chili's", "EAT"]),
+    _consumer("dine", "Dine Brands Global", "DIN", "rst_casual_dining", "restaurants", ["Dine Brands", "Applebee's", "IHOP", "DIN"]),
+    _consumer("bloomin", "Bloomin' Brands", "BLMN", "rst_casual_dining", "restaurants", ["Bloomin' Brands", "Outback", "BLMN"]),
+    _consumer("cake", "Cheesecake Factory", "CAKE", "rst_casual_dining", "restaurants", ["Cheesecake Factory", "CAKE"]),
+    _consumer("cbrl", "Cracker Barrel", "CBRL", "rst_casual_dining", "restaurants", ["Cracker Barrel", "CBRL"]),
+    _consumer("play", "Dave & Buster's", "PLAY", "rst_casual_dining", "restaurants", ["Dave & Buster's", "PLAY"]),
+    _consumer("fwrg", "First Watch", "FWRG", "rst_casual_dining", "restaurants", ["First Watch", "FWRG"]),
+    _consumer("stks", "The ONE Group (STK)", "STKS", "rst_fine_dining", "restaurants", ["The ONE Group", "STK", "STKS"]),
+]
+
+COMPANIES: list[dict] = (
+    OPTICAL_COMPANIES + SHARED_COMPANIES + CHIP_COMPANIES + SOFTWARE_COMPANIES
+    + SPACE_COMPANIES + ROBOT_COMPANIES
+    + INTERNET_COMPANIES + RETAIL_COMPANIES + RESTAURANT_COMPANIES
+)
 
 # --- Seed TechRoute nodes --------------------------------------------------
 TECH_ROUTES: list[dict] = [
@@ -666,7 +846,6 @@ SEED_EDGES += [
     ("pycr", "tr_copilots", EdgeType.USES_TECHROUTE.value),
     ("bill", "tr_copilots", EdgeType.USES_TECHROUTE.value),
     ("wk", "tr_copilots", EdgeType.USES_TECHROUTE.value),
-    ("dash", "tr_rag", EdgeType.USES_TECHROUTE.value),
     ("veev", "tr_rag", EdgeType.USES_TECHROUTE.value),
     ("iot", "tr_rag", EdgeType.USES_TECHROUTE.value),
     ("tost", "tr_rag", EdgeType.USES_TECHROUTE.value),

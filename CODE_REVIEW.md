@@ -481,3 +481,60 @@ A.1.1 / A.1.2 / A.1.3 均为**一行级修复且不引入依赖**，且都落在
 | **A.2.3** `add_edge` TOCTOU | 核对：SELECT→UPSERT 非原子 | **不予采纳** | 复核人亦认可"单操作者自用可接受"；唯一约束与双时态多窗口设计冲突，不引入锁 |
 
 > 第三方裁定：附录 A 的 **4 项有效问题（A.1.1/1.2/1.3/2.1）全部修复并加测试**；2 项（A.2.2/2.3）经独立判断属"自用姿态下可接受/非 bug"，按本项目简单·无合规原则不予采纳。
+
+---
+
+## 附录 B：消费周期三主题（互联网 / 美国零售 / 餐饮服务）独立复核
+
+> 视角：基本面量化策略 + Palantir 技术专家；聚焦从零构建的 Ontology 体系在"经济周期轴（cycle axis）"上的扩展一致性。
+> 复核对象：新增 `internet` / `retail` / `restaurants` 三个 cycle-theme 模块及其对 Ontology（segments / cycle / metric_packs / registry / dashboard / 前端 types）的贯通。
+> 方法：逐条读取当前源码复核（line ref 均经本人核对）。结论：**Ontology 周期轴扩展整体一致、结构正确**；独立复核裁定 **1 项潜伏中等 bug 成立 + 1 项为误报**，其余全部通过。
+
+### B.1 中等 bug（潜伏·建议修）
+
+**B.1.1 `cycle.as_dict()` 的 dict 分支产出的 dict 形状与前端契约不符 —— 一旦公司级 `cycle` 覆盖被启用即渲染 undefined**
+
+- 位置：`src/xar/ontology/cycle.py:90-104`（dict 分支 `:95-98` vs CycleProfile 分支 `:99-104`）；调用入口 `cycle_of_company` `:113-115`（`override` 走 dict 分支）；前端契约 `web/src/types.ts:55-65` `CycleInfo`。
+- 现状：两个序列化分支产出**不同形状**的 dict ——
+  - **CycleProfile 分支**（`:99-104`）产出 `{position, cyclicality, sensitivity, label, labelCn, short, rank, note, noteCn}` —— 与前端 `CycleInfo` 契约逐字段吻合。
+  - **dict 分支**（`:95-98`）对**部分覆盖**（如 `{"position":"early_cycle"}`，无 `"en"` 键）走 `return {**label(pos), **p}` → 仅产出 `{en, cn, short, position}` —— **缺 `label` / `labelCn` / `rank` / `cyclicality` / `sensitivity` 五个字段**（其中多个为 `CycleInfo` 必填）。
+  - dict 分支的判据是 `"en" not in p`；而 CycleProfile 分支产出的是 `label` 不是 `en`，故一次完整序列化的 dict 二次经 `as_dict()` 会落入 `{**label(pos), **p}` 分支并被补进 `en/cn`（与已有 `label/labelCn` 冗余但可用）—— 唯独**部分覆盖**那条路径是真破坏。
+- 影响场景：`cycle_of_company`（`:107-122`）显式支持公司级 `cycle` dict 覆盖（`:113-115`）。目前 registry 内**无公司**使用该 dict 覆盖形式（所有周期主题在 **segment 级**经 `cycle.profile(...)`（`registry.py:111`）设置 → 返回 `CycleProfile` → 走正确的 CycleProfile 分支），故**当前潜伏、不触发**。但这是文档化的 intended feature（`:113` 明确读取 `company.get("cycle")`），一旦运营者加一条 `cycle={"position":"mid_cycle"}` 的公司级覆盖，`company_detail()`（`dashboard.py:582` → `cycle_of_company(c)`）即产出缺字段的 dict，前端 `CycleInfo` 渲染 `undefined`。
+- 修复方向：dict 分支归一到与 CycleProfile 分支同形状 —— 由 `position` 解析出 `label/labelCn/short/rank`，`cyclicality/sensitivity` 缺省补默认，**emit `label/labelCn` 而非 `en/cn`**。一致性优于两套键名并存。
+
+### B.2 经独立复核为"误报"（不予采纳）
+
+**B.2.1 "Block 的 ticker 设成 `XYZ` 是否应为 `SQ`" —— 非问题，`XYZ` 正确。**
+
+- 位置：`src/xar/ingestion/registry.py:603`（`_consumer("block", "Block", "XYZ", "net_fintech", "internet", ["Block", "Square", "Cash App", "XYZ"])`）。
+- 裁定：Block, Inc. 已于 **2025-02 将 NYSE 代码由 `SQ` 改为 `XYZ`**；截至复核日（2026-06-23）`XYZ` 已生效约 16 个月。原复核人"Block trades under SQ"基于过时信息。alias 列表含 `Square`/`Cash App`（品牌/产品别名）且**不含** `SQ`（旧 ticker），与 `XYZ` 为现行代码一致。
+- 风险点（非 bug，仅提示）：yfinance / Polygon 等价格 provider 现均以 `XYZ` 识别 Block，故行情/基本面拉取正常；若日后某 provider 仍只认旧码 `SQ`，会在该 provider 单点失败（被 `available()`/异常路径优雅降级），不影响图谱。**建议留一行注释**说明 SQ→XYZ 历史，避免后人"修正"回 `SQ`。
+
+### B.3 经复核通过的项（Ontology 周期轴扩展一致性，认可）
+
+- **行业 / NAICS / sector 映射完整一致**：`RESTAURANTS` industry、NAICS `7225`、`THEME_INDUSTRY` / `SEG_INDUSTRY` 条目齐全，无遗漏/冲突。
+- **`_first_seg()`（`dashboard.py:55`）正确替换旧的硬编码 `"module_maker"` 回退** —— 周期主题不再借用光模块段；这是对原审"主题撕裂"类问题的结构性改进。
+- **`tier = cycle.rank(...)` 复用正确**：`_theme_segment_ids` 与 `ChainHeatmap` 按 `tier` 排序，周期轴渲染无需改逻辑即可工作（chain tier 与 cycle rank 复用同一字段，axis 在 `kind`/`axis` 元数据区分）。
+- **`cycle_of_company` 内 `SEGMENTS` 的 lazy import（`cycle.py:119`）正确**规避了 `ontology ↔ registry` 循环依赖。
+- **DoorDash 从 `swe_vertical` 迁至 `net_gig` 干净**：无重复 id/ticker，旧 `SEED_EDGES` 条目已移除。
+- **metric packs 无 alias 冲突、无重复键**：`same_store_sales` 正确扩展到 `restaurants` 行业。
+- **测试**：20 个单元测试 + 新增 pipeline 测试全部通过；TypeScript 编译无错误。
+
+### B.4 本轮建议
+
+- **B.1.1**（`cycle.as_dict` dict 分支归一）属一行级、零依赖修复，且落在 Ontology 契约一致性上，建议在下次触及 `cycle.py` 时顺手修掉，避免日后公司级 `cycle` 覆盖启用时踩坑。
+- **B.2.1** 建议在 `registry.py:603` 加一行注释（"Block rebranded SQ→XYZ Feb 2025"）防误改。
+
+> 第二意见结论：**消费周期三主题的 Ontology 扩展结构正确、与既有 chain 主题轴对称、测试充分**；唯一实质 bug（B.1.1）当前潜伏、影响面仅限"公司级 cycle dict 覆盖"这一尚未启用的路径。Block `XYZ` ticker 为复核误报。
+
+### B.5 独立复核与处置（2026-06-23，第三方裁定）
+
+对附录 B 逐条**独立复核**（脚本/一手来源经验证，非转述）。验证：`pytest` **26 passed**（新增 1 个 B.1.1 回归测试 `test_cycle_as_dict_uniform_shape`）、`ruff check` 通过、`tsc` 通过。
+
+| 条目 | 独立裁定 | 处置 |
+|---|---|---|
+| **B.1.1** `as_dict` dict 分支形状不符 | **成立**。脚本复现：部分覆盖 `{"position":"mid_cycle"}` 产出 `{cn,en,position,short}`，缺 `cyclicality/label/labelCn/sensitivity/rank` 共 5 个 `CycleInfo` 必填字段 → 前端渲染 `undefined`；完整 dict 二次序列化还会泄漏冗余 `en/cn` 旧键。另核：`en/cn` 在前后端**从未被消费**。 | **已修复**（`cycle.py:as_dict`）：折叠为**单一归一化路径**——`CycleProfile` / 完整 dict / 部分覆盖三类输入统一产出 exact `CycleInfo` 形状（emit `label/labelCn`，去除 `en/cn`）；部分覆盖经 `_CYCLICALITY_BY_POSITION` 补全 cyclicality、由 position 解析 label/short/rank。加回归测试钉死形状。 |
+| **B.2.1** Block ticker 应为 `SQ`？ | **确认为误报**（GLM 裁定正确）。一手来源核实：Block 于 **2025-01-21** 将 NYSE 代码 `SQ`→`XYZ`（Block IR / BusinessWire）；`XYZ` 为现行。附带独立核查 **Gap `GPS`→`GAP`（2024-08-22 生效）**——本项目所用 `GAP` 亦为现行正确码。 | **保留 `XYZ`**；按建议在 `registry.py` Block 行加注释（"SQ→XYZ 2025-01，勿改回"）防后人误改。 |
+| **B.3** 周期轴扩展一致性（6 项） | 认可，逐项与本人实现/早前验证一致。 | 无 action。 |
+
+> 第三方裁定：附录 B 的 **1 项有效问题（B.1.1）已修复并加测试**；B.2.1 经一手来源独立核实确为误报，按建议加防御性注释；B.3 全部通过。

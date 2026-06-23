@@ -47,14 +47,30 @@ export interface Theme {
   name: string;
   nameCn: string;
   active: boolean;
+  kind?: "chain" | "cycle"; // organizing axis: supply-chain tier vs economic-cycle position
   segmentCount?: number;
+}
+
+/** Economic-cycle position of a segment/company (consumer cycle themes). */
+export interface CycleInfo {
+  position: string; // early_cycle | mid_cycle | late_cycle | defensive | counter_cyclical
+  cyclicality: string; // cyclical | defensive | counter_cyclical
+  sensitivity: number; // beta hint
+  label: string; // EN label
+  labelCn: string; // CN label
+  short: string; // EC | MC | LC | DEF | CC
+  rank: number; // 1 (early) .. 5 (counter-cyclical)
+  note?: string;
+  noteCn?: string;
 }
 
 export interface Segment {
   id: string;
   name: string; // English label
   nameCn: string; // Chinese label
-  tier: number; // chain order: 1 = most upstream
+  tier: number; // chain themes: chain order (1=upstream); cycle themes: cycle rank (1=early..5=counter)
+  axis?: "chain" | "cycle"; // which axis `tier` encodes
+  cycle?: CycleInfo | null; // present for cycle-theme segments
   alpha: number; // 0..100 opportunity score
   momentum: number; // -100..100
   changeW: number; // Δ 1W, %
@@ -207,6 +223,7 @@ export interface SupplyChain {
 export interface CompanyDetail {
   company: Company;
   segment: { id: string; name: string; nameCn: string };
+  cycle?: CycleInfo | null; // economic-cycle position (consumer cycle themes)
   prices: PriceBar[];
   fundamentals: FundamentalRow[];
   signals: Signal[];
