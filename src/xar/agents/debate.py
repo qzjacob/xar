@@ -13,8 +13,10 @@ def _findings_brief(state: RunState) -> str:
 
 
 def run_debate(state: RunState) -> None:
+    from .nodes import _theme_terms
     company = state.get("company_name")
     findings = _findings_brief(state)
+    risk_hint = _theme_terms(state.get("company_id"))["risk"]
     bull, bear = "", ""
     for r in range(_ROUNDS):
         bull = llm.complete(
@@ -29,8 +31,7 @@ def run_debate(state: RunState) -> None:
             f"Company: {company}\nAnalyst findings (cited [n]):\n{findings}\n\n"
             f"Bull case to rebut:\n{bull}\n\n"
             "You are the BEAR. Make the strongest evidence-grounded case for downside/risk "
-            "(supply constraints, single-source exposure, CPO/LPO substitution of DSP attach, "
-            "customer concentration, valuation). Cite [n]. 5-7 bullets.",
+            f"(consider: {risk_hint}). Cite [n]. 5-7 bullets.",
             tier="strong", node=f"debate:bear:{r}", run_id=state.run_id, max_tokens=1100,
         )
     state.put("bull_case", bull)
@@ -38,12 +39,13 @@ def run_debate(state: RunState) -> None:
 
 
 def run_risk(state: RunState) -> None:
+    from .nodes import _theme_terms
+    risk_hint = _theme_terms(state.get("company_id"))["risk"]
     state.put("risk", llm.complete(
         f"Company: {state.get('company_name')}\n\n"
         f"Bull:\n{state.get('bull_case','')}\n\nBear:\n{state.get('bear_case','')}\n\n"
         "As the RISK manager, stress-test the thesis. Enumerate the 4-6 risks that would "
-        "most change the conclusion (EML undersupply, CPO/LPO disruption, customer "
-        "concentration, single-source exposure, valuation), each with a severity and what "
+        f"most change the conclusion (consider: {risk_hint}), each with a severity and what "
         "evidence would confirm/deny it. Cite [n] where possible.",
         tier="strong", node="risk", run_id=state.run_id, max_tokens=1100,
     ))

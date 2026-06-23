@@ -291,6 +291,32 @@ CREATE TABLE IF NOT EXISTS social_posts (
 CREATE INDEX IF NOT EXISTS idx_social_company ON social_posts(company_id);
 CREATE INDEX IF NOT EXISTS idx_social_platform ON social_posts(platform);
 
+-- Forward event calendar — SCHEDULED, dated, future events (earnings, investor
+-- days, product launches, conferences, ex-div, lockups, policy meetings, index
+-- rebalances, PDUFA). Kept distinct from the past-tense `kg_events` catalyst
+-- stream: a calendar item is scheduled -> confirmed -> occurred/cancelled, and
+-- once it occurs the normal extraction path writes the observed kg_events row
+-- (linked back via meta.calendar_id). This is the "what's coming" dimension.
+CREATE TABLE IF NOT EXISTS event_calendar (
+    id            BIGSERIAL PRIMARY KEY,
+    company_id    TEXT REFERENCES companies(id),
+    event_type    TEXT NOT NULL,               -- earnings | investor_day | product_launch |
+                                               -- conference | ex_dividend | lockup_expiry |
+                                               -- policy_meeting | index_rebalance | pdufa | guidance_update
+    scheduled_for DATE NOT NULL,
+    window_end    DATE,                          -- for ranges (multi-day conferences)
+    title         TEXT,
+    status        TEXT NOT NULL DEFAULT 'scheduled',  -- scheduled | confirmed | occurred | cancelled
+    importance    INT NOT NULL DEFAULT 2,        -- 1..3
+    tech_route_tag TEXT,
+    source        TEXT NOT NULL,                 -- fmp | finnhub | manual
+    as_of         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    meta          JSONB NOT NULL DEFAULT '{}',
+    dedup_key     TEXT UNIQUE                    -- company|type|date|title-hash
+);
+CREATE INDEX IF NOT EXISTS idx_cal_company ON event_calendar(company_id);
+CREATE INDEX IF NOT EXISTS idx_cal_date ON event_calendar(scheduled_for);
+
 -- Expert-agent processed insights: the AI refinement layer over alt-data
 -- (X / WeChat / news / AIFINmarket). Every processed doc gets one row; `kept`
 -- marks the ones that passed the relevance + signal-quality gate and were

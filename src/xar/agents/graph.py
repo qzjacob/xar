@@ -37,7 +37,14 @@ def run_report(request: dict, *, auto_approve: bool = False) -> dict:
         metrics = evidence_gate.compute(rs, content)
         rs.put("metrics", metrics)
         _store_report(rs, content, metrics)
-        status = "published" if auto_approve else "awaiting_approval"
+        # The gate is binding: auto_approve only fast-tracks reports that PASS. A failing
+        # report (low coverage or high hallucination risk) is always held for human review
+        # rather than silently published — so "high-confidence" and "low-confidence"
+        # reports no longer share the same publication path.
+        status = "published" if (auto_approve and metrics["passed"]) else "awaiting_approval"
+        if auto_approve and not metrics["passed"]:
+            log.warning("run %s held for review (gate failed: coverage=%.2f risk=%.2f)",
+                        rs.run_id, metrics["evidence_coverage"], metrics["hallucination_risk"])
         rs.checkpoint(status=status)
         log.info("run %s -> %s (coverage=%.2f risk=%.2f)", rs.run_id, status,
                  metrics["evidence_coverage"], metrics["hallucination_risk"])

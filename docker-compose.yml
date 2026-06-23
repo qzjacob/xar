@@ -3,6 +3,7 @@
 services:
   db:
     image: pgvector/pgvector:pg16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: xar
       POSTGRES_PASSWORD: xar
@@ -19,6 +20,7 @@ services:
 
   app:
     build: .
+    restart: unless-stopped
     env_file: .env
     environment:
       XAR_DATABASE_URL: postgresql://xar:xar@db:5432/xar

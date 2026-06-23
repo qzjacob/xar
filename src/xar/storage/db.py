@@ -99,3 +99,27 @@ def executemany(sql: str, rows: Iterable[Sequence[Any]]) -> None:
     with conn() as c:
         c.cursor().executemany(sql, list(rows))
         c.commit()
+
+
+class tx:
+    """Transaction context: yields a connection whose statements commit atomically
+    on clean exit and roll back on any exception. Use for multi-step writes that
+    must not leave half-applied state (e.g. delete-then-reinsert)."""
+
+    def __enter__(self) -> psycopg.Connection:
+        self._cm = pool().connection()
+        self._conn = self._cm.__enter__()
+        try:
+            register_vector(self._conn)
+        except Exception:
+            pass
+        return self._conn
+
+    def __exit__(self, exc_type: Any, *exc: Any) -> None:
+        try:
+            if exc_type is None:
+                self._conn.commit()
+            else:
+                self._conn.rollback()
+        finally:
+            self._cm.__exit__(exc_type, *exc)

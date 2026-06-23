@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     model_strong: str = "deepseek/deepseek-v4-pro"
     model_effort: str = "high"
     llm_max_usd_per_run: float = 5.0  # hard budget cap per report run
+    llm_max_usd_per_batch: float = 20.0  # cap for batch jobs (build_kg/expert/synthesize)
 
     # --- Embeddings ---
     embed_model: str = "BAAI/bge-small-en-v1.5"

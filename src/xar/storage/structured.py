@@ -144,6 +144,47 @@ def upsert_social(post_id, platform, *, company_id=None, author=None, url=None,
     )
 
 
+# --- forward event calendar ------------------------------------------------
+def upsert_calendar(company_id, event_type, scheduled_for, *, title=None,
+                    window_end=None, status="scheduled", importance=2,
+                    tech_route_tag=None, source="manual", meta=None) -> bool:
+    """Insert/update a scheduled forward event. Deduped on
+    company|type|date|title so re-pulls don't duplicate. Returns True on insert."""
+    dedup = hashlib.sha256(
+        f"{company_id}|{event_type}|{scheduled_for}|{(title or '').strip().lower()}".encode()
+    ).hexdigest()[:32]
+    if db.query("SELECT 1 FROM event_calendar WHERE dedup_key=%s", (dedup,)):
+        db.execute(
+            "UPDATE event_calendar SET status=%s, importance=%s, window_end=%s, "
+            "as_of=now(), meta=%s WHERE dedup_key=%s",
+            (status, importance, window_end, _json(meta), dedup))
+        return False
+    db.execute(
+        """INSERT INTO event_calendar
+             (company_id,event_type,scheduled_for,window_end,title,status,importance,
+              tech_route_tag,source,meta,dedup_key)
+           VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+           ON CONFLICT (dedup_key) DO NOTHING""",
+        (company_id, event_type, scheduled_for, window_end, title, status, importance,
+         tech_route_tag, source, _json(meta), dedup))
+    return True
+
+
+def upcoming_calendar(company_ids=None, *, days=90, limit=200) -> list[dict]:
+    """Scheduled events from today forward, optionally scoped to companies."""
+    sql = ("SELECT id,company_id,event_type,scheduled_for,window_end,title,status,"
+           "importance,tech_route_tag,source FROM event_calendar "
+           "WHERE scheduled_for >= CURRENT_DATE AND scheduled_for <= "
+           "(CURRENT_DATE + (%s || ' days')::interval) AND status <> 'cancelled'")
+    params: list = [days]
+    if company_ids is not None:
+        sql += " AND company_id = ANY(%s)"
+        params.append(list(company_ids) or [""])
+    sql += " ORDER BY scheduled_for, importance DESC LIMIT %s"
+    params.append(limit)
+    return db.query(sql, params)
+
+
 # --- reads (used by API + signals + report context) ------------------------
 def latest_fundamentals(company_id, limit=40) -> list[dict]:
     return db.query(

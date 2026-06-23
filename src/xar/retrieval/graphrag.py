@@ -40,6 +40,22 @@ def supply_chain(company_id: str) -> dict:
             "tech_routes": tech, "single_source_risks": risks}
 
 
+def landscape(company_id: str) -> dict:
+    """Industry-landscape view: the EndMarkets a company competes in, and the
+    other companies competing in those same EndMarkets (its competitive set)."""
+    ems = [e for e in neighbors(company_id, rel_types=["competes_in"]) if e["src_id"] == company_id]
+    em_ids = [e["dst_id"] for e in ems]
+    competitors: list[dict] = []
+    if em_ids:
+        competitors = db.query(
+            "SELECT DISTINCT e.src_id AS id, n.name FROM kg_edges e JOIN kg_nodes n ON n.id=e.src_id "
+            "WHERE e.rel_type='competes_in' AND e.dst_id = ANY(%s) AND e.src_id<>%s "
+            "AND e.invalidated_at IS NULL ORDER BY n.name",
+            (em_ids, company_id))
+    return {"end_markets": [{"id": e["dst_id"], "name": e["dst_name"]} for e in ems],
+            "competitors": [{"id": r["id"], "name": r["name"]} for r in competitors]}
+
+
 def single_source_risks(company_id: str | None = None) -> list[dict]:
     sql = """SELECT e.*, ns.name AS src_name, nd.name AS dst_name FROM kg_edges e
              JOIN kg_nodes ns ON ns.id=e.src_id JOIN kg_nodes nd ON nd.id=e.dst_id

@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from ..ingestion.registry import SEGMENTS, THEMES
 from ..retrieval import graphrag
-from ..storage import db
+from ..storage import db, structured
 
 DEFAULT_THEME = "ai_optical"
 # rough FX -> USD so market caps across listings are comparable
@@ -156,17 +156,37 @@ def _public_company(r: dict) -> dict:
     return {k: v for k, v in r.items() if not k.startswith("_")}
 
 
+def _kpi_block(company: dict, fvals: dict) -> list[dict]:
+    """The company's sector-appropriate operating metrics (ARR/NRR/RPO for SaaS,
+    NIM/CET1 for a bank, $/kg for a launcher…), annotated with unit + direction.
+    Filters the already-loaded fundamentals map by the metric pack — no new query."""
+    from ..ontology import kpis_for_company
+
+    out = []
+    for spec in kpis_for_company(company):
+        if spec.key in fvals:
+            out.append({"key": spec.key, "label": spec.label, "value": fvals[spec.key],
+                        "unit": spec.unit, "higherIsBetter": spec.higher_is_better})
+    return out
+
+
 def _valuation_pctiles(companies: list[dict], funds: dict) -> dict[str, float]:
-    scored = []
+    """Percentile-rank valuation WITHIN each ratio type — PE vs PE, PS vs PS — never
+    mixing the two (a PE of 30 and a PS of 30 are not comparable). A company is ranked
+    on PE when available, else PS, against only its same-ratio peers."""
+    pe, ps = [], []
     for c in companies:
         f = funds.get(c["id"], {})
-        v = f.get("pe_ratio") or f.get("ps_ratio")
-        if v and v > 0:
-            scored.append((c["id"], v))
-    scored.sort(key=lambda x: x[1])
-    out, n = {}, len(scored)
-    for i, (cid, _) in enumerate(scored):
-        out[cid] = 100 * i / (n - 1) if n > 1 else 50
+        if f.get("pe_ratio") and f["pe_ratio"] > 0:
+            pe.append((c["id"], f["pe_ratio"]))
+        elif f.get("ps_ratio") and f["ps_ratio"] > 0:
+            ps.append((c["id"], f["ps_ratio"]))
+    out: dict[str, float] = {}
+    for pool in (pe, ps):
+        pool.sort(key=lambda x: x[1])
+        n = len(pool)
+        for i, (cid, _) in enumerate(pool):
+            out[cid] = 100 * i / (n - 1) if n > 1 else 50
     return out
 
 
@@ -283,7 +303,13 @@ def _drivers(theme: str) -> list[dict]:
               "product_ramp": "Product ramps", "accelerator_launch": "Accelerator launches",
               "capacity_expansion": "Capacity adds", "supply_constraint": "Supply tightness",
               "earnings": "Earnings trend", "equity_investment": "Strategic stakes",
-              "tech_substitution": "Tech substitution"}
+              "tech_substitution": "Tech substitution",
+              # sector-agnostic core + event backbone
+              "guidance_change": "Guidance change", "mna": "M&A", "partnership": "Partnerships",
+              "contract_win": "Contract wins", "pricing_change": "Pricing", "management_change": "Mgmt change",
+              "buyback": "Buybacks", "dividend": "Dividends", "regulatory_action": "Regulatory",
+              "litigation": "Litigation", "index_inclusion": "Index changes", "short_report": "Short reports",
+              "macro_print": "Macro prints", "stock_split": "Stock splits", "secondary_offering": "Equity raises"}
     out = []
     for r in rows:
         pol = "positive" if (r["pos"] or 0) > (r["neg"] or 0) else "negative" if (r["neg"] or 0) > (r["pos"] or 0) else "neutral"
@@ -411,6 +437,60 @@ def catalysts(theme: str = DEFAULT_THEME, limit: int = 18) -> list[dict]:
     return out
 
 
+def calendar(theme: str = DEFAULT_THEME, days: int = 90, limit: int = 40) -> list[dict]:
+    """Forward scheduled events for the theme's companies (earnings, launches,
+    conferences, …) — the 'what's coming' rail, distinct from past catalysts."""
+    comp_index = _company_segment_index(theme)
+    tick_index = _company_ticker_index()
+    rows = structured.upcoming_calendar(_theme_ids(theme), days=days, limit=limit)
+    out = []
+    for r in rows:
+        sd, we = r["scheduled_for"], r.get("window_end")
+        out.append({
+            "id": f"cal{r['id']}",
+            "date": sd.isoformat() if hasattr(sd, "isoformat") else str(sd),
+            "windowEnd": we.isoformat() if we is not None and hasattr(we, "isoformat") else None,
+            "type": r["event_type"], "status": r["status"],
+            "title": r["title"] or r["event_type"], "source": r["source"],
+            "ticker": tick_index.get(r["company_id"]), "companyId": r["company_id"],
+            "segmentId": comp_index.get(r["company_id"]), "importance": r["importance"],
+        })
+    return out
+
+
+def landscape(theme: str = DEFAULT_THEME) -> dict:
+    """Industry structure (行业格局) per chain segment: market-cap share of each
+    player and the segment's HHI concentration. Share is FX-normalized market-cap
+    based (a documented proxy); explicit revenue `market_share` fundamentals, when
+    present, are surfaced alongside."""
+    data = _load()
+    val = _valuation_pctiles(data["companies"], data["funds"])
+    rows = [_company_row(c, data, val, theme) for c in _theme_companies(data, theme)]
+    by_seg: dict[str, list[dict]] = {}
+    for r in rows:
+        by_seg.setdefault(r["segmentId"], []).append(r)
+    out: list[dict] = []
+    for seg_id in _theme_segment_ids(theme):
+        members = by_seg.get(seg_id, [])
+        if not members:
+            continue
+        total = sum(m["marketCap"] for m in members) or 0.0
+        players = []
+        for m in sorted(members, key=lambda x: -x["marketCap"]):
+            share = (m["marketCap"] / total) if total else 0.0
+            ex_share = data["funds"].get(m["id"], {}).get("market_share")
+            players.append({"id": m["id"], "name": m["name"], "ticker": m["ticker"],
+                            "marketCap": m["marketCap"], "shareOfSegment": round(share, 4),
+                            "reportedShare": round(ex_share, 4) if ex_share is not None else None})
+        hhi = round(sum((p["shareOfSegment"] * 100) ** 2 for p in players)) if total else 0
+        meta = SEGMENTS[seg_id]
+        out.append({"id": seg_id, "name": meta["name"], "nameCn": meta["nameCn"],
+                    "tier": meta["tier"], "companies": len(members), "hhi": hhi,
+                    "concentration": "concentrated" if hhi >= 2500 else "moderate" if hhi >= 1500 else "fragmented",
+                    "topPlayers": players[:8]})
+    return {"theme": theme, "shareBasis": "fx_market_cap", "segments": out, "updatedAt": _now()}
+
+
 def coverage(theme: str = DEFAULT_THEME) -> dict:
     allc = db.query("SELECT themes FROM companies")
     themes = []
@@ -463,8 +543,11 @@ def company_detail(cid: str, theme: str | None = None) -> dict | None:
     smeta = SEGMENTS.get(seg_id, {})
     return {"company": company,
             "segment": {"id": seg_id, "name": smeta.get("name", seg_id), "nameCn": smeta.get("nameCn", "")},
+            "industry": (c.get("meta") or {}).get("industry"),
+            "sector": (c.get("meta") or {}).get("sector"),
+            "kpis": _kpi_block(c, data["funds"].get(cid, {})),
             "prices": prices, "fundamentals": [dict(f) for f in funds], "signals": sigs,
-            "supplyChain": supply_chain}
+            "supplyChain": supply_chain, "landscape": graphrag.landscape(cid)}
 
 
 def _edge_lite(e: dict, side: str, self_id: str | None = None) -> dict:

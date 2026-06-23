@@ -270,6 +270,19 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 
 设计原则与产业链侧一致：**有证据来源、可溯源、强调方向而非交易**；合成层（`exploration/synthesis.py`）每次按领域整体替换 fronts，反映前沿"当前态"。详见 §2.2。
 
+### 5.4 全经济面本体扩展（As-Built，2026-06）
+
+本体从"光模块形状"扩展为**工业级、跨全经济面**的金融交易本体，分阶段、严格增量（旧枚举值全部保留，泛化靠新增 + `attrs` 子类型；**零迁移框架、仅新增 1 张表**）：
+
+- **行业分类骨干**（`ontology/sectors.py`）—— 自建 GICS 式 **11 Sector / 26 Industry**，锚定**公有领域 NAICS** + schema.org（不照抄 GICS 专有码）。公司经 `(theme, seg)` 自动分类（存量 294 司免改），分类落 `companies.meta.{sector,industry}`。
+- **可插拔运营指标包**（`ontology/metric_packs.py`，**护城河中心件**）—— `MetricSpec`（key/label/unit/方向/classifiers）注册表，**168 个规范指标键**覆盖全行业 KPI：软件 `arr/nrr/grr/rpo/crpo/rule_of_40/…`、半导体 `book_to_bill/asp/utilization/hbm_capacity/…`、金融 `nim/cet1/rotce/combined_ratio/…`、能源 `production_boe/lifting_cost/capacity_mw/…`、消费互联网 `mau/dau/arpu/gmv/take_rate/…` 等。**复用长表 `fundamentals`**（KPI = 一个 `metric` 字符串键，无新表）；`kpis_for_company()` 按 industry∪sector∪theme 取用。`FIN_METRICS/RATIO_METRICS` 由 specs 派生（向后兼容）。新行业 = 加一个 pack 列表，零核心改写。
+- **类型泛化**（`nodes/edges/catalysts.py`）—— NodeType +13（`Company/Product/EndMarket/Geography/Person/Facility/Regulator/Index/…`）、EdgeType +13（`customer_of/competes_in/sells_into_endmarket/partners_with/acquires/holds_stake/…`）、CatalystType +15（`mna/guidance_change/regulatory_action/litigation/index_inclusion/…`）。`extract.py` 自动按公司行业注入 **KPI 提示**并把 grounded 数值 KPI 写入 `fundamentals`（复用 `_grounded()` 反幻觉闸）。
+- **前瞻日历**（`event_calendar` 表）—— scheduled 未来事件（财报/发布/投资者日/PDUFA…），与过去式 `kg_events` 分离；FMP loader（`fmp.pull_calendar`）+ `dashboard.calendar()` + `/api/ui/calendar`。
+- **行业格局 / 行业格局**（`EndMarket` 节点 + `competes_in` 边）—— 每细分一个 EndMarket 节点；`graphrag.landscape()` 给竞争集；`dashboard.landscape()` 按市值份额算 **HHI 集中度** + `/api/ui/landscape`；显式 `market_share` 事实（落 `fundamentals`）并行呈现。
+- **运营控制台**（`/ops/ontology`）新增 `sectors` + `metricPacks` 视图，呈现全经济面词表。
+
+> 决策/交易层（Thesis→Signal→Position + Palantir 式 actions，接催化剂回测）**已设计、后置实现**（见规划 P5）。
+
 ---
 
 ## 6. 多 Agent 报告流水线

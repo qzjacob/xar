@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from enum import Enum
 
+from . import metric_packs
 from .catalysts import CatalystType
 from .edges import EdgeType
 from .nodes import NodeType
@@ -48,6 +49,28 @@ NODE_IRI: dict[str, dict[str, str]] = {
     NodeType.TECH_ROUTE.value: {
         "fibo": "",  # no FIBO analogue; domain-specific
         "schema": f"{SCHEMA}/Product"},
+    # --- generalized core ---
+    NodeType.COMPANY.value: {
+        "fibo": f"{FIBO}/BE/LegalEntities/CorporateBodies/Corporation",
+        "schema": f"{SCHEMA}/Corporation"},
+    NodeType.PRODUCT.value: {"fibo": "", "schema": f"{SCHEMA}/Product"},
+    NodeType.TECHNOLOGY.value: {"fibo": "", "schema": f"{SCHEMA}/Product"},
+    NodeType.END_MARKET.value: {"fibo": "", "schema": f"{SCHEMA}/Audience"},
+    NodeType.GEOGRAPHY.value: {"fibo": "", "schema": f"{SCHEMA}/Place"},
+    NodeType.PERSON.value: {"fibo": "", "schema": f"{SCHEMA}/Person"},
+    NodeType.FACILITY.value: {"fibo": "", "schema": f"{SCHEMA}/Place"},
+    NodeType.INSTITUTION.value: {
+        "fibo": f"{FIBO}/BE/LegalEntities/CorporateBodies/Corporation",
+        "schema": f"{SCHEMA}/Organization"},
+    NodeType.REGULATOR.value: {
+        "fibo": f"{FIBO}/BE/GovernmentEntities/GovernmentEntities/GovernmentAgency",
+        "schema": f"{SCHEMA}/GovernmentOrganization"},
+    NodeType.INDEX.value: {
+        "fibo": f"{FIBO}/IND/IndicesIndicators/Indices/MarketIndex", "schema": ""},
+    NodeType.COMMODITY.value: {"fibo": "", "schema": f"{SCHEMA}/Product"},
+    NodeType.STANDARD.value: {"fibo": "", "schema": f"{SCHEMA}/CreativeWork"},
+    NodeType.CONTRACT.value: {
+        "fibo": f"{FIBO}/FND/Agreements/Contracts/Contract", "schema": ""},
 }
 
 EDGE_IRI: dict[str, str] = {
@@ -59,6 +82,21 @@ EDGE_IRI: dict[str, str] = {
     EdgeType.COMPETES_WITH.value: f"{SCHEMA}/competitor",
     EdgeType.SUBSTITUTES.value: f"{SCHEMA}/isVariantOf",
     EdgeType.QUALIFIED_BY.value: f"{SCHEMA}/customer",
+    # --- generalized chain + landscape ---
+    EdgeType.CUSTOMER_OF.value: f"{SCHEMA}/customer",
+    EdgeType.SELLS_INTO_ENDMARKET.value: f"{SCHEMA}/audience",
+    EdgeType.COMPETES_IN.value: f"{SCHEMA}/competitor",
+    EdgeType.DEPENDS_ON_INPUT.value: f"{SCHEMA}/material",
+    EdgeType.PARTNERS_WITH.value: f"{SCHEMA}/affiliation",
+    # --- corporate structure + event backbone ---
+    EdgeType.SUBSIDIARY_OF.value: f"{SCHEMA}/subOrganization",
+    EdgeType.ACQUIRES.value: f"{FIBO}/BE/Corporations/Corporations/Acquisition",
+    EdgeType.HOLDS_STAKE.value: f"{FIBO}/FBC/FunctionalEntities/Investment/Investor",
+    EdgeType.LICENSES.value: f"{SCHEMA}/license",
+    EdgeType.OPERATES_FACILITY.value: f"{SCHEMA}/location",
+    EdgeType.JV_WITH.value: f"{SCHEMA}/affiliation",
+    EdgeType.REGULATED_BY.value: f"{FIBO}/FND/Law/LegalCapacity/isRegulatedBy",
+    EdgeType.INDEXED_IN.value: f"{SCHEMA}/isPartOf",
 }
 
 
@@ -110,16 +148,21 @@ class FinMetric(str, Enum):
     MARKET_CAP = "market_cap"
 
 
-FIN_METRICS = [m.value for m in FinMetric]
+# FIN_METRICS now spans the whole-economy KPI vocabulary (CORE GAAP + every sector
+# pack key from metric_packs), so canonical_metric()'s passthrough accepts KPI keys
+# like `arr`/`rpo`/`nim`/`gmv`. FinMetric stays the GAAP-core enum for callers that
+# need it (providers, ops console).
+FIN_METRICS = list(dict.fromkeys([m.value for m in FinMetric] + metric_packs.ALL_METRIC_KEYS))
 
-# A metric is a "margin/ratio" (unitless %) vs a currency amount — drives units.
+# A metric is a "margin/ratio/multiple" (unitless) vs a currency amount — drives units.
+# Superset: the legacy explicit GAAP set ∪ every ratio/pct/x pack metric.
 RATIO_METRICS = {
     FinMetric.GROSS_MARGIN.value, FinMetric.OPERATING_MARGIN.value,
     FinMetric.NET_MARGIN.value, FinMetric.PE.value, FinMetric.PS.value,
     FinMetric.ROE.value, FinMetric.ROIC.value, FinMetric.CURRENT_RATIO.value,
     FinMetric.EPS_DILUTED.value, FinMetric.REVENUE_GROWTH.value,
     FinMetric.EARNINGS_GROWTH.value,
-}
+} | metric_packs.RATIO_LIKE_KEYS
 
 # --- Provider field -> canonical FinMetric ---------------------------------
 # FMP statement field names (income/balance/cashflow + ratios) -> canonical.

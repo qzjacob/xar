@@ -28,20 +28,39 @@ def upsert_node(node_id: str, node_type: str, name: str, *, aliases=None,
 
 
 def add_edge(src_id: str, dst_id: str, rel_type: str, *, valid_from=None, valid_to=None,
-             confidence: float = 0.7, source_doc_id=None, license_tag=None) -> None:
-    # skip if an identical currently-valid edge already exists (dedup)
+             confidence: float = 0.7, source_doc_id=None, license_tag=None,
+             evidence: str | None = None) -> None:
+    """Insert a relation. Dedup is bitemporal: an existing currently-valid edge is a
+    duplicate ONLY when it covers the SAME validity window — so a later-asserted fact
+    over a different window (e.g. Q3 re-stating a Q1 relation) is preserved, not dropped.
+    When the same window is re-asserted by another source, that's corroboration: bump
+    confidence toward 1.0 instead of discarding the new evidence."""
     existing = db.query(
-        "SELECT id FROM kg_edges WHERE src_id=%s AND dst_id=%s AND rel_type=%s "
-        "AND invalidated_at IS NULL",
-        (src_id, dst_id, rel_type),
+        "SELECT id, confidence, source_doc_id, license_tag FROM kg_edges WHERE src_id=%s AND dst_id=%s "
+        "AND rel_type=%s AND invalidated_at IS NULL AND t_valid_from IS NOT DISTINCT FROM %s "
+        "AND t_valid_to IS NOT DISTINCT FROM %s",
+        (src_id, dst_id, rel_type, valid_from, valid_to),
     )
     if existing:
+        ex = existing[0]
+        # Corroboration must come from an INDEPENDENT source. Skip self-reinforcement so
+        # the graph stays idempotent and curated facts stay at their stated confidence:
+        #  - seed edges (bootstrap_seed re-runs on every startup/build_kg) never drift;
+        #  - a re-assertion carrying the same source doc never double-counts.
+        same_source = source_doc_id is not None and source_doc_id == ex["source_doc_id"]
+        if license_tag == "seed" or ex["license_tag"] == "seed" or same_source:
+            return
+        old = float(ex["confidence"] or 0.7)
+        boosted = min(0.99, old + (1.0 - old) * 0.4)  # independent source -> diminishing-returns boost
+        db.execute("UPDATE kg_edges SET confidence=%s WHERE id=%s", (boosted, ex["id"]))
         return
+    attrs = {"evidence": evidence[:500]} if evidence else {}
     db.execute(
-        """INSERT INTO kg_edges(src_id,dst_id,rel_type,t_valid_from,t_valid_to,
+        """INSERT INTO kg_edges(src_id,dst_id,rel_type,attrs,t_valid_from,t_valid_to,
                                 confidence,source_doc_id,license_tag)
-           VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
-        (src_id, dst_id, rel_type, valid_from, valid_to, confidence, source_doc_id, license_tag),
+           VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+        (src_id, dst_id, rel_type, _json(attrs), valid_from, valid_to, confidence,
+         source_doc_id, license_tag),
     )
 
 
@@ -72,12 +91,34 @@ def add_event(company_id, node_id, event_type, *, event_date=None, magnitude=Non
     return True
 
 
+def add_fundamental_from_extraction(company_id, metric, value, *, period=None,
+                                    unit=None, source_doc_id=None) -> bool:
+    """Bridge an LLM-extracted operating metric (ARR/NRR/RPO/book-to-bill/…) into
+    the long `fundamentals` table as `source='extracted'`. The metric must resolve
+    to a canonical KPI key or alias; the caller is responsible for grounding the
+    evidence (so a hallucinated number never reaches the table). Returns True if
+    written."""
+    from ..ontology.metric_packs import canonical_kpi, spec
+    from ..storage import structured
+
+    key = canonical_kpi(metric)
+    if not key or value is None:
+        return False
+    sp = spec(key)
+    u = unit or (sp.unit if sp else "USD")
+    structured.upsert_fundamental(
+        company_id, key, float(value), period=period, unit=u, source="extracted",
+        meta={"source_doc_id": source_doc_id} if source_doc_id else None,
+    )
+    return True
+
+
 def bootstrap_seed() -> None:
     """Create company + tech-route nodes, seed structural edges, and alias table.
     Idempotent — safe to run on every startup."""
     from ..ingestion.registry import (COMPANIES, NODE_TYPE_BY_ROLE, SEED_EDGES,
-                                       TECH_ROUTES)
-    from ..ontology import NodeType
+                                       SEGMENTS, TECH_ROUTES)
+    from ..ontology import EdgeType, NodeType
     from . import resolve
 
     for c in COMPANIES:
@@ -92,9 +133,20 @@ def bootstrap_seed() -> None:
     for tr in TECH_ROUTES:
         upsert_node(tr["id"], NodeType.TECH_ROUTE.value, tr["name"], attrs=tr.get("attrs", {}))
         resolve.register_alias(tr["name"], tr["id"])
+    # EndMarket nodes (one per chain segment) + competes_in edges = the industry-
+    # landscape (行业格局) backbone: HHI/share for a segment is computed over the
+    # companies that compete_in its EndMarket.
+    for seg_id, meta in SEGMENTS.items():
+        upsert_node(f"em_{seg_id}", NodeType.END_MARKET.value, f"{meta['name']} (end-market)",
+                    attrs={"theme": meta.get("theme"), "tier": meta.get("tier"), "segment": seg_id})
     for src, dst, rel in SEED_EDGES:
         add_edge(src, dst, rel, confidence=0.9, license_tag="seed")
-    log.info("KG seed bootstrapped (%d companies, %d tech routes)", len(COMPANIES), len(TECH_ROUTES))
+    for c in COMPANIES:
+        for seg_id in dict.fromkeys((c.get("seg") or {}).values()):
+            add_edge(c["id"], f"em_{seg_id}", EdgeType.COMPETES_IN.value,
+                     confidence=0.8, license_tag="seed")
+    log.info("KG seed bootstrapped (%d companies, %d tech routes, %d end-markets)",
+             len(COMPANIES), len(TECH_ROUTES), len(SEGMENTS))
 
 
 def _json(d: dict) -> str:

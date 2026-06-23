@@ -38,7 +38,18 @@ class ExtractedEvent(BaseModel):
     evidence: str = Field(description="short verbatim quote supporting the event")
 
 
+class ExtractedMetric(BaseModel):
+    company: str = Field(description="company the metric concerns")
+    metric: str = Field(description="canonical operating-metric key or a known alias, "
+                                    "e.g. 'arr','nrr','rpo','book_to_bill','gmv','nim'")
+    value: float = Field(description="numeric value (decimals as fractions: NRR 118% -> 1.18)")
+    unit: str | None = Field(default=None, description="USD | ratio | pct | x | count | days ...")
+    period: str | None = Field(default=None, description="period if stated, e.g. 'Q3-2025','FY2025'")
+    evidence: str = Field(description="short verbatim quote stating the metric and its value")
+
+
 class ExtractionResult(BaseModel):
     nodes: list[ExtractedNode] = Field(default_factory=list)
     edges: list[ExtractedEdge] = Field(default_factory=list)
     events: list[ExtractedEvent] = Field(default_factory=list)
+    metrics: list[ExtractedMetric] = Field(default_factory=list)

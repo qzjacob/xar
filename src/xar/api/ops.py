@@ -62,6 +62,9 @@ def ontology() -> dict:
         rows = db.query(f"SELECT count(*) c FROM {table} WHERE {col}=%s", (val,))
         return rows[0]["c"] if rows else 0
 
+    from ..ontology import metric_packs as packs
+    from ..ontology.sectors import INDUSTRY_SECTOR, SECTORS
+
     cat_labels = {c.value: c.name.replace("_", " ").title() for c in CatalystType}
     # provider field coverage per canonical metric
     prov_for = {m: [] for m in [x.value for x in FinMetric]}
@@ -91,6 +94,19 @@ def ontology() -> dict:
             for m in FinMetric
         ],
         "signalMap": SIGNAL_TO_CATALYST,
+        # whole-economy sector taxonomy + pluggable operating-metric packs (the moat)
+        "sectors": [
+            {"sector": s, "industries": sorted(i for i, sec in INDUSTRY_SECTOR.items() if sec == s)}
+            for s in SECTORS
+        ],
+        "metricPacks": [
+            {"classifier": c, "count": len(keys),
+             "metrics": [{"key": k, "label": packs.SPEC_BY_KEY[k].label,
+                          "unit": packs.SPEC_BY_KEY[k].unit,
+                          "higherIsBetter": packs.SPEC_BY_KEY[k].higher_is_better,
+                          "count": cnt("fundamentals", "metric", k)} for k in keys]}
+            for c, keys in sorted(packs.PACK_FOR.items()) if c != "*"
+        ],
         "standards": {"fibo": FIBO, "schema": SCHEMA},
         "totals": {
             "nodes": _count("kg_nodes"), "edges": _count("kg_edges"),

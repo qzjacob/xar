@@ -25,12 +25,93 @@ def test_chunking():
     assert all(len(c) <= 1700 for c in chunks)
 
 
-def test_ontology_taxonomy_sizes():
+def test_ontology_taxonomy_extends_without_breaking_legacy():
     from xar.ontology import CATALYST_TYPES, EDGE_TYPES, NODE_TYPES
 
-    assert len(CATALYST_TYPES) == 10
-    assert "single_source_risk" in EDGE_TYPES
-    assert "TechRoute" in NODE_TYPES
+    # legacy values preserved verbatim (seed data / graphrag / dashboards depend on them)
+    for v in ("ModuleMaker", "UpstreamComponent", "DownstreamCustomer", "TechRoute"):
+        assert v in NODE_TYPES
+    for v in ("supplies", "single_source_risk", "invests_in", "uses_techroute"):
+        assert v in EDGE_TYPES
+    for v in ("capex_guidance", "order", "earnings", "tech_substitution"):
+        assert v in CATALYST_TYPES
+    # generalized additions present
+    assert {"Company", "Product", "EndMarket", "Geography"} <= set(NODE_TYPES)
+    assert {"customer_of", "competes_in", "partners_with", "acquires"} <= set(EDGE_TYPES)
+    assert {"mna", "guidance_change", "regulatory_action"} <= set(CATALYST_TYPES)
+    assert len(NODE_TYPES) > 4 and len(EDGE_TYPES) > 8 and len(CATALYST_TYPES) > 10
+
+
+def test_metric_packs_software():
+    from xar.ontology import canonical_kpi, is_higher_better, kpis_for_industry
+
+    sw = {s.key for s in kpis_for_industry("software")}
+    assert {"arr", "nrr", "grr", "rpo", "crpo", "rule_of_40"} <= sw
+    # alias resolution feeds the LLM + the grounded write
+    assert canonical_kpi("NRR") == "nrr"
+    assert canonical_kpi("net revenue retention") == "nrr"
+    assert canonical_kpi("GMV") == "gmv"
+    assert canonical_kpi("not a metric at all") is None
+    # direction drives ranking/percentiles
+    assert is_higher_better("nrr") is True
+    assert is_higher_better("cac_payback") is False  # months -> lower is better
+
+
+def test_sector_classification_and_company_kpis():
+    from xar.ontology import classify, kpis_for_company
+
+    swe = {"themes": ["ai_software"], "seg": {"ai_software": "swe_devinfra"}}
+    assert classify(swe) == {"industry": "software", "sector": "information_technology"}
+    keys = {s.key for s in kpis_for_company(swe)}
+    assert {"nrr", "rpo"} <= keys
+
+    foundry = {"themes": ["ai_chip"], "seg": {"ai_chip": "chip_foundry"}}
+    assert classify(foundry)["industry"] == "semiconductors"
+    assert "book_to_bill" in {s.key for s in kpis_for_company(foundry)}
+
+    # explicit override for a net-new-sector company
+    bank = {"themes": [], "industry": "banks"}
+    assert classify(bank)["sector"] == "financials"
+    assert "nim" in {s.key for s in kpis_for_company(bank)}
+
+
+def test_metric_packs_span_the_economy():
+    from xar.ontology import metric_packs as mp
+
+    # every major industry has a non-empty operating-metric pack (the moat breadth)
+    for ind in ("software", "semiconductors", "banks", "insurance", "energy_ep",
+                "utilities", "internet_media", "ecommerce", "retail", "pharma",
+                "biotech", "aerospace_defense", "capital_goods", "reits"):
+        assert mp.kpis_for_industry(ind), f"empty pack: {ind}"
+    # canonical keys are globally unique
+    keys = [s.key for s in mp.ALL_SPECS]
+    assert len(keys) == len(set(keys))
+    # every spec classifier resolves (no orphan tags)
+    from xar.ontology.sectors import INDUSTRIES, SECTORS
+    valid = set(INDUSTRIES) | set(SECTORS) | {"*"}
+    for s in mp.ALL_SPECS:
+        for c in s.classifiers:
+            assert c in valid, f"unknown classifier {c} on {s.key}"
+
+
+def test_extraction_schema_has_metrics():
+    from xar.ontology import ExtractionResult
+
+    r = ExtractionResult()
+    assert r.metrics == []  # additive + backward-compatible (mock returns no metrics)
+
+
+def test_grounded_handles_chinese_recall():
+    """Evidence grounding must give CN evidence a real partial-overlap measure, not
+    degrade to strict substring (CODE_REVIEW appendix A.1.3)."""
+    from xar.kg.extract import _grounded
+
+    # English: light paraphrase tolerated via token overlap (unchanged behavior)
+    assert _grounded("record data center revenue", "NVIDIA reported record data-center revenue growth")
+    # Chinese: light paraphrase (inserted 第三季度) must still ground via char bigrams
+    assert _grounded("公司Q3营收创下历史新高", "本季度，公司在第三季度营收创下历史新高，超出预期。")
+    # precision preserved: fabricated CN evidence is still rejected
+    assert not _grounded("公司完全捏造的无关声明内容", "本季度营收创下历史新高，超出预期。")
 
 
 def test_canonical_metric_normalization():

@@ -101,12 +101,41 @@ def pull_prices(company_id: str, days: int = 400) -> int:
     return structured.upsert_prices(company_id, sym, bars, source="fmp")
 
 
+def pull_calendar(company_id: str, limit: int = 12) -> int:
+    """Forward earnings dates -> event_calendar (the 'what's coming' dimension)."""
+    sym = us_ticker(company_id)
+    if not sym:
+        return 0
+    js = get_json(f"{_BASE}/v3/historical/earning_calendar/{sym}",
+                  params={"apikey": _key()}, host=_HOST)
+    today = date.today()
+    n = 0
+    for row in (js or []):
+        d = row.get("date")
+        if not d:
+            continue
+        try:
+            dd = date.fromisoformat(str(d)[:10])
+        except ValueError:
+            continue
+        if dd < today:
+            continue
+        meta = {"epsEstimated": row.get("epsEstimated"), "revenueEstimated": row.get("revenueEstimated")}
+        if structured.upsert_calendar(company_id, "earnings", dd, title=f"{sym} earnings",
+                                      importance=3, source="fmp", meta=meta):
+            n += 1
+        if n >= limit:
+            break
+    return n
+
+
 def pull(company_id: str) -> dict:
     if not available():
         return {}
     out = {"fundamentals": pull_fundamentals(company_id),
            "estimates": pull_estimates(company_id),
            "ratings": pull_ratings(company_id),
-           "prices": pull_prices(company_id)}
+           "prices": pull_prices(company_id),
+           "calendar": pull_calendar(company_id)}
     log.info("fmp %s: %s", company_id, out)
     return out

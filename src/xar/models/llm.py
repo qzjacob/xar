@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import uuid
 from typing import Type, TypeVar
 
 import litellm
@@ -45,6 +46,22 @@ T = TypeVar("T", bound=BaseModel)
 
 class BudgetExceeded(RuntimeError):
     pass
+
+
+# Batch jobs (build_kg / expert.process / synthesize_all) attribute their spend to a
+# run_id with one of these prefixes so the (larger) batch budget cap actually bounds
+# them — otherwise run_id=None meant `_spent` was always 0 and the cap never fired.
+_BATCH_PREFIXES = ("kg", "expert", "synth", "batch")
+
+
+def new_batch_run_id(prefix: str = "batch") -> str:
+    return f"{prefix}-{uuid.uuid4().hex[:12]}"
+
+
+def _budget_cap(run_id: str | None, s) -> float:
+    if run_id and run_id.split("-", 1)[0] in _BATCH_PREFIXES:
+        return s.llm_max_usd_per_batch
+    return s.llm_max_usd_per_run
 
 
 _KEYS_SYNCED = False
@@ -119,8 +136,9 @@ def complete(
     """Plain text completion."""
     _ensure_keys()
     s = get_settings()
-    if run_id and _spent(run_id) >= s.llm_max_usd_per_run:
-        raise BudgetExceeded(f"run {run_id} exceeded ${s.llm_max_usd_per_run}")
+    cap = _budget_cap(run_id, s)
+    if run_id and _spent(run_id) >= cap:
+        raise BudgetExceeded(f"run {run_id} exceeded ${cap}")
 
     model = s.model_strong if tier == "strong" else s.model_fast
     messages = ([{"role": "system", "content": system}] if system else []) + [
@@ -137,9 +155,12 @@ def complete(
     try:
         resp = litellm.completion(**kwargs)
     except Exception as e:
-        # retry once without the optional reasoning/json params (edge providers)
+        # retry once without reasoning_effort (some providers reject it). KEEP
+        # response_format: dropping JSON mode on the retry would silently degrade
+        # complete_json() to free text exactly when structure matters most.
+        # litellm.drop_params already strips response_format for providers that
+        # genuinely don't support it, so retaining it here is safe.
         kwargs.pop("reasoning_effort", None)
-        kwargs.pop("response_format", None)
         log.warning("llm retry (%s): %s", node, e)
         resp = litellm.completion(**kwargs)
 

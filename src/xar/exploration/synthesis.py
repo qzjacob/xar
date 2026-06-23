@@ -113,48 +113,52 @@ def synthesize(domain_id: str, *, run_id: str | None = None) -> dict:
     report = llm.complete_json(prompt, FrontierReport, system=_SYSTEM, tier="strong",
                                node="frontier_synth", run_id=run_id, max_tokens=8000)
 
-    # a synthesis run represents the CURRENT state of the frontier — replace, don't accumulate
-    if report.fronts:
-        db.execute("DELETE FROM frontier_fronts WHERE domain=%s", (domain_id,))
+    # a synthesis run represents the CURRENT state of the frontier — replace, don't
+    # accumulate. delete + reinsert + domain-state run in ONE transaction so a mid-loop
+    # failure can never leave the domain with a half-replaced (or empty) front set.
     kept = 0
-    for f in report.fronts:
-        if not f.title:
-            continue
-        mat = f.maturity if f.maturity in _MATURITY else "emerging"
-        hor = f.horizon if f.horizon in _HORIZON else "mid"
-        papers_cited = [pid for pid in f.key_papers if pid in valid_ids][:8]
-        experts = sorted({(v["meta"] or {}).get("author") for v in voices
-                          if (v["meta"] or {}).get("author") and (v["meta"] or {}).get("expert")})
-        voices_used = (experts or sorted({(v["meta"] or {}).get("author") for v in voices
-                                          if (v["meta"] or {}).get("author")}))[:6]
-        fid = f"{domain_id}:{_slug(f.title)}"
-        db.execute(
-            "INSERT INTO frontier_fronts "
-            "(id, domain, title, summary, direction, significance, maturity, horizon, "
-            " momentum, confidence, key_papers, key_terms, key_voices, updated_at) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, now()) "
-            "ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, summary=EXCLUDED.summary, "
-            "direction=EXCLUDED.direction, significance=EXCLUDED.significance, "
-            "maturity=EXCLUDED.maturity, horizon=EXCLUDED.horizon, momentum=EXCLUDED.momentum, "
-            "confidence=EXCLUDED.confidence, key_papers=EXCLUDED.key_papers, "
-            "key_terms=EXCLUDED.key_terms, key_voices=EXCLUDED.key_voices, updated_at=now()",
-            (fid, domain_id, f.title[:200], f.summary, f.direction, f.significance, mat, hor,
-             max(0, min(100, int(f.momentum))), max(0.0, min(1.0, float(f.confidence))),
-             papers_cited, f.key_terms[:10], voices_used))
-        kept += 1
+    with db.tx() as c:
+        if report.fronts:
+            c.execute("DELETE FROM frontier_fronts WHERE domain=%s", (domain_id,))
+        for f in report.fronts:
+            if not f.title:
+                continue
+            mat = f.maturity if f.maturity in _MATURITY else "emerging"
+            hor = f.horizon if f.horizon in _HORIZON else "mid"
+            papers_cited = [pid for pid in f.key_papers if pid in valid_ids][:8]
+            experts = sorted({(v["meta"] or {}).get("author") for v in voices
+                              if (v["meta"] or {}).get("author") and (v["meta"] or {}).get("expert")})
+            voices_used = (experts or sorted({(v["meta"] or {}).get("author") for v in voices
+                                              if (v["meta"] or {}).get("author")}))[:6]
+            fid = f"{domain_id}:{_slug(f.title)}"
+            c.execute(
+                "INSERT INTO frontier_fronts "
+                "(id, domain, title, summary, direction, significance, maturity, horizon, "
+                " momentum, confidence, key_papers, key_terms, key_voices, updated_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, now()) "
+                "ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, summary=EXCLUDED.summary, "
+                "direction=EXCLUDED.direction, significance=EXCLUDED.significance, "
+                "maturity=EXCLUDED.maturity, horizon=EXCLUDED.horizon, momentum=EXCLUDED.momentum, "
+                "confidence=EXCLUDED.confidence, key_papers=EXCLUDED.key_papers, "
+                "key_terms=EXCLUDED.key_terms, key_voices=EXCLUDED.key_voices, updated_at=now()",
+                (fid, domain_id, f.title[:200], f.summary, f.direction, f.significance, mat, hor,
+                 max(0, min(100, int(f.momentum))), max(0.0, min(1.0, float(f.confidence))),
+                 papers_cited, f.key_terms[:10], voices_used))
+            kept += 1
 
-    db.execute(
-        "INSERT INTO frontier_domain_state "
-        "(domain, headline, momentum, paper_count, voice_count, front_count, synthesized_by) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (domain) DO UPDATE SET "
-        "headline=EXCLUDED.headline, momentum=EXCLUDED.momentum, paper_count=EXCLUDED.paper_count, "
-        "voice_count=EXCLUDED.voice_count, front_count=EXCLUDED.front_count, "
-        "synthesized_by=EXCLUDED.synthesized_by, updated_at=now()",
-        (domain_id, report.headline[:400] or d["blurb"], max(0, min(100, int(report.momentum))),
-         len(papers), len(voices), kept, "llm:strong"))
+        c.execute(
+            "INSERT INTO frontier_domain_state "
+            "(domain, headline, momentum, paper_count, voice_count, front_count, synthesized_by) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (domain) DO UPDATE SET "
+            "headline=EXCLUDED.headline, momentum=EXCLUDED.momentum, paper_count=EXCLUDED.paper_count, "
+            "voice_count=EXCLUDED.voice_count, front_count=EXCLUDED.front_count, "
+            "synthesized_by=EXCLUDED.synthesized_by, updated_at=now()",
+            (domain_id, report.headline[:400] or d["blurb"], max(0, min(100, int(report.momentum))),
+             len(papers), len(voices), kept, "llm:strong"))
     log.info("synthesized %s: %d fronts from %d papers / %d voices", domain_id, kept, len(papers), len(voices))
     return {"domain": domain_id, "fronts": kept, "papers": len(papers), "voices": len(voices)}
 
 
 def synthesize_all(*, run_id: str | None = None) -> dict:
+    run_id = run_id or llm.new_batch_run_id("synth")  # so the batch budget cap applies
     return {d["id"]: synthesize(d["id"], run_id=run_id) for d in DOMAINS}

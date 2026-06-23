@@ -93,20 +93,67 @@ def analyst(state: RunState, name: str, query: str, instruction: str, *,
     state.state.setdefault("findings", {})[name] = text
 
 
-ANALYSTS = [
-    ("fundamental", "revenue growth margins guidance financial results",
-     "Assess financial trajectory: revenue growth, gross-margin mix shift toward AI, guidance.", "fast", True),
-    ("catalyst", "order capacity expansion qualification customer 800G 1.6T capex",
-     "Identify the most material dated catalysts/orders and their polarity for the company.", "fast", False),
-    ("supply_chain", "supplier customer EML DSP single source qualification NVIDIA",
-     "Map the company's position: key suppliers, customers, single-source exposure, tech-route bets.", "fast", False),
-    ("sentiment", "demand outlook commentary risks competition",
-     "Summarize sentiment and forward demand signals from news/filings (bilingual).", "fast", False),
-    ("valuation", "valuation multiple growth margin demand TAM 1.6T",
-     "Give a valuation perspective tied to the demand clock (GPU launch cadence) and margin mix.", "strong", True),
-]
+# Per-theme retrieval terms + the demand-clock framing, so a software/space/robotics
+# company is NOT searched with optical-module keywords. Each entry feeds the catalyst /
+# supply-chain / valuation analyst queries and the valuation framing.
+_THEME_TERMS = {
+    "ai_optical": {
+        "catalyst": "order capacity expansion qualification customer 800G 1.6T CPO capex",
+        "supply": "supplier customer EML DSP single source qualification NVIDIA",
+        "valuation": "valuation multiple growth margin TAM 1.6T", "clock": "GPU launch cadence",
+        "risk": "CPO/LPO substitution of DSP attach, EML undersupply, customer concentration, valuation"},
+    "ai_chip": {
+        "catalyst": "order capacity foundry HBM CoWoS advanced packaging tape-out capex",
+        "supply": "supplier customer HBM CoWoS substrate single source TSMC NVIDIA",
+        "valuation": "valuation multiple growth margin wafer ASP TAM", "clock": "GPU/accelerator launch cadence",
+        "risk": "HBM/CoWoS capacity tightness, foundry single-source, export controls, customer concentration"},
+    "ai_software": {
+        "catalyst": "ARR net revenue retention seats AI agent attach product launch bookings",
+        "supply": "platform ecosystem partners hyperscaler model providers competitive moat",
+        "valuation": "valuation EV/revenue Rule-of-40 NRR growth durability", "clock": "enterprise AI adoption wave",
+        "risk": "AI-native disruption, seat compression from agents, NRR decay, platform/hyperscaler dependency, valuation"},
+    "space_exploration": {
+        "catalyst": "launch cadence reusability contract award constellation deployment capacity",
+        "supply": "supplier customer launch provider satellite bus propulsion single source",
+        "valuation": "valuation backlog launch ASP constellation TAM", "clock": "launch cadence & constellation buildout",
+        "risk": "launch failure/delay, SpaceX cost dominance, contract concentration, regulatory/spectrum, capital intensity"},
+    "humanoid_robotics": {
+        "catalyst": "unit volume pilot deployment order actuator capacity product launch",
+        "supply": "supplier harmonic reducer roller screw actuator motor sensor single source",
+        "valuation": "valuation unit economics BOM cost volume ramp TAM", "clock": "humanoid volume ramp",
+        "risk": "volume-ramp slippage, BOM cost, actuator/reducer single-source, embodied-AI maturity, customer concentration"},
+}
+_DEFAULT_TERMS = {
+    "catalyst": "order capacity expansion qualification customer capex product launch",
+    "supply": "supplier customer single source qualification key partner",
+    "valuation": "valuation multiple growth margin demand TAM", "clock": "AI demand cycle",
+    "risk": "demand cyclicality, single-source exposure, customer concentration, competition, valuation"}
+
+
+def _theme_terms(company_id: str | None) -> dict:
+    from ..ingestion.registry import company_by_id
+    if company_id:
+        c = company_by_id(company_id)
+        if c:
+            for t in c.get("themes", []):
+                if t in _THEME_TERMS:
+                    return _THEME_TERMS[t]
+    return _DEFAULT_TERMS
 
 
 def run_analysts(state: RunState) -> None:
-    for name, query, instr, tier, numeric in ANALYSTS:
+    t = _theme_terms(state.get("company_id"))
+    analysts = [
+        ("fundamental", "revenue growth margins guidance financial results",
+         "Assess financial trajectory: revenue growth, gross-margin mix shift toward AI, guidance.", "fast", True),
+        ("catalyst", t["catalyst"],
+         "Identify the most material dated catalysts/orders and their polarity for the company.", "fast", False),
+        ("supply_chain", t["supply"],
+         "Map the company's position: key suppliers, customers, single-source exposure, tech-route bets.", "fast", False),
+        ("sentiment", "demand outlook commentary risks competition",
+         "Summarize sentiment and forward demand signals from news/filings (bilingual).", "fast", False),
+        ("valuation", t["valuation"],
+         f"Give a valuation perspective tied to the demand clock ({t['clock']}) and margin mix.", "strong", True),
+    ]
+    for name, query, instr, tier, numeric in analysts:
         analyst(state, name, query, instr, tier=tier, numeric=numeric)

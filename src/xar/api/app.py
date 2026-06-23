@@ -304,6 +304,20 @@ def ui_catalysts(theme: str = "ai_optical") -> list[dict]:
     return dashboard.catalysts(theme)
 
 
+@app.get("/api/ui/calendar")
+def ui_calendar(theme: str = "ai_optical", days: int = 90) -> list[dict]:
+    from . import dashboard
+
+    return dashboard.calendar(theme, days=days)
+
+
+@app.get("/api/ui/landscape")
+def ui_landscape(theme: str = "ai_optical") -> dict:
+    from . import dashboard
+
+    return dashboard.landscape(theme)
+
+
 @app.get("/api/ui/company/{cid}")
 def ui_company(cid: str, theme: str | None = None):
     from . import dashboard

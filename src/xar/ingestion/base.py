@@ -74,11 +74,14 @@ def _json(d: dict) -> str:
 
 def seed_companies() -> int:
     """Load the registry companies into the DB (idempotent)."""
+    from ..ontology import classify
     from .registry import COMPANIES
 
     n = 0
     for c in COMPANIES:
-        meta = _json({"segments": c.get("seg", {})})
+        cls = classify(c)
+        meta = _json({"segments": c.get("seg", {}),
+                      "sector": cls["sector"], "industry": cls["industry"]})
         db.execute(
             """INSERT INTO companies (id,name,aliases,tickers,region,chain_role,cn_code,themes,meta)
                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
