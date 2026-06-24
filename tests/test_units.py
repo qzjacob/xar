@@ -267,6 +267,103 @@ def test_restaurants_pack_and_classification():
     assert classify(rst) == {"industry": "restaurants", "sector": "consumer_discretionary"}
 
 
+def test_extracted_event_semantic_fields_additive():
+    """The semantic-layer fields are additive with safe defaults (a mock that omits
+    them still validates), and the causal edge type anchors cleanly for JSON-LD."""
+    from xar.ontology import EDGE_TYPES, EdgeType, ExtractedEvent, edge_iri
+
+    e = ExtractedEvent(company="NVIDIA", event_type="order", summary="s", evidence="q")
+    assert e.time_orientation == "backward_looking"
+    assert e.narrative == "" and e.drivers == []
+    fwd = ExtractedEvent(company="X", event_type="capex_guidance", summary="s", evidence="q",
+                         time_orientation="forward_looking", narrative="AI capex drives orders",
+                         drivers=["AI capex"])
+    assert fwd.time_orientation == "forward_looking" and fwd.drivers == ["AI capex"]
+    # the new causal edge type is registered + has an (empty, domain-specific) IRI mapping
+    assert "causally_linked" in EDGE_TYPES
+    assert EdgeType.CAUSALLY_LINKED.value == "causally_linked"
+    assert edge_iri("causally_linked") == ""  # no clean schema.org/FIBO analogue, but mapped
+
+
+def test_finnhub_pull_news_builds_grey_docs(monkeypatch):
+    """Finnhub company-news → Doc with grey/self-use posture, epoch→published_at, and a
+    content-hash id that's stable across overlapping windows (so re-runs dedup)."""
+    from xar.providers import finnhub
+
+    sample = [
+        {"datetime": 1719230400, "headline": "NVIDIA lands large AI order",
+         "summary": "NVIDIA secured a multi-billion dollar accelerator order.",
+         "url": "https://ex/1", "id": 42, "category": "company news", "source": "Reuters"},
+        {"datetime": 1719240400, "headline": "x", "summary": "too short", "url": "https://ex/2"},
+    ]
+    monkeypatch.setattr(finnhub, "available", lambda: True)
+    monkeypatch.setattr(finnhub, "get_json", lambda *a, **k: sample)
+    saved = []
+    monkeypatch.setattr(finnhub, "save", lambda doc: saved.append(doc) or doc.id)
+
+    n = finnhub.pull_news("nvidia")
+    assert n == 1  # the <24-char one is dropped
+    d = saved[0]
+    assert d.source == "finnhub" and d.doc_type == "news" and d.company_id == "nvidia"
+    assert d.permission == "grey" and d.license_tag == "finnhub-news-extracted-facts-self-use"
+    assert d.published_at is not None and d.published_at.year == 2024
+    assert d.meta["finnhub_id"] == 42
+    first_id = d.id
+    # overlapping window re-pull yields the SAME id (content hash) -> ON CONFLICT dedups
+    saved.clear()
+    finnhub.pull_news("nvidia", since="2024-06-01")
+    assert saved[0].id == first_id
+
+
+def test_run_daily_isolates_source_failures(monkeypatch):
+    """One source raising must not abort the round: it gets a 'failed' ingest_runs row
+    while the others stay 'ok', and the parse/extract/expert stages still run. No DB."""
+    from xar.orchestration import daily
+
+    calls: dict = {"pull": [], "stages": []}
+    # neutralize the DB-backed scaffolding
+    monkeypatch.setattr(daily, "seed_companies", lambda: 0)
+    monkeypatch.setattr("xar.kg.store.bootstrap_seed", lambda: None)
+    finishes: list = []
+    monkeypatch.setattr("xar.storage.runlog.start", lambda kind, since_ts=None: 1)
+    monkeypatch.setattr("xar.storage.runlog.finish",
+                        lambda rid, status, stats=None, error=None: finishes.append((status, error)))
+    monkeypatch.setattr("xar.storage.runlog.last_success_ts", lambda kind: None)
+    monkeypatch.setattr("xar.parsing.parse.parse_pending",
+                        lambda: calls["stages"].append("parse") or 3)
+    monkeypatch.setattr("xar.kg.extract.build_kg",
+                        lambda **k: calls["stages"].append("kg") or {"docs": 1})
+    monkeypatch.setattr("xar.kg.expert.process",
+                        lambda **k: calls["stages"].append("expert") or {"kept": 0})
+    monkeypatch.setattr("xar.kg.signals.derive_for_company", lambda cid: {})
+    # restrict the universe so we don't iterate ~947 companies
+    monkeypatch.setattr(daily, "COMPANIES", [{"id": "nvidia"}, {"id": "amd"}])
+
+    from xar.providers import finnhub, polymarket, reddit
+    monkeypatch.setattr(finnhub, "pull_news",
+                        lambda cid, since=None: calls["pull"].append(("finnhub", cid)) or 1)
+    monkeypatch.setattr(finnhub, "pull", lambda cid: {})
+    monkeypatch.setattr(reddit, "pull_basket",
+                        lambda ids: calls["pull"].append(("reddit", tuple(ids))) or 0)
+
+    def _boom(*a, **k):
+        raise RuntimeError("polymarket down")
+    monkeypatch.setattr(polymarket, "pull", _boom)
+
+    stats = daily.run_daily(sources=["finnhub", "reddit", "polymarket"], since="auto")
+
+    # every enabled source attempted across the company shard
+    assert ("finnhub", "nvidia") in calls["pull"] and ("finnhub", "amd") in calls["pull"]
+    assert any(c[0] == "reddit" for c in calls["pull"])
+    # the failing source is recorded failed; the others ok; the parent run still ok
+    assert ("failed", "polymarket down") in finishes
+    assert stats["sources"]["polymarket"]["error"] == "polymarket down"
+    assert "error" not in stats["sources"]["finnhub"]
+    # downstream stages ran despite the one source failure
+    assert calls["stages"] == ["parse", "kg", "expert"]
+    assert stats["chunks"] == 3 and stats["companies"] == 2
+
+
 def test_providers_gate_without_keys(monkeypatch):
     # With no keys configured, key-gated providers report unavailable and never raise.
     import xar.config as cfg

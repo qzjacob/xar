@@ -35,6 +35,31 @@ services:
     ports:
       - "8000:8000"
 
+  # Daily auto-ingest runtime (Dagster daemon + webserver). Pulls every source
+  # nightly, extracts the semantic layer, and updates the KG — the whole universe
+  # split into shards. UI + run history at http://localhost:3000. Only `app`
+  # creates the schema (xar init); this container just runs the scheduler.
+  dagster:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      XAR_DATABASE_URL: postgresql://xar:xar@db:5432/xar
+      XAR_OBJECT_STORE: file:///data/objects
+      DAGSTER_HOME: /dagster
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_started
+    command: bash -lc "pip install '.[orchestration]' && dagster dev -m xar.orchestration.definitions -h 0.0.0.0 -p 3000"
+    volumes:
+      - xar_data:/data
+      - xar_models:/root/.cache
+      - dagster_home:/dagster
+    ports:
+      - "3000:3000"
+
   # Optional WeChat Official Account source. Enable with:
   #   docker compose --profile wechat up -d
   # Then open http://localhost:8001, log in (scan WeChat QR), subscribe 公众号.
@@ -53,3 +78,4 @@ volumes:
   xar_data:
   xar_models:
   werss_data:
+  dagster_home:

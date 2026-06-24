@@ -44,6 +44,9 @@ def graph_retrieve(state: RunState) -> None:
     sc = graphrag.supply_chain(cid)
     since = state.request.get("since")
     evs = graphrag.events(cid, since=since, limit=40)
+    # Unified semantic-fact stream (catalyst events + expert stance/narrative layer),
+    # point-queried as of the run — services backtestable LLM reasoning.
+    sem = graphrag.semantic(cid, since=since, limit=30)
     state.put("graph", {
         "suppliers": [f"{e['src_name']} -> {e['dst_name']} ({e['rel_type']})" for e in sc["suppliers"]],
         "customers": [f"{e['src_name']} -> {e['dst_name']}" for e in sc["customers"]],
@@ -54,8 +57,15 @@ def graph_retrieve(state: RunState) -> None:
              "magnitude": e["magnitude"], "route": e["tech_route_tag"], "summary": e["summary"]}
             for e in evs
         ],
+        "semantic": [
+            {"kind": s["kind"], "category": s["category"], "as_of": str(s["as_of"]),
+             "polarity": s["polarity"], "orientation": s["time_orientation"],
+             "content": s["content"], "narrative": s["narrative"]}
+            for s in sem
+        ],
     })
-    log.info("graph_retrieve: %d events, %d suppliers", len(evs), len(sc["suppliers"]))
+    log.info("graph_retrieve: %d events, %d semantic facts, %d suppliers",
+             len(evs), len(sem), len(sc["suppliers"]))
 
 
 def _graph_brief(state: RunState) -> str:
@@ -71,6 +81,15 @@ def _graph_brief(state: RunState) -> str:
     for e in g.get("events", [])[:20]:
         lines.append(f"- [{e['date']}] {e['type']} ({e['polarity']}) route={e['route']} "
                      f"mag={e['magnitude']}: {e['summary']}")
+    sem = g.get("semantic", [])
+    insights = [s for s in sem if s["kind"] == "insight"]
+    show = insights or [s for s in sem if s.get("narrative")]
+    if show:
+        lines.append("\nSEMANTIC LAYER (expert stance / causal narrative / forward-looking):")
+        for s in show[:15]:
+            body = s.get("narrative") or s.get("content")
+            lines.append(f"- [{s['as_of']}] {s['category']} "
+                         f"({s['polarity']}/{s['orientation']}): {body}")
     return "\n".join(lines)
 
 

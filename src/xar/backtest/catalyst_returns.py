@@ -74,11 +74,17 @@ def _series(ticker: str, start, end, need: int = 2) -> list[tuple]:
 
 
 def backtest(horizons=(5, 20), limit: int = 500) -> dict:
+    # Drive off the unified semantic-fact stream (catalyst events + expert stance/
+    # narrative layer) so the backtest answers "does the semantic/sentiment layer
+    # predict forward returns" — broken out by kind + time_orientation (esp. the
+    # forward_looking subset). `as_of` is the public-information timestamp (expert
+    # rows default to the source doc's published_at). companies JOIN supplies tickers
+    # (the view carries none).
     rows = db.query(
-        """SELECT e.event_type, e.polarity, e.event_date, c.tickers
-           FROM kg_events e JOIN companies c ON c.id = e.company_id
-           WHERE e.event_date IS NOT NULL AND e.invalidated_at IS NULL
-           ORDER BY e.event_date DESC LIMIT %s""",
+        """SELECT s.category, s.polarity, s.kind, s.time_orientation, s.as_of, c.tickers
+           FROM semantic_facts s JOIN companies c ON c.id = s.company_id
+           WHERE s.as_of IS NOT NULL
+           ORDER BY s.as_of DESC LIMIT %s""",
         (limit,),
     )
     agg: dict = defaultdict(lambda: {h: [] for h in horizons})
@@ -87,7 +93,7 @@ def backtest(horizons=(5, 20), limit: int = 500) -> dict:
         tickers = r["tickers"] or []
         if not tickers:
             continue
-        d0 = r["event_date"]
+        d0 = r["as_of"]
         # widen the window slightly on each side to land trading days
         series = None
         need = max(horizons) + 1
@@ -105,7 +111,7 @@ def backtest(horizons=(5, 20), limit: int = 500) -> dict:
         base = series[base_idx][1]
         if not base:
             continue
-        key = (r["event_type"], r["polarity"])
+        key = (r["category"], r["polarity"], r["kind"], r["time_orientation"])
         used = False
         for h in horizons:
             fwd_idx = base_idx + h
@@ -115,12 +121,12 @@ def backtest(horizons=(5, 20), limit: int = 500) -> dict:
         n_used += int(used)
 
     result = {"events_used": n_used, "by_signal": {}, "disclaimer": _DISCLAIMER}
-    for (etype, pol), hmap in agg.items():
+    for (cat, pol, kind, orient), hmap in agg.items():
         entry: dict = {}
         for h, v in hmap.items():
             entry[f"{h}d_mean_pct"] = round(sum(v) / len(v), 2) if v else None
             entry[f"{h}d_std_pct"] = round(statistics.pstdev(v), 2) if len(v) > 1 else None
             entry[f"{h}d_n"] = len(v)  # per-horizon n (samples differ across horizons)
-        result["by_signal"][f"{etype}/{pol}"] = entry
+        result["by_signal"][f"{cat}/{pol}/{kind}/{orient or 'na'}"] = entry
     log.info("backtest: %d events used across %d signals", n_used, len(result["by_signal"]))
     return result

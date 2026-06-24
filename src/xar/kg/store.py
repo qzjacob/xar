@@ -68,25 +68,54 @@ def supersede_edge(edge_id: int) -> None:
     db.execute("UPDATE kg_edges SET invalidated_at=now() WHERE id=%s", (edge_id,))
 
 
+def _anchor(company_id: str | None) -> tuple[str | None, str | None]:
+    """Best-effort ontology anchor (theme, segment) for a watched company id — the
+    company's first theme and its segment in that theme. Returns (None, None) for
+    ad-hoc/unknown nodes (so a semantic fact is anchored when we know the company,
+    and simply unanchored otherwise — never wrong)."""
+    if not company_id:
+        return None, None
+    from ..ingestion.registry import company_by_id
+
+    c = company_by_id(company_id)
+    if not c:
+        return None, None
+    themes = c.get("themes") or []
+    theme = themes[0] if themes else None
+    seg = (c.get("seg") or {}).get(theme) if theme else None
+    return theme, seg
+
+
 def add_event(company_id, node_id, event_type, *, event_date=None, magnitude=None,
               polarity="neutral", tech_route_tag=None, summary="", confidence=0.7,
-              source_doc_id=None, license_tag=None) -> bool:
-    """Insert a catalyst/order event. Returns False if deduped against an
-    existing event (same company+type+date+magnitude+route across sources)."""
+              source_doc_id=None, license_tag=None, theme=None, segment=None,
+              narrative=None, time_orientation=None, drivers=None) -> bool:
+    """Insert a catalyst/order event. Returns False if deduped against an existing
+    event (same company+type+date+magnitude+route across sources).
+
+    The semantic columns (theme/segment/narrative/time_orientation + attrs.drivers)
+    are additive and company-derived, so they do NOT participate in the dedup key —
+    the event's identity is unchanged. theme/segment default from the company's
+    ontology anchor when not given by the caller."""
     dedup = hashlib.sha256(
         f"{company_id}|{event_type}|{event_date}|{(magnitude or '').strip()}|{tech_route_tag or ''}".encode()
     ).hexdigest()[:32]
     rows = db.query("SELECT id FROM kg_events WHERE dedup_key=%s", (dedup,))
     if rows:
         return False
+    if theme is None and segment is None:
+        theme, segment = _anchor(company_id)
+    attrs = {"drivers": list(drivers)} if drivers else {}
     db.execute(
         """INSERT INTO kg_events(company_id,node_id,event_type,event_date,magnitude,
-                                 polarity,tech_route_tag,summary,confidence,
-                                 source_doc_id,license_tag,dedup_key)
-           VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                 polarity,tech_route_tag,summary,attrs,confidence,
+                                 source_doc_id,license_tag,dedup_key,
+                                 theme,segment,narrative,time_orientation)
+           VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
            ON CONFLICT (dedup_key) DO NOTHING""",
         (company_id, node_id, event_type, event_date, magnitude, polarity,
-         tech_route_tag, summary, confidence, source_doc_id, license_tag, dedup),
+         tech_route_tag, summary, _json(attrs), confidence, source_doc_id, license_tag, dedup,
+         theme, segment, narrative, time_orientation),
     )
     return True
 

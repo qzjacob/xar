@@ -77,6 +77,14 @@ class Settings(BaseSettings):
     arxiv_max_results: int = 60
     arxiv_lookback_days: int = 21
 
+    # --- Daily auto-ingest system (orchestration/daily.py + Dagster sidecar) ---
+    # Which sources the daily loop pulls (CSV; each unavailable one is skipped).
+    daily_enabled_sources: str = "edgar,cninfo,finnhub,fmp,twitter,reddit,wechat,aifinmarket,polymarket"
+    daily_run_hour: int = 6            # nightly schedule hour (cron "0 {hour} * * *")
+    daily_universe_shards: int = 8     # full universe split into N nightly shards
+    daily_news_lookback_days: int = 7  # default Finnhub/FMP news pull window
+    daily_kg_doc_limit: int = 800      # cap KG-extraction docs per run/shard (cost guard)
+
     # --- Posture / politeness ---
     data_posture: str = "self_use"
     http_user_agent: str = "xar-research/0.1 (+research)"

@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import date
 
 from ..config import get_settings
+from ..ingestion.base import Doc, save
 from ..ontology.standards import FMP_MAP, RATIO_METRICS, FinMetric
 from ..storage import structured
 from .base import get_json, log, us_ticker
@@ -13,6 +14,7 @@ from .base import get_json, log, us_ticker
 _BASE = "https://financialmodelingprep.com/api"
 _HOST = "financialmodelingprep.com"
 _STATEMENTS = ("income-statement", "balance-sheet-statement", "cash-flow-statement")
+_NEWS_LICENSE = "fmp-news-extracted-facts-self-use"
 
 
 def available() -> bool:
@@ -129,6 +131,30 @@ def pull_calendar(company_id: str, limit: int = 12) -> int:
     return n
 
 
+def pull_news(company_id: str, *, limit: int = 20) -> int:
+    """Company news -> documents (grey, extracted-facts self-use). Per-company only
+    (the registry is the relevance filter). Idempotent via the content-hash Doc.id."""
+    sym = us_ticker(company_id)
+    if not sym or not available():
+        return 0
+    js = get_json(f"{_BASE}/v3/stock_news",
+                  params={"tickers": sym, "limit": limit, "apikey": _key()}, host=_HOST)
+    n = 0
+    for row in (js or [])[:limit]:
+        title = (row.get("title") or "").strip()
+        body = (row.get("text") or "").strip() or title
+        if len(body) < 24:
+            continue
+        save(Doc(company_id=company_id, source="fmp", doc_type="news",
+                 title=title or body[:80], text=body[:120_000], url=row.get("url"),
+                 published_at=row.get("publishedDate"), permission="grey",
+                 license_tag=_NEWS_LICENSE,
+                 meta={"news_source": row.get("site"), "symbol": row.get("symbol")}))
+        n += 1
+    log.info("fmp news %s: %d docs", company_id, n)
+    return n
+
+
 def pull(company_id: str) -> dict:
     if not available():
         return {}
@@ -136,6 +162,7 @@ def pull(company_id: str) -> dict:
            "estimates": pull_estimates(company_id),
            "ratings": pull_ratings(company_id),
            "prices": pull_prices(company_id),
-           "calendar": pull_calendar(company_id)}
+           "calendar": pull_calendar(company_id),
+           "news": pull_news(company_id)}
     log.info("fmp %s: %s", company_id, out)
     return out

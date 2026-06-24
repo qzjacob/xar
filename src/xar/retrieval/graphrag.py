@@ -85,6 +85,31 @@ def events(company_id: str | None = None, since: str | None = None,
     return db.query(sql, params)
 
 
+def semantic(company_id: str | None = None, theme: str | None = None,
+             as_of: str | None = None, since: str | None = None, limit: int = 100) -> list[dict]:
+    """The unified timestamped semantic-fact stream (kg_events ∪ kept expert_insights)
+    via the `semantic_facts` view — the single entry the LLM agent and the backtest read
+    for 'all semantic facts (catalyst + stance/narrative) as of day D for a company/theme'.
+    `as_of` is the point-query upper bound (facts dated on/before it); `since` a lower bound."""
+    sql = "SELECT * FROM semantic_facts WHERE TRUE"
+    params: list = []
+    if company_id:
+        sql += " AND company_id=%s"
+        params.append(company_id)
+    if theme:
+        sql += " AND theme=%s"
+        params.append(theme)
+    if as_of:
+        sql += " AND as_of <= %s"
+        params.append(as_of)
+    if since:
+        sql += " AND as_of >= %s"
+        params.append(since)
+    sql += " ORDER BY as_of DESC NULLS LAST LIMIT %s"
+    params.append(limit)
+    return db.query(sql, params)
+
+
 def changes_since(company_id: str, observed_after: str) -> dict:
     """For tracking summaries: new events + superseded facts since a timestamp."""
     new_events = db.query(

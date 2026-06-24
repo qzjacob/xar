@@ -377,3 +377,61 @@ CREATE TABLE IF NOT EXISTS frontier_domain_state (
     synthesized_by TEXT,
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ===========================================================================
+-- SEMANTIC LAYER ENRICHMENT (additive, idempotent)
+-- The existing kg_events / kg_edges / expert_insights tables already ARE the
+-- timestamped, ontology-anchored "semantic database". These additive columns
+-- give every semantic fact a stable ontology anchor (theme/segment), a public-
+-- information timestamp (as_of) and the causal/forward-looking semantics
+-- (narrative, time_orientation) the numeric tables don't carry. All statements
+-- are `ADD COLUMN IF NOT EXISTS` so init_schema() re-runs cleanly (same pattern
+-- as companies.themes above) — no migration runner, no destructive change.
+-- ===========================================================================
+ALTER TABLE kg_events       ADD COLUMN IF NOT EXISTS theme            TEXT;
+ALTER TABLE kg_events       ADD COLUMN IF NOT EXISTS segment          TEXT;
+ALTER TABLE kg_events       ADD COLUMN IF NOT EXISTS narrative        TEXT;  -- ≤2-sentence causal/forward context
+ALTER TABLE kg_events       ADD COLUMN IF NOT EXISTS time_orientation TEXT;  -- forward_looking | backward_looking
+ALTER TABLE kg_edges        ADD COLUMN IF NOT EXISTS theme            TEXT;
+ALTER TABLE expert_insights ADD COLUMN IF NOT EXISTS as_of            DATE;  -- public-info date (= source doc published_at)
+ALTER TABLE expert_insights ADD COLUMN IF NOT EXISTS theme            TEXT;
+ALTER TABLE expert_insights ADD COLUMN IF NOT EXISTS segment          TEXT;
+ALTER TABLE expert_insights ADD COLUMN IF NOT EXISTS time_orientation TEXT;
+CREATE INDEX IF NOT EXISTS idx_expert_asof  ON expert_insights(as_of);
+CREATE INDEX IF NOT EXISTS idx_events_theme ON kg_events(theme);
+
+-- Single timestamped "semantic fact stream": the surface the LLM agent and the
+-- backtest read. Unions the catalyst-event layer (kg_events) and the expert
+-- narrative/stance layer (expert_insights, kept rows) into one point-queryable
+-- shape. Every row carries: as_of (valid-time) + observed_at (tx-time) for point
+-- queries, source_doc_id for provenance, theme/segment/company_id for the
+-- ontology anchor, and polarity/narrative/time_orientation for stance/causality.
+CREATE OR REPLACE VIEW semantic_facts AS
+  SELECT 'event'::text AS kind, e.id::text AS id, e.company_id, e.event_type AS category,
+         e.event_date AS as_of, e.observed_at, e.polarity, e.summary AS content,
+         e.narrative, e.time_orientation, e.tech_route_tag, e.confidence,
+         e.source_doc_id, e.license_tag, e.theme, e.segment
+    FROM kg_events e WHERE e.invalidated_at IS NULL
+  UNION ALL
+  SELECT 'insight', x.id::text, x.company_id, x.catalyst_type,
+         x.as_of, x.created_at, x.polarity, x.thesis,
+         NULL, x.time_orientation, x.tech_route_tag, x.signal_quality,
+         x.doc_id, 'expert', x.theme, x.segment
+    FROM expert_insights x WHERE x.kept;
+
+-- ---------------------------------------------------------------------------
+-- Daily-ingest run log (observability + per-source incremental cursor).
+-- One row per pull/daily run; last_success_ts(kind) = max(finished_at) where ok.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ingest_runs (
+    id            BIGSERIAL PRIMARY KEY,
+    kind          TEXT NOT NULL,                -- 'daily' | source id (finnhub/edgar/...)
+    started_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at   TIMESTAMPTZ,
+    status        TEXT NOT NULL DEFAULT 'running',  -- running | ok | failed | skipped
+    since_ts      TIMESTAMPTZ,                  -- pull window lower bound used by this run
+    stats         JSONB NOT NULL DEFAULT '{}',
+    error         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ingest_runs_kind    ON ingest_runs(kind);
+CREATE INDEX IF NOT EXISTS idx_ingest_runs_started ON ingest_runs(started_at DESC);

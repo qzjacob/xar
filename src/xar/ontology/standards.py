@@ -97,6 +97,7 @@ EDGE_IRI: dict[str, str] = {
     EdgeType.JV_WITH.value: f"{SCHEMA}/affiliation",
     EdgeType.REGULATED_BY.value: f"{FIBO}/FND/Law/LegalCapacity/isRegulatedBy",
     EdgeType.INDEXED_IN.value: f"{SCHEMA}/isPartOf",
+    EdgeType.CAUSALLY_LINKED.value: "",  # domain-specific causal link; no clean schema.org/FIBO analogue
 }
 
 

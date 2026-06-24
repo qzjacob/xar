@@ -37,6 +37,8 @@ class EdgeType(str, Enum):
     JV_WITH = "jv_with"
     REGULATED_BY = "regulated_by"
     INDEXED_IN = "indexed_in"              # Company -> Index
+    # --- semantic layer: causal driver of a catalyst event ---
+    CAUSALLY_LINKED = "causally_linked"    # Driver -> Company: a driver causes a catalyst event
 
 
 EDGE_TYPES = [t.value for t in EdgeType]

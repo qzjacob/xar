@@ -26,7 +26,7 @@ from . import resolve, store
 log = get_logger("xar.kg.expert")
 
 QUALITY_MIN = 0.55
-ALT_SOURCES = ("wechat", "x", "news", "aifinmarket", "social", "product")
+ALT_SOURCES = ("wechat", "x", "news", "aifinmarket", "social", "product", "finnhub", "fmp")
 
 
 class ExpertInsight(BaseModel):
@@ -34,9 +34,10 @@ class ExpertInsight(BaseModel):
     entity: str = ""              # the specific covered company referenced
     stance: str = "neutral"       # bull | bear | neutral
     catalyst_type: str = "earnings"
-    thesis: str = ""              # the refined professional takeaway
+    thesis: str = ""              # the refined professional takeaway (carries the causal reasoning)
     evidence: str = ""            # short supporting quote/fact
     tech_route: str = ""          # e.g. HBM / CoWoS / 1.6T / CPO (optional)
+    time_orientation: str = "backward_looking"  # forward_looking | backward_looking
     signal_quality: float = Field(default=0.0)
 
 
@@ -64,13 +65,15 @@ def _prompt(d: dict) -> str:
         f"<CONTENT>\n{(d['text'] or '')[:6000]}\n</CONTENT>\n\n"
         f"Allowed catalyst_type values: {CATALYST_TYPES}\n"
         "stance ∈ {bull, bear, neutral}. signal_quality 0..1 (>=0.7 = high-conviction professional "
-        "signal; <0.55 = weak/noise). entity = the covered company's name/ticker. If the item is not "
-        "about a specific covered company, set relevant=false."
+        "signal; <0.55 = weak/noise). time_orientation ∈ {forward_looking, backward_looking} "
+        "(forward = guidance/forecast/order pipeline about the future; backward = already-reported "
+        "results). entity = the covered company's name/ticker. If the item is not about a specific "
+        "covered company, set relevant=false."
     )
 
 
 def process_document(doc_id: str, run_id: str | None = None) -> dict:
-    rows = db.query("SELECT id, source, title, text FROM documents WHERE id=%s", (doc_id,))
+    rows = db.query("SELECT id, source, title, text, published_at FROM documents WHERE id=%s", (doc_id,))
     if not rows or not (rows[0]["text"] or "").strip():
         return {"processed": 0, "kept": 0}
     d = rows[0]
@@ -83,12 +86,18 @@ def process_document(doc_id: str, run_id: str | None = None) -> dict:
         cid, _ = resolve.resolve(ins.entity)
     q = max(0.0, min(1.0, float(ins.signal_quality or 0)))
     kept = bool(ins.relevant and ins.thesis.strip() and q >= QUALITY_MIN and cid)
+    # public-info timestamp + ontology anchor make the insight a first-class semantic fact
+    as_of = d["published_at"].date() if d.get("published_at") else None
+    theme, segment = store._anchor(cid)
+    orientation = ins.time_orientation if ins.time_orientation in (
+        "forward_looking", "backward_looking") else "backward_looking"
 
     kg_event_id = None
     if kept:
         store.add_event(cid, cid, etype, polarity=polarity, summary=ins.thesis[:500],
                         confidence=q, source_doc_id=doc_id, license_tag="expert",
-                        tech_route_tag=(ins.tech_route or None))
+                        tech_route_tag=(ins.tech_route or None), time_orientation=orientation,
+                        theme=theme, segment=segment)
         r = db.query("SELECT id FROM kg_events WHERE source_doc_id=%s AND license_tag='expert' "
                      "ORDER BY id DESC LIMIT 1", (doc_id,))
         kg_event_id = r[0]["id"] if r else None
@@ -96,15 +105,17 @@ def process_document(doc_id: str, run_id: str | None = None) -> dict:
     db.execute(
         """INSERT INTO expert_insights
              (doc_id,source,company_id,stance,polarity,catalyst_type,thesis,evidence,
-              tech_route_tag,signal_quality,kept,kg_event_id)
-           VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+              tech_route_tag,signal_quality,kept,kg_event_id,as_of,theme,segment,time_orientation)
+           VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
            ON CONFLICT (doc_id) DO UPDATE SET
              company_id=EXCLUDED.company_id, stance=EXCLUDED.stance, polarity=EXCLUDED.polarity,
              catalyst_type=EXCLUDED.catalyst_type, thesis=EXCLUDED.thesis, evidence=EXCLUDED.evidence,
              tech_route_tag=EXCLUDED.tech_route_tag, signal_quality=EXCLUDED.signal_quality,
-             kept=EXCLUDED.kept, kg_event_id=EXCLUDED.kg_event_id""",
+             kept=EXCLUDED.kept, kg_event_id=EXCLUDED.kg_event_id, as_of=EXCLUDED.as_of,
+             theme=EXCLUDED.theme, segment=EXCLUDED.segment, time_orientation=EXCLUDED.time_orientation""",
         (doc_id, d["source"], cid, (ins.stance or "neutral")[:16], polarity, etype,
-         ins.thesis[:500], (ins.evidence or "")[:500], ins.tech_route or None, q, kept, kg_event_id),
+         ins.thesis[:500], (ins.evidence or "")[:500], ins.tech_route or None, q, kept, kg_event_id,
+         as_of, theme, segment, orientation),
     )
     return {"processed": 1, "kept": int(kept)}
 

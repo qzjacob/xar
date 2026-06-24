@@ -164,6 +164,114 @@ def test_cycle_theme_overview_orders_by_cycle_rank():
     assert dashboard.landscape("retail")["segments"]
 
 
+def test_schema_idempotent_with_semantic_layer():
+    """init_schema() re-runs cleanly on a populated DB and the additive semantic layer
+    is present: new columns on kg_events/expert_insights, the semantic_facts view, and
+    the ingest_runs table (the core idempotency guarantee for the daily system)."""
+    from xar.storage import db
+
+    db.init_schema()
+    db.init_schema()  # second run must not error (ADD COLUMN IF NOT EXISTS / OR REPLACE)
+    ev_cols = {r["column_name"] for r in db.query(
+        "SELECT column_name FROM information_schema.columns WHERE table_name='kg_events'")}
+    assert {"theme", "segment", "narrative", "time_orientation"} <= ev_cols
+    ex_cols = {r["column_name"] for r in db.query(
+        "SELECT column_name FROM information_schema.columns WHERE table_name='expert_insights'")}
+    assert {"as_of", "theme", "segment", "time_orientation"} <= ex_cols
+    assert db.query("SELECT to_regclass('semantic_facts') AS r")[0]["r"] == "semantic_facts"
+    assert db.query("SELECT to_regclass('ingest_runs') AS r")[0]["r"] == "ingest_runs"
+    db.query("SELECT * FROM semantic_facts LIMIT 1")  # view is queryable
+
+
+def test_add_event_writes_semantic_columns_and_still_dedups():
+    """add_event persists the semantic columns + attrs.drivers, anchors theme/segment
+    from the company, and the dedup_key (unchanged) still collapses a re-assertion."""
+    from xar.ingestion import seed_companies
+    from xar.kg import store
+    from xar.storage import db
+
+    seed_companies()
+    db.execute("DELETE FROM kg_events WHERE company_id='nvidia' AND event_type='order' "
+               "AND summary='sem-col test'")
+    ok = store.add_event("nvidia", "nvidia", "order", event_date="2025-09-01",
+                         summary="sem-col test", narrative="AI capex drives orders",
+                         time_orientation="forward_looking", drivers=["AI capex", "NVIDIA"])
+    assert ok
+    again = store.add_event("nvidia", "nvidia", "order", event_date="2025-09-01",
+                            summary="sem-col test", narrative="x")
+    assert again is False  # dedup_key unchanged -> second insert collapses
+    row = db.query("SELECT theme, segment, narrative, time_orientation, attrs FROM kg_events "
+                   "WHERE company_id='nvidia' AND summary='sem-col test'")[0]
+    assert row["theme"] and row["segment"]  # anchored from the registry
+    assert row["narrative"] == "AI capex drives orders"
+    assert row["time_orientation"] == "forward_looking"
+    assert row["attrs"]["drivers"] == ["AI capex", "NVIDIA"]
+    db.execute("DELETE FROM kg_events WHERE company_id='nvidia' AND summary='sem-col test'")
+
+
+def test_runlog_last_success_ts_cursor():
+    """last_success_ts returns the most recent SUCCESSFUL finish for a source — the
+    incremental pull cursor — ignoring running/failed rows."""
+    from xar.storage import db, runlog
+
+    db.execute("DELETE FROM ingest_runs WHERE kind='unit_src'")
+    r1 = runlog.start("unit_src")
+    runlog.finish(r1, "ok", stats={"pulled": 3})
+    r2 = runlog.start("unit_src")
+    runlog.finish(r2, "failed", error="boom")  # failed must not advance the cursor
+    cur = runlog.last_success_ts("unit_src")
+    assert cur is not None
+    ok_ts = db.query("SELECT finished_at FROM ingest_runs WHERE id=%s", (r1,))[0]["finished_at"]
+    assert cur == ok_ts
+    assert runlog.last_success_ts("never_run_src") is None
+    db.execute("DELETE FROM ingest_runs WHERE kind='unit_src'")
+
+
+def test_semantic_facts_unifies_events_and_insights():
+    """The semantic_facts view + graphrag.semantic() return BOTH a catalyst event and a
+    kept expert insight for the same company — the unified point-queryable stream."""
+    from xar.ingestion import seed_companies
+    from xar.kg import store
+    from xar.retrieval import graphrag
+    from xar.storage import db
+
+    seed_companies()
+    store.bootstrap_seed()
+    db.execute("DELETE FROM kg_events WHERE company_id='nvidia' AND summary='sf-event'")
+    db.execute("DELETE FROM expert_insights WHERE doc_id='sf-doc'")
+    db.execute("INSERT INTO documents(id,company_id,source,doc_type,title,text,published_at) "
+               "VALUES('sf-doc','nvidia','finnhub','news','t','t','2025-09-02') "
+               "ON CONFLICT (id) DO NOTHING")
+    store.add_event("nvidia", "nvidia", "order", event_date="2025-09-01", summary="sf-event",
+                    time_orientation="forward_looking")
+    db.execute("INSERT INTO expert_insights(doc_id,source,company_id,catalyst_type,polarity,"
+               "thesis,signal_quality,kept,as_of,time_orientation) "
+               "VALUES('sf-doc','finnhub','nvidia','earnings','positive','sf-insight',0.8,TRUE,"
+               "'2025-09-02','backward_looking') ON CONFLICT (doc_id) DO UPDATE SET kept=TRUE")
+
+    facts = graphrag.semantic("nvidia", limit=200)
+    kinds = {f["kind"] for f in facts}
+    assert "event" in kinds and "insight" in kinds
+    contents = {f["content"] for f in facts}
+    assert "sf-event" in contents and "sf-insight" in contents
+    # point-query upper bound excludes facts dated after the as_of
+    early = graphrag.semantic("nvidia", as_of="2025-09-01", limit=200)
+    early_contents = {f["content"] for f in early}
+    assert "sf-event" in early_contents and "sf-insight" not in early_contents
+    db.execute("DELETE FROM kg_events WHERE company_id='nvidia' AND summary='sf-event'")
+    db.execute("DELETE FROM expert_insights WHERE doc_id='sf-doc'")
+    db.execute("DELETE FROM documents WHERE id='sf-doc'")
+
+
+def test_backtest_reads_semantic_facts():
+    """backtest() drives off semantic_facts and groups by (category,polarity,kind,
+    time_orientation) without error (no price data needed to exercise the query path)."""
+    from xar.backtest import backtest
+
+    out = backtest(horizons=(5,), limit=50)
+    assert "by_signal" in out and "events_used" in out and "disclaimer" in out
+
+
 def test_ungrounded_extraction_dropped(mocked, monkeypatch):
     """An edge/event whose evidence quote is NOT in the source document is dropped
     rather than written to the KG (review §1.2)."""

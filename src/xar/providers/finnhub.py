@@ -4,9 +4,10 @@ endpoints; premium ones simply return nothing and are skipped."""
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from ..config import get_settings
+from ..ingestion.base import Doc, save
 from ..ontology.standards import FINNHUB_METRIC_MAP, FinMetric
 from ..storage import structured
 from .base import get_json, log, us_ticker
@@ -14,6 +15,36 @@ from .base import get_json, log, us_ticker
 _BASE = "https://finnhub.io/api/v1"
 _HOST = "finnhub.io"
 _SUFFIX = re.compile(r"(TTM|Annual|Quarterly|5Y|3Y|10Y|PerShare)+$")
+_NEWS_LICENSE = "finnhub-news-extracted-facts-self-use"
+
+
+def _as_date(v) -> date | None:
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    return date.fromisoformat(str(v)[:10])
+
+
+def _save_news(rows: list, company_id: str | None, limit: int) -> int:
+    n = 0
+    for row in (rows or [])[:limit]:
+        headline = (row.get("headline") or "").strip()
+        summary = (row.get("summary") or "").strip()
+        text = summary or headline
+        if len(text) < 24:
+            continue
+        ts = row.get("datetime")
+        published = datetime.fromtimestamp(ts, tz=timezone.utc) if ts else None
+        save(Doc(company_id=company_id, source="finnhub", doc_type="news",
+                 title=headline or text[:80], text=text[:120_000], url=row.get("url"),
+                 published_at=published, permission="grey", license_tag=_NEWS_LICENSE,
+                 meta={"finnhub_id": row.get("id"), "category": row.get("category"),
+                       "news_source": row.get("source")}))
+        n += 1
+    return n
 
 
 def available() -> bool:
@@ -106,12 +137,39 @@ def pull_insider(company_id: str) -> int:
     return n
 
 
+def pull_news(company_id: str, *, since=None, until=None, limit: int = 200) -> int:
+    """Company news -> documents (grey, extracted-facts self-use). Finnhub requires
+    a from/to window (<=1yr); defaults to the last `daily_news_lookback_days`.
+    Overlapping windows dedup on the content-hash Doc.id, so re-runs are idempotent."""
+    sym = us_ticker(company_id)
+    if not sym or not available():
+        return 0
+    today = date.today()
+    frm = _as_date(since) or (today - timedelta(days=get_settings().daily_news_lookback_days))
+    to = _as_date(until) or today
+    js = get_json(f"{_BASE}/company-news",
+                  params={"symbol": sym, "from": frm.isoformat(), "to": to.isoformat(),
+                          "token": _tok()}, host=_HOST)
+    n = _save_news(js, company_id, limit)
+    log.info("finnhub news %s: %d docs", company_id, n)
+    return n
+
+
+def pull_general_news(category: str = "technology", limit: int = 50) -> int:
+    """Market-level news scan (not company-scoped) -> documents for expert processing."""
+    if not available():
+        return 0
+    js = get_json(f"{_BASE}/news", params={"category": category, "token": _tok()}, host=_HOST)
+    return _save_news(js, None, limit)
+
+
 def pull(company_id: str) -> dict:
     if not available():
         return {}
     out = {"fundamentals": pull_fundamentals(company_id),
            "estimates": pull_estimates(company_id),
            "ratings": pull_ratings(company_id),
-           "insider": pull_insider(company_id)}
+           "insider": pull_insider(company_id),
+           "news": pull_news(company_id)}
     log.info("finnhub %s: %s", company_id, out)
     return out

@@ -1,41 +1,59 @@
-"""Dagster software-defined assets for scheduled, incremental ingestion + KG
-refresh. Optional: `pip install '.[orchestration]'` then `dagster dev -m
-xar.orchestration.definitions`. Lineage: filings -> chunks -> KG -> tracking.
+"""Dagster sidecar for the daily auto-ingest system — a thin wrapper over
+`xar.orchestration.daily.run_daily()` (dependency-free + unit-tested).
 
-Not imported by the core package; load it directly with Dagster."""
+Optional: `pip install '.[orchestration]'` then
+    dagster dev -m xar.orchestration.definitions
+
+The whole universe is covered every night, split into N static partitions
+(shard-0 .. shard-{N-1}) so each nightly run is bounded and independently
+retryable. The schedule fans out one run per shard at the configured hour.
+
+Not imported by the core package; loaded directly with Dagster (so the main app
+image never needs the dagster dependency)."""
 from __future__ import annotations
 
-from dagster import (AssetExecutionContext, Definitions, ScheduleDefinition,
-                     asset, define_asset_job)
+from dagster import (AssetExecutionContext, Definitions, RunRequest,
+                     StaticPartitionsDefinition, asset, define_asset_job, schedule)
 
-from xar.ingestion import ingest_basket
-from xar.kg import extract as kg_extract
-from xar.parsing import parse
+from xar.config import get_settings
+from xar.orchestration.daily import run_daily
+
+_N = max(1, get_settings().daily_universe_shards)
+_shards = StaticPartitionsDefinition([f"shard-{i}" for i in range(_N)])
+
+
+@asset(partitions_def=_shards)
+def universe_daily(context: AssetExecutionContext) -> dict:
+    """One nightly shard of the full universe: pull all sources → docs → parse →
+    semantic extract → expert → signals (all incremental)."""
+    shard = int(context.partition_key.split("-")[1])
+    stats = run_daily(full_universe=True, shard=shard, n_shards=_N)
+    context.log.info("daily shard %d: %s", shard, stats)
+    return stats
 
 
 @asset
-def filings(context: AssetExecutionContext) -> dict:
-    counts = ingest_basket()
-    context.log.info("ingested: %s", counts)
-    return counts
+def core_daily(context: AssetExecutionContext) -> dict:
+    """Optional lighter job: the core curated basket only (no sharding). Not scheduled."""
+    stats = run_daily(full_universe=False)
+    context.log.info("core daily: %s", stats)
+    return stats
 
 
-@asset(deps=[filings])
-def chunks(context: AssetExecutionContext) -> int:
-    n = parse.parse_pending()
-    context.log.info("parsed %d chunks", n)
-    return n
+universe_job = define_asset_job("universe_daily", selection=[universe_daily],
+                                partitions_def=_shards)
+core_job = define_asset_job("core_daily", selection=[core_daily])
 
 
-@asset(deps=[chunks])
-def knowledge_graph(context: AssetExecutionContext) -> dict:
-    totals = kg_extract.build_kg()
-    context.log.info("kg: %s", totals)
-    return totals
+@schedule(job=universe_job, cron_schedule=f"0 {get_settings().daily_run_hour} * * *")
+def daily_schedule(context):
+    """Fan out one run per universe shard each night (run-keyed per day so a given
+    night's shards are launched exactly once)."""
+    ts = context.scheduled_execution_time.strftime("%Y%m%d")
+    for i in range(_N):
+        yield RunRequest(run_key=f"{ts}-shard-{i}", partition_key=f"shard-{i}")
 
 
-refresh_job = define_asset_job("refresh", selection="*")
-# Daily incremental refresh (filings -> chunks -> KG -> downstream tracking summaries)
-daily = ScheduleDefinition(job=refresh_job, cron_schedule="0 6 * * *")
-
-defs = Definitions(assets=[filings, chunks, knowledge_graph], jobs=[refresh_job], schedules=[daily])
+defs = Definitions(assets=[universe_daily, core_daily],
+                   jobs=[universe_job, core_job],
+                   schedules=[daily_schedule])

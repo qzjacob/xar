@@ -143,6 +143,9 @@ SOURCES: list[dict] = [
     {"id": "fmp", "name": "FMP", "category": "market", "permission": "grey",
      "keyEnv": "FMP_API_KEY", "table": "fundamentals", "where": "source='fmp'",
      "runnable": True, "desc": "Statements / analyst estimates / price targets / daily prices."},
+    {"id": "finnhub_news", "name": "Finnhub News", "category": "web", "permission": "grey",
+     "keyEnv": "FINNHUB_API_KEY", "table": "documents", "where": "source='finnhub'",
+     "runnable": True, "desc": "Company news headlines/summaries → documents → KG + expert layer."},
     {"id": "polygon", "name": "Polygon", "category": "market", "permission": "grey",
      "keyEnv": "POLYGON_API_KEY", "table": "prices", "where": "source='polygon'",
      "runnable": True, "desc": "Deep daily OHLCV + vX reference financials."},
@@ -181,6 +184,7 @@ def _availability() -> dict[str, bool]:
         "news": True,
         "jobs": True,
         "wechat": wechat.available(),
+        "finnhub_news": st.get("finnhub", False),  # same key gates company-news pulls
     })
     return st
 
@@ -252,6 +256,16 @@ def run_source(source_id: str) -> dict:
         parse.parse_pending()
         kg_extract.build_kg()
         expert.process(("aifinmarket",))
+    elif source_id == "finnhub_news":
+        from ..kg import expert
+        for cid in ids:
+            try:
+                providers.finnhub.pull_news(cid)
+            except Exception as e:
+                log.warning("finnhub_news %s: %s", cid, e)
+        parse.parse_pending()
+        kg_extract.build_kg()
+        expert.process(("finnhub",))
     elif source_id in ("arxiv", "journals"):
         from ..exploration import ingest, synthesis
         ingest.ingest_all(voices=False)  # arXiv preprints + curated journals per domain

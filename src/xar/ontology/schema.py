@@ -34,6 +34,17 @@ class ExtractedEvent(BaseModel):
     polarity: str = Field(default="neutral", description="positive | negative | neutral for the named company")
     tech_route_tag: str | None = Field(default=None, description="e.g. '1.6T', 'CPO', 'EML'")
     summary: str = Field(description="one-sentence factual summary")
+    time_orientation: str = Field(
+        default="backward_looking",
+        description="forward_looking = guidance/orders/forecast (about the future) | "
+                    "backward_looking = earnings/results (already happened)")
+    narrative: str = Field(
+        default="",
+        description="≤2-sentence causal / forward-looking context beyond the summary: WHY it "
+                    "happened or WHAT it will drive. Must be supported by the evidence quote.")
+    drivers: list[str] = Field(
+        default_factory=list,
+        description="entities/factors explicitly stated to drive this event (e.g. ['AI capex', 'NVIDIA'])")
     confidence: float = Field(default=0.7, ge=0, le=1)
     evidence: str = Field(description="short verbatim quote supporting the event")
 

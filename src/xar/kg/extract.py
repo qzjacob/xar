@@ -8,8 +8,8 @@ import re
 from ..ingestion.registry import company_by_id
 from ..logging import get_logger
 from ..models import llm
-from ..ontology import (CATALYST_TYPES, EDGE_TYPES, NODE_TYPES, ExtractionResult,
-                        NodeType, canonical_kpi, kpi_labels_for_company)
+from ..ontology import (CATALYST_TYPES, EDGE_TYPES, NODE_TYPES, EdgeType,
+                        ExtractionResult, NodeType, canonical_kpi, kpi_labels_for_company)
 from ..storage import db
 from . import resolve, store
 
@@ -117,6 +117,11 @@ def extract_from_document(doc_id: str, run_id: str | None = None, max_chars: int
         "Extract entities (companies, components, customers, tech routes), "
         "supply-chain / adoption relations (with dates if stated), dated catalyst "
         f"events, and explicitly-stated operating metrics relevant to investors in {focus}. "
+        "For each catalyst event also set `time_orientation` (forward_looking for "
+        "guidance/orders/forecasts about the future, backward_looking for already-reported "
+        "results), a short `narrative` giving the causal / forward-looking context (WHY it "
+        "happened or WHAT it will drive — only if supported by the evidence), and `drivers` "
+        "(the named entities/factors explicitly stated to cause it). "
         "Report a percentage as a fraction (NRR of 118% -> 1.18). Every edge, event and "
         "metric needs a short verbatim evidence quote copied from the document.\n\n"
         "<DOCUMENT>\n" + text + "\n</DOCUMENT>"
@@ -155,7 +160,7 @@ def extract_from_document(doc_id: str, run_id: str | None = None, max_chars: int
                        source_doc_id=doc_id, license_tag="extracted", evidence=e.evidence)
         n_edges += 1
 
-    n_events = 0
+    n_events = n_causal = 0
     for ev in result.events:
         if ev.event_type not in CATALYST_TYPES:
             continue
@@ -165,13 +170,30 @@ def extract_from_document(doc_id: str, run_id: str | None = None, max_chars: int
         company_node = d["company_id"]
         rid, _ = resolve.resolve(ev.company)
         company_node = rid or d["company_id"]
+        # narrative is additive semantic context — keep it only when grounded, else blank
+        # it (never drop the whole event for an unsupported narrative).
+        narrative = ev.narrative if (ev.narrative and _grounded(ev.narrative, text)) else None
+        drivers = [s.strip() for s in (ev.drivers or []) if s and s.strip()]
         added = store.add_event(
             company_node, company_node, ev.event_type,
             event_date=store.parse_date(ev.event_date), magnitude=ev.magnitude,
             polarity=ev.polarity, tech_route_tag=ev.tech_route_tag, summary=ev.summary,
             confidence=ev.confidence, source_doc_id=doc_id, license_tag="extracted",
+            narrative=narrative, time_orientation=ev.time_orientation, drivers=drivers or None,
         )
         n_events += int(added)
+        # Causal modeling: a driver that resolves to a known KG node becomes a
+        # point-queryable `causally_linked` edge (driver -> company). The event's
+        # grounded evidence backs the edge.
+        if added and company_node:
+            for dname in drivers:
+                drv, _ = resolve.resolve(dname)
+                if drv and drv != company_node:
+                    store.add_edge(drv, company_node, EdgeType.CAUSALLY_LINKED.value,
+                                   valid_from=store.parse_date(ev.event_date),
+                                   confidence=ev.confidence, source_doc_id=doc_id,
+                                   license_tag="extracted", evidence=ev.evidence)
+                    n_causal += 1
 
     # operating metrics (ARR/NRR/RPO/book-to-bill/…) -> long fundamentals table,
     # only when the metric resolves to a canonical KPI key AND its quote is grounded.
@@ -189,7 +211,7 @@ def extract_from_document(doc_id: str, run_id: str | None = None, max_chars: int
             n_metrics += 1
 
     out = {"nodes": len(result.nodes), "edges": n_edges, "events": n_events,
-           "metrics": n_metrics, "dropped_ungrounded": n_dropped}
+           "causal_edges": n_causal, "metrics": n_metrics, "dropped_ungrounded": n_dropped}
     log.info("extracted %s: %s", doc_id, out)
     return out
 
@@ -209,12 +231,12 @@ def build_kg(limit: int | None = None, run_id: str | None = None) -> dict:
               ORDER BY {order}, d.published_at DESC NULLS LAST"""
     if limit:
         sql += f" LIMIT {int(limit)}"
-    totals = {"docs": 0, "nodes": 0, "edges": 0, "events": 0, "metrics": 0}
+    totals = {"docs": 0, "nodes": 0, "edges": 0, "events": 0, "causal_edges": 0, "metrics": 0}
     for row in db.query(sql):
         r = extract_from_document(row["id"], run_id=run_id)
         if r:
             totals["docs"] += 1
-            for k in ("nodes", "edges", "events", "metrics"):
+            for k in ("nodes", "edges", "events", "causal_edges", "metrics"):
                 totals[k] += r.get(k, 0)
     log.info("build_kg totals: %s", totals)
     return totals

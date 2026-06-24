@@ -144,6 +144,22 @@ def pull(
 
 
 @app.command()
+def daily(
+    sources: str = typer.Option(None, help="CSV of sources; omit for XAR_DAILY_ENABLED_SOURCES"),
+    since: str = typer.Option("auto", help="auto (incremental cursor) | full | ISO date"),
+    shard: int = typer.Option(None, help="shard index k (with --n-shards) for a universe slice"),
+    n_shards: int = typer.Option(1, help="split the universe into N nightly shards"),
+) -> None:
+    """Run one daily incremental ingest+update pass across all sources: pull → parse
+    → semantic extract → expert → signals. Idempotent/resumable; logs to ingest_runs."""
+    from .orchestration.daily import run_daily
+
+    srcs = [x.strip() for x in sources.split(",") if x.strip()] if sources else None
+    stats = run_daily(srcs, since=since, shard=shard, n_shards=n_shards)
+    print(json.dumps(stats, indent=2, default=str))
+
+
+@app.command()
 def providers_status() -> None:
     """Show which market-data / alt-data providers are configured."""
     from . import providers
