@@ -538,3 +538,128 @@ A.1.1 / A.1.2 / A.1.3 均为**一行级修复且不引入依赖**，且都落在
 | **B.3** 周期轴扩展一致性（6 项） | 认可，逐项与本人实现/早前验证一致。 | 无 action。 |
 
 > 第三方裁定：附录 B 的 **1 项有效问题（B.1.1）已修复并加测试**；B.2.1 经一手来源独立核实确为误报，按建议加防御性注释；B.3 全部通过。
+
+---
+
+## 附录 C：8 主题全球个股域扩展 + 独立多智能体审查（2026-06-23）
+
+> 目标：把 8 个主题的覆盖扩到完整相关投资域——**美股 ≥ $2B + 日/韩/台全部相关个股**，跑通后端→前端全链，并由独立智能体复核。
+
+### C.1 方法（防幻觉的可复现流水线，`scripts/universe_build.py`）
+
+1. **权威存在性闸**：缓存 Finnhub 六大交易所符号全集（US 30,697 / Tokyo 4,497 / KOSPI 2,566 / KOSDAQ 1,872 / TWSE 1,332 / TPEx 1,517 = **42,481**）。LLM 枚举的任何 ticker 不在对应交易所集合即丢弃——**杜绝幻觉代码入库**。
+2. **枚举**（23-cell Workflow，theme×region）：5 个产业链主题 × {US,JP,KR,TW} + 3 个消费周期主题 × US → **1,231 原始候选**。
+3. **确定性 verify**：存在性闸 + 与**策展核心**去重（ticker + 规范化名，排除 `u_*` 自身）+ 多主题合并 + **美股 ≥$2B 市值闸**（Finnhub profile2）+ 消费主题 **country==US 闸 + 非美周期 ADR 黑名单**（PDD/BABA/SE/CPNG/MELI…）。
+4. **生成** `src/xar/ingestion/universe.py`（`COMPANIES += UNIVERSE`，策展核心保持可读/可测）。
+
+落地：**629 新增公司**（drop：no_exist 161 / dup 294 / US<$2B 40 / 非美周期 28 / 审查校正 22），合计 **1,007 家**（US 367 / JP 235 / TW 189 / KR 142 / CN 77 …；JP 24→235、KR 9→142、TW 2→189）。全链跑通：seed→bootstrap(59 end-markets, 1,084 competes_in 边)→dashboard→docker 前端均渲染扩展域；行情/基本面经 yfinance(keyless)+Finnhub 后台增量回填（幂等可续）。
+
+### C.2 独立审查（多智能体 Workflow：11 个只读 Explore 评审 → 对抗式复核 → 综合）
+
+28 agents / 65 findings / 11 high（含若干被标 high 的**正向确认**）。逐条**独立裁定**（非照单全收）：
+
+| 类别 | 裁定 | 处置 |
+|---|---|---|
+| **off-theme 误纳**（确认成立） | ai_chip: TOTO/Kitz；humanoid: DuPont/Amphenol/TE/Jabil/Celestica/Sumida/Eternal/Dynapack/Simplo/Largan/Tamron/Asia Optical；internet: Comcast/Fox（传统有线/广播）；retail: Sysco/US Foods/Performance Food（B2B 餐饮分销）/Valvoline（服务）；restaurants: Casey's（便利店）；space: 大韩航空（客运航司） | **已校正**：`THEME_DROP` 丢弃 22 条主题归属（多主题公司仅删伪标签、保留正当主题，如 DuPont→仅 ai_chip、Jabil/Celestica→仅 ai_optical、Casey's→仅 retail）；regenerate + 剪除 DB 陈旧行 + docker 重建。 |
+| **段位标错**（成立） | onsemi 标 hum_motors | **已校正** `RETAG`→hum_power。 |
+| **评审误报（独立否决）** | ai_chip Nippon Pillar（实为半导体流体系统供应商）、NGK **Insulators**（评审与 NGK **Spark Plug** 混淆，前者有真实半导体陶瓷业务）、Linde/Air Products（晶圆厂电子特气主力供应商）；retail GPC（NAPA 汽配零售）/CVNA（二手车电商零售）——均**保留**。 | 不采纳（保留）。 |
+| **"重大遗漏"高危（误报）** | "Boeing/Lockheed/RTX 缺失"（space）、"MCD/SBUX/CMG 缺失"（restaurants）——评审仅看 `universe.py` 孤立视图；这些**已在策展核心**该主题下（经 DB 核验 `space_exploration`/`restaurants` 标签皆 True），去重正确剔除。 | 不采纳（系正确去重）。 |
+| **正向确认** | 去重正确、零 dup id/ticker、1024(后 1007) 全 ticker 在权威集合内、SPA+8 主题 API+landscape 全 200。 | 认可。 |
+| **接受的广度权衡（中危，记录不改）** | JP `ai_software`(101) 含部分 SI/系统集成、TW `space`(≈28) 含通用 PCB/半导体名——按"全部相关个股"指令的广度取舍；name 规范化未含韩文谚文（KR 去重靠 ticker，无碍）。 | 记录；后续按需收紧。 |
+
+> 裁定：扩展**结构正确、闸门稳健、全链跑通**；独立审查的 **off-theme 误纳 + 段位标错已全部校正并复跑**，其余 high 经独立复核为误报/正确去重/正向项。综合 agent 因瞬时 500 未出报告，结论由本人据已确认 findings 裁定。最终 `INTEGRITY: CLEAN ✓`、`pytest` 21 passed、`ruff` 通过、live API 1,007 家全主题渲染。
+
+---
+
+## 附录 D：universe 生成数据可靠性独立复核（第一性原理·后端到前端全链）
+
+> 视角：基本面量化策略 + Palantir 技术专家；**第一性原理**而非"行业最佳实践"；严格审查数据可靠性与稳定性。
+> 复核对象：`scripts/universe_build.py`（生成器）→ `src/xar/ingestion/universe.py`（629 条 `u_` 记录）→ `registry.COMPANIES` → `bootstrap_seed`（别名写入 KG）→ `dashboard`/前端展示 全链。
+> 方法：逐条读取源码 + 直接核验已落库的 `universe.py` 内容（非转述）。验证：`pytest` 26 passed、`ruff` clean。
+> **结论先行**：功能层稳定（不崩溃、全链跑通、闸门结构正确），但**数据正确性层有 2 个 P1 缺口**，二者均落在项目"可信数据"护城河上、且修复成本极低（零新依赖）。**本附录对附录 C 的 `INTEGRITY: CLEAN ✓` 作出修正：该结论在其校验维度（id/ticker/交易所存在性）内成立，但 name↔ticker 一致性与 intra-universe 实体去重从未被校验，故"CLEAN"被高估。**
+
+### D.1 P1 — 存在性闸只校验「ticker 在交易所」，不校验「ticker↔公司名」一致
+
+**第一性原理**：universe 的可信度 = 每个 (ticker, name) 二元组都对应同一真实实体。`resolve_symbol` 只完成了这条等式的一半。
+
+- **机制（`scripts/universe_build.py:107-123`）**：`resolve_symbol` 仅判 `cand in symbols.get(exch, {})`（`:115,121`）——即"ticker 是否存在于该交易所"。而 `cache_symbols`（`:83-90`）**已把权威的 Finnhub `description` 缓存为 dict 值**（`:90` `{d["symbol"]: (d.get("description") or "")}`），**却从未拿它与 LLM 给的 `name` 比对**。函数 docstring 自称 "kills hallucinated tickers"——对 ticker 成立，对 name（人读、且 LLM 最易幻觉、且直接展示给用户的字段）**零校验**。
+- **实证（已落库的污染名称，原样进入 `companies.name`、`register_alias`、前端）—— 逐条从 `universe.py` 核验**：
+
+  | id | name（入库） | tickers | 交易所权威对应 | 性质 |
+  |---|---|---|---|---|
+  | `u_us_vicr` | `'Amphastar'` | `VICR` | **Vicor Corp**（Amphastar 实为 `AMPH`） | ticker↔名 全错（两家不同公司） |
+  | `u_us_form` | `'Photon Dynamics / Photon Control n/a'` | `FORM` | **FormFactor** | ticker↔名 全错 |
+  | `u_us_pool` | `'Williams Industrial'` | `POOL` | **Pool Corp** | ticker↔名 全错 |
+  | `u_tw_2492` | `'Hermes-Epitek (via Marketech) / GMM Tech — Cireco? Walsin? — Walsin Technology'` | `2492.TW` | 2492.TW=華新科(Walsin Technology) | **LLM 思考链焊进 name**（含 `?`/`—`/多 `/`） |
+  | `u_tw_6531` | `'Mosel Vitelic / ProMOS? — Etron-adjacent — AP Memory (RAMXEED?)'` | `6531.TW` | 6531=AP Memory（愛普） | LLM 思考链焊进 name |
+  | `u_tw_3363` | `'Sintai Optical... LuxShare-peer... All Ring... Browave... Intchains... Prime... (上詮光纖)'` | `3363.TWO` | 3363=上詮 Precision（上詮光纖） | LLM 思考链焊进 name |
+
+- **全链影响**：`name` 是 dashboard 排序/展示与 `company_detail` 的主标签；并经 `kg/store.py` `resolve.register_alias(c["name"], c["id"])` 写死为该公司别名 → KG 抽取凡引用这些别名（含 `'Cireco? Walsin?'` 这种非自然别名）将解析到错误/污染节点。对一个以"可信/可溯源"为核心卖点的平台，前端出现 "Cireco? Walsin?" 是直接信誉事故，且污染**向下流入实体消解、KG、检索、报告**全链。
+- **修复方向（零新依赖，证据已在手）**：verify 阶段对每个 resolved symbol，取已缓存的 `description` 与 LLM `name` 做归一化匹配（复用现有的 `norm_name`，叠加 token 重合度阈值；CJK 用字符级）；不匹配则**用 `description` 覆盖 `name`** 或丢弃记录。
+
+### D.2 P1 — universe 内部不去重 → 同名实体重复入库，别名解析被污染
+
+- **机制（`scripts/universe_build.py:140-149`）**：`existing_index()` 显式 `if id.startswith("u_"): continue`（`:148`）——name 去重只对**策展核心**生效，universe 内部不做 name/alias 去重；构建期 `merged` 仅按 resolved symbol 合并。故同一实体被 LLM 用两个不同 symbol 发出时，两条都存活。
+- **实证（`universe.py` 核验）**：
+  - `u_jp_3185` "Macnica Holdings"（`3185.T`，ai_chip/chip_gpu）
+  - `u_jp_3132` "Macnica Holdings"（`3132.T`，ai_software/swe_security + humanoid）
+  - Macnica 真实代码为 `3132.T`，故 3185 那条要么是重复实体、要么是把真实但不同的 `3185.T` 误标为 Macnica（后者即 D.1 的又一实例）。
+- **后果**：`companies` 出现两行同名；`register_alias("Macnica Holdings", id)` 被调用两次、**后写覆盖先写**，别名→节点映射取决于 seed 顺序（非确定）；KG 中"Macnica"身份被割裂。
+- **审计盲点（`scripts/universe_build.py:355-361`）**：`audit()` 只查 `dup_ids`、`dup_tickers`，**没有 `dup_names`**。故附录 C 的 `INTEGRITY: CLEAN ✓` 能通过——它证明不了"无重复公司"。
+- **修复方向**：`existing_index`/merge 增加 intra-universe 的规范化 name + alias 去重；`audit` 增加 `dup_names` 维度。
+
+### D.3 P2 — 美股 $2B 市值闸是「软闸」：mcap 查不到即静默放行，且审计看不见
+
+- **机制（`scripts/universe_build.py:259-266`）**：
+  ```
+  if mc is None: rec["mcap_unverified"]=True; stats["us_mcap_unverified"]+=1  # 标记，不丢
+  elif mc < US_MIN_MCAP_USD: rec["_drop"]=True                                # 仅此处丢
+  ```
+  随后 `out = [r for r in merged.values() if not r.get("_drop")]`（`:272`）——**mc 为 None 的记录被保留**。
+- **后果**：任何 Finnhub profile2 + yfinance 同时失败（限流、退市、ADR、二次上市）都绕过附录 C 反复强调的 "$2B floor"。`audit()`（`:377`）又只在 `mc is not None and mc < floor` 时报 `us_below_2b`——**未核实者既进了库也过得了审计**。
+- **证据一次性**：`generate()`（`:301-310`）丢弃 `marketCapUsd`/`mcap_unverified`，事后无法复核究竟多少未核实名入库。
+- **修复方向**：`mc is None` 按"未达闸"处理（或单独输出待审清单）；把 `marketCapUsd` 落进 `universe.py` 以备再核。
+
+### D.4 P3 — 稳定性几项
+
+- **`registry.py:686` 裸 `except Exception` 静默吞掉整个 universe**：`universe.py` 任何缺陷（CJK 编码、再生成截断、`SyntaxError`）→ 系统静默以 378 家（而非 1007 家）运行，无日志、无 flag。"optional" 的本意只需 `catch ImportError`；现写法对"数据可靠性"是隐患。至少应 `log.warning`。
+- **`generate()` 用 `{rec!r}`（`:310`）**：依赖 `dict.__repr__`，跨版本/插入序变化时 diff 噪声大，且丢弃了 verify 阶段拿到的 `marketCapUsd`（见 D.3）。改用显式 `json.dumps(..., ensure_ascii=False)` + 固定键序。
+- **`us_profile`（`:167-183`）**：每个 US symbol 重新读 settings、`time.sleep(1.1)`，~367 个 US 名 ≈ 7 分钟串行，仅靠 `profile.json` 断点续跑；Finnhub key 仍以 query string 走（与原审 §4.1 同类）。非阻塞，但脆弱。
+
+### D.5 对附录 C `INTEGRITY: CLEAN ✓` 的修正
+
+附录 C 的 CLEAN 结论在其**已校验维度内**（零 dup id、零 dup ticker、全 ticker 在权威交易所集合、seg id 全合法）成立且已核验。但本附录揭示该闸门设计**遗漏了两个同等重要的维度**：
+
+1. **name↔ticker 一致性**（D.1）——权威 `description` 已缓存却未用；
+2. **intra-universe 实体去重**（D.2）——`existing_index` 跳过 `u_`，audit 无 `dup_names`。
+
+故"CLOSED/CLEAN"应表述为：**"ticker 层面可信（exchange-existence + id/ticker 唯一），name 层面尚未校验，存在已验证的污染名称与同名重复入库。"** 这不否定附录 C 的结构正确性，但把"可信"的边界划清。
+
+### D.6 经复核通过的项（认可）
+
+- `seg` id 全部存在于 `SEGMENTS`（0 invalid）；themes/seg 键一致，无空 themes。
+- 消费段（net_*/ret_*）全部带 `cycle` profile → 新增 US internet/retail 名的 cycle 徽章链路通畅；`cycle.as_dict` 单一归一化路径（B.1.1 修复）成立。
+- `universe.py` 唯一消费点是 `registry.py`；`bootstrap_seed` 的 `competes_in` 对多主题公司按 `seg.values()` 去重正确。
+- `pytest` 26 passed、`ruff` clean —— 功能层稳定，上述问题集中在**数据正确性**而非崩溃。
+
+### D.7 本轮建议（优先级）
+
+D.1（name↔ticker 校验，复用已缓存 description）与 D.2（intra-universe name 去重 + audit 补 `dup_names`）是本次变更最该在合入前闭合的两项——它们直接落在项目"可信数据"的护城河上，且**修复成本极低、证据已在手、零新依赖**。D.3（市值硬闸 + 落库 marketCapUsd）与 D.4（registry 窄化异常 + `generate()` 显式序列化）建议同期处理。
+
+> 第二意见结论：**universe 生成流水线的结构与闸门设计正确、全链跑通、不崩溃**；但**数据正确性地基有 2 个 P1 缺口**（name↔ticker 不校验、intra-universe 不去重），二者使已落库的 `u_` 记录中存在**可验证的污染名称与同名重复**。鉴于 name 是 KG 别名与前端展示的根字段，建议在 universe 正式作为生产事实源前修复 D.1/D.2，并据此修正附录 C 的 `INTEGRITY: CLEAN ✓` 表述。
+
+### D.8 独立复核与处置（2026-06-24，第三方裁定）
+
+逐条**独立实证复核**（脚本核验 `universe.py` × 权威 `description`，非转述）。GLM-5.2 附录 D **结论成立且严重**——name 层从未校验，已落库 `u_` 记录确含大量 name↔ticker 错配。**全部 4 项 P1/P2 + 关键 P3 已修复**。
+
+| 条目 | 独立裁定 | 处置 |
+|---|---|---|
+| **D.1** name↔ticker 不校验 | **成立**。实证：VICR='Amphastar'(实为 Vicor)、POOL='Williams Industrial'(实为 Pool Corp)、FORM='Photon Dynamics'(实为 FormFactor)、3185.T='Macnica'(实为 Dream Vision)，及大量 TW/JP/KR 把 LLM 思维链(`?`/`—`/`...`)焊进 name。**用 proper token-set 重测得 73 条真·错配公司**（前次 167 系我 norm 拼接 bug 的假阳，已纠正）。 | **已修复**：verify 增 `same_entity()` 闸（共享有意义 token / 子串 / 编辑距离 / 首字母缩写四测）——错配公司即丢（drop **69**）；保留者一律用**权威 `description` 覆盖 name**，原 LLM 名经 `_GARBLE` 过滤后留作 alias。结果：VICR/POOL/FORM/Macnica-3185 丢弃；Walsin/AP Memory/IIJ/NRI/Chatwork(→Kubell) 以权威名保留。**并连带发现并修复一处策展 bug**：`3596.TW` 策展标 'Sercomm'，实为 **Arcadyan Technology**（已改名）。 |
+| **D.2** intra-universe 不去重 + audit 无 `dup_names` | **成立但部分被 D.1 吸收**：实证 Macnica 双record 实为 3185 误标(D.1 已丢)。 | **已修复**：verify 增按权威名去重；`audit` 增 `dup_names` 维度。独立细化：去重 key 仅剥法律后缀（`Sercomm`==`Sercomm Corporation` 合并，但 **`PSK Holdings`≠`PSK Inc`** 系两家真实不同公司，不误并）。`dup_names` 现 **0**。 |
+| **D.3** $2B 软闸（mc=None 静默放行） | **成立**（设计脆弱；实测 `us_mcap_unverified=0` 故无实际污染）。 | **已修复**：`mc is None` 改为**硬丢**（未核实即不过闸）；`marketCapUsd` 保留于 `verified.json` 备核。 |
+| **D.4** registry 裸 except 静默吞 universe / `generate` 序列化 | **成立**（窄化异常合理）。 | **已修复**：`registry.py` 改 `except ImportError`(缺文件静默) + `except Exception` **`log.warning`**(损坏不再静默退回 378)。`us_profile` 微优化判为非阻塞 cosmetic，自用姿态下不改。 |
+| **D.5** 修正附录 C 的 `CLEAN` 表述 | **接受**。 | audit 现含 `name_mismatch`+`dup_names` 两维；在**扩充后的校验集**上 `INTEGRITY: CLEAN ✓` 重新成立。 |
+
+**净效果**：1007→**947 家**（剔除 **60** 条错配/思维链污染记录），余者 name 全部权威化、CoT 别名清除、`dup_names=0`、US 全硬过 $2B。`pytest` 21 passed、`ruff` 通过、docker 重建后 live API 947 家全主题渲染、name-truth 抽验通过（Arcadyan 改正、污染名消失、权威名保留）。
+
+> 第三方裁定：附录 D 的 **4 项（D.1/D.2/D.3/D.4）全部修复**，并据 D.1 同法**连带修正一处策展 name↔ticker 错误（Sercomm→Arcadyan）**；附录 C 的 `CLEAN` 按 D.5 修正为「在含 name↔ticker 一致性 + 实体去重的扩充校验集上 CLEAN」。GLM-5.2 本轮复核质量高、定位准，is a genuinely valuable second opinion。
