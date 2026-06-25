@@ -133,6 +133,12 @@ def add_fundamental_from_extraction(company_id, metric, value, *, period=None,
     key = canonical_kpi(metric)
     if not key or value is None:
         return False
+    # fundamentals.company_id is a FK -> companies; an extracted metric attributed to a
+    # non-watched entity (e.g. a peer named in a news item that resolved to an ad-hoc
+    # ent_* node) must be skipped, not crash the whole document's extraction. We only
+    # track operating KPIs for companies inside our universe.
+    if not company_id or not db.query("SELECT 1 FROM companies WHERE id=%s", (company_id,)):
+        return False
     sp = spec(key)
     u = unit or (sp.unit if sp else "USD")
     structured.upsert_fundamental(

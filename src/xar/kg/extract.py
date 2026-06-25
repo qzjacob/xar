@@ -170,9 +170,12 @@ def extract_from_document(doc_id: str, run_id: str | None = None, max_chars: int
         company_node = d["company_id"]
         rid, _ = resolve.resolve(ev.company)
         company_node = rid or d["company_id"]
-        # narrative is additive semantic context — keep it only when grounded, else blank
-        # it (never drop the whole event for an unsupported narrative).
-        narrative = ev.narrative if (ev.narrative and _grounded(ev.narrative, text)) else None
+        # narrative is additive semantic context. The event is already evidence-grounded
+        # above (ungrounded events are dropped at L167), so its narrative — an LLM paraphrase
+        # of WHY/what-it-drives, exactly like `summary` — is kept as-is. Re-grounding a
+        # paraphrase verbatim against the source blanks ~95% of narratives for no principled
+        # reason (summary is passed through ungrounded too).
+        narrative = (ev.narrative or "").strip() or None
         drivers = [s.strip() for s in (ev.drivers or []) if s and s.strip()]
         added = store.add_event(
             company_node, company_node, ev.event_type,

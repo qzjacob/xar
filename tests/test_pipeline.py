@@ -272,6 +272,98 @@ def test_backtest_reads_semantic_facts():
     assert "by_signal" in out and "events_used" in out and "disclaimer" in out
 
 
+def test_resolve_forward_claims():
+    """The forward-claim loop closes correctly: a forward_looking catalyst becomes 'hit'
+    when a later same-company realized event arrives in-window with consistent polarity,
+    'miss' on opposite polarity, and 'stale' when the window lapses with no realizer.
+    Backward (hard-fact) rows are never given a resolution."""
+    from xar.kg import store
+    from xar.kg.resolve_claims import resolve_forward_claims
+    from xar.storage import db
+
+    db.init_schema()
+    cids = ("rc_hit", "rc_miss", "rc_stale")
+    for cid in cids:
+        db.execute("DELETE FROM kg_events WHERE company_id=%s", (cid,))
+        db.execute("DELETE FROM kg_nodes WHERE id=%s", (cid,))
+        store.upsert_node(cid, "Company", cid)
+    # hit: forward(+) then realized(+) in-window
+    store.add_event("rc_hit", "rc_hit", "guidance_change", event_date="2024-01-01",
+                    polarity="positive", summary="fwd", time_orientation="forward_looking")
+    store.add_event("rc_hit", "rc_hit", "earnings", event_date="2024-02-15",
+                    polarity="positive", summary="real", time_orientation="backward_looking")
+    # miss: forward(+) then realized(-)
+    store.add_event("rc_miss", "rc_miss", "guidance_change", event_date="2024-01-01",
+                    polarity="positive", summary="fwd", time_orientation="forward_looking")
+    store.add_event("rc_miss", "rc_miss", "earnings", event_date="2024-02-15",
+                    polarity="negative", summary="real", time_orientation="backward_looking")
+    # stale: forward only, window long lapsed
+    store.add_event("rc_stale", "rc_stale", "guidance_change", event_date="2024-01-01",
+                    polarity="positive", summary="fwd", time_orientation="forward_looking")
+
+    resolve_forward_claims(window_days=120, grace_days=21)
+
+    def fwd(cid):
+        return db.query("SELECT resolution, realizes_event_id FROM kg_events "
+                        "WHERE company_id=%s AND time_orientation='forward_looking'", (cid,))[0]
+    assert fwd("rc_hit")["resolution"] == "hit" and fwd("rc_hit")["realizes_event_id"] is not None
+    assert fwd("rc_miss")["resolution"] == "miss"
+    assert fwd("rc_stale")["resolution"] == "stale"
+    # the realized backward rows must stay unresolved (log immutable where it matters)
+    assert db.query("SELECT resolution FROM kg_events WHERE company_id='rc_hit' "
+                    "AND time_orientation='backward_looking'")[0]["resolution"] is None
+    for cid in cids:
+        db.execute("DELETE FROM kg_events WHERE company_id=%s", (cid,))
+        db.execute("DELETE FROM kg_nodes WHERE id=%s", (cid,))
+
+
+def test_resolve_expert_forward_claim_visible_via_view():
+    """The production population: an expert-licensed forward claim (event_date NULL, dated by
+    observed_at, license_tag='expert' so it is filtered out of the view's event arm) resolves
+    against a later realization-type event, and the resolution is READABLE through
+    semantic_facts — the insight arm joins the mirror on kg_event_id. Guards the P0 view-
+    invisibility and the NULL-event_date realizer-match defects together."""
+    from xar.kg import store
+    from xar.kg.resolve_claims import resolve_forward_claims
+    from xar.storage import db
+
+    db.init_schema()
+    db.execute("DELETE FROM kg_events WHERE company_id='rc_exp'")
+    db.execute("DELETE FROM expert_insights WHERE doc_id='rc_exp_doc'")
+    db.execute("DELETE FROM documents WHERE id='rc_exp_doc'")
+    db.execute("DELETE FROM kg_nodes WHERE id='rc_exp'")
+    store.upsert_node("rc_exp", "Company", "rc_exp")
+    # expert forward-claim mirror: event_date NULL, observed_at backdated, license 'expert'
+    db.execute("""INSERT INTO kg_events(company_id,node_id,event_type,polarity,summary,
+                    time_orientation,license_tag,observed_at,dedup_key)
+                  VALUES('rc_exp','rc_exp','guidance_change','positive','exp fwd',
+                    'forward_looking','expert','2024-01-01','rc_exp_k1')""")
+    claim_id = db.query("SELECT id FROM kg_events WHERE dedup_key='rc_exp_k1'")[0]["id"]
+    # later realized earnings (backward, positive, realization-type), in-window via observed_at
+    db.execute("""INSERT INTO kg_events(company_id,node_id,event_type,polarity,summary,
+                    time_orientation,license_tag,observed_at,dedup_key)
+                  VALUES('rc_exp','rc_exp','earnings','positive','exp real',
+                    'backward_looking','extracted','2024-02-15','rc_exp_k2')""")
+    # the kept expert_insights row pointing at the mirror, so the insight arm surfaces it
+    db.execute("INSERT INTO documents(id,source,doc_type,title,text) VALUES('rc_exp_doc','x','t','t','t') "
+               "ON CONFLICT (id) DO NOTHING")
+    db.execute("""INSERT INTO expert_insights(doc_id,source,company_id,stance,polarity,catalyst_type,
+                    thesis,kept,kg_event_id,time_orientation)
+                  VALUES('rc_exp_doc','x','rc_exp','bull','positive','guidance_change','exp fwd',
+                    true,%s,'forward_looking')""", (claim_id,))
+
+    resolve_forward_claims(window_days=120, grace_days=21)
+
+    assert db.query("SELECT resolution FROM kg_events WHERE id=%s", (claim_id,))[0]["resolution"] == "hit"
+    sf = db.query("SELECT resolution FROM semantic_facts WHERE company_id='rc_exp' AND kind='insight'")
+    assert sf and sf[0]["resolution"] == "hit"   # P0 fix: readable through the canonical surface
+
+    db.execute("DELETE FROM kg_events WHERE company_id='rc_exp'")
+    db.execute("DELETE FROM expert_insights WHERE doc_id='rc_exp_doc'")
+    db.execute("DELETE FROM documents WHERE id='rc_exp_doc'")
+    db.execute("DELETE FROM kg_nodes WHERE id='rc_exp'")
+
+
 def test_ungrounded_extraction_dropped(mocked, monkeypatch):
     """An edge/event whose evidence quote is NOT in the source document is dropped
     rather than written to the KG (review §1.2)."""

@@ -102,10 +102,20 @@ def _cursor(src: str, since):
 
 
 def run_daily(sources: list[str] | None = None, *, since=None, full_universe: bool = True,
-              shard: int | None = None, n_shards: int = 1, run_id: str | None = None) -> dict:
-    """Run one incremental daily ingest+update pass. See module docstring."""
+              shard: int | None = None, n_shards: int = 1, run_id: str | None = None,
+              stages: tuple[str, ...] = ("pull", "extract")) -> dict:
+    """Run one incremental daily ingest+update pass. See module docstring.
+
+    `stages` selects the phases:
+      - 'pull'    — per-source incremental fetch (sources → documents). This is the part
+                    that shards safely by company (each shard a disjoint company slice).
+      - 'extract' — parse → build_kg → expert → signals. These read the GLOBAL pending
+                    queue, so they must run EXACTLY ONCE per night (one batch budget), not
+                    once per shard — running them per shard would N× the LLM spend and race
+                    on the same docs. The Dagster sidecar runs 'pull' across N shard
+                    partitions and 'extract' once. The CLI default runs both (unsharded)."""
     from ..config import get_settings
-    from ..kg import expert, signals, store
+    from ..kg import expert, resolve_claims, signals, store
     from ..kg import extract as kg_extract
     from ..parsing import parse
 
@@ -113,40 +123,51 @@ def run_daily(sources: list[str] | None = None, *, since=None, full_universe: bo
     enabled = sources if sources is not None else [
         x.strip() for x in s.daily_enabled_sources.split(",") if x.strip()]
     run_id = run_id or llm.new_batch_run_id("batch")  # batch budget cap applies
-    stats: dict = {"run_id": run_id, "sources": {}}
-    parent = runlog.start("daily")
+    do_pull, do_extract = "pull" in stages, "extract" in stages
+    stats: dict = {"run_id": run_id, "stages": list(stages), "sources": {}}
+    parent = runlog.start("daily" if do_pull and do_extract else "daily:" + ",".join(stages))
     try:
-        seed_companies()         # idempotent registry → companies
+        seed_companies()         # idempotent registry → companies (FK base for doc saves)
         store.bootstrap_seed()   # idempotent node/edge/alias backbone
-        ids = [c["id"] for c in COMPANIES]
-        if full_universe and n_shards > 1 and shard is not None:
-            ids = ids[shard::n_shards]   # bounded per-shard slice of the whole universe
+        all_ids = [c["id"] for c in COMPANIES]
+        ids = all_ids
+        if do_pull and full_universe and n_shards > 1 and shard is not None:
+            ids = all_ids[shard::n_shards]   # bounded per-shard slice — PULL only
         stats["companies"] = len(ids)
 
-        # 1) incremental PULL per source — isolated so one failure can't sink the round
-        for src in enabled:
-            cur = _cursor(src, since)
-            r = runlog.start(src, since_ts=cur)
-            try:
-                sub = _run_source(src, ids, cur)
-                stats["sources"][src] = sub
-                runlog.finish(r, "ok", stats=sub)
-            except Exception as e:  # noqa: BLE001
-                stats["sources"][src] = {"error": str(e)}
-                runlog.finish(r, "failed", error=str(e))
-                log.warning("source %s failed: %s", src, e)
+        if do_pull:
+            # incremental PULL per source — isolated so one failure can't sink the round
+            for src in enabled:
+                cur = _cursor(src, since)
+                r = runlog.start(src, since_ts=cur)
+                try:
+                    sub = _run_source(src, ids, cur)
+                    stats["sources"][src] = sub
+                    runlog.finish(r, "ok", stats=sub)
+                except Exception as e:  # noqa: BLE001
+                    stats["sources"][src] = {"error": str(e)}
+                    runlog.finish(r, "failed", error=str(e))
+                    log.warning("source %s failed: %s", src, e)
 
-        # 2) parse + embed any new documents (incremental: chunk-less docs only)
-        stats["chunks"] = parse.parse_pending()
-        # 3) semantic extraction (incremental; fills causal/stance/narrative fields)
-        stats["kg"] = kg_extract.build_kg(limit=s.daily_kg_doc_limit, run_id=run_id)
-        stats["expert"] = expert.process(run_id=run_id)
-        # 4) structured → ontology signals
-        for cid in ids:
+        if do_extract:
+            # GLOBAL stages (NOT sharded) — run once over the whole pending queue.
+            stats["chunks"] = parse.parse_pending()
+            # The LLM stages may trip the batch budget; catch it HERE so the cheap DB-only
+            # stages below (signals, resolve) still run — they cost no tokens and a capped
+            # extract night must not also skip signal derivation and claim resolution.
             try:
-                signals.derive_for_company(cid)
-            except Exception as e:  # noqa: BLE001
-                log.warning("signals %s: %s", cid, e)
+                stats["kg"] = kg_extract.build_kg(limit=s.daily_kg_doc_limit, run_id=run_id)
+                stats["expert"] = expert.process(run_id=run_id)
+            except llm.BudgetExceeded as e:
+                stats["budget_capped"] = str(e)
+                log.warning("extract LLM stages budget-capped: %s", e)
+            for cid in all_ids:   # structured → ontology signals, whole universe
+                try:
+                    signals.derive_for_company(cid)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("signals %s: %s", cid, e)
+            # close the forward-claim loop: did past forward_looking expectations realize?
+            stats["resolved"] = resolve_claims.resolve_forward_claims()
 
         runlog.finish(parent, "ok", stats=stats)
     except llm.BudgetExceeded as e:

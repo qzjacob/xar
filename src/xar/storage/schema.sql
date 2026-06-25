@@ -397,8 +397,18 @@ ALTER TABLE expert_insights ADD COLUMN IF NOT EXISTS as_of            DATE;  -- 
 ALTER TABLE expert_insights ADD COLUMN IF NOT EXISTS theme            TEXT;
 ALTER TABLE expert_insights ADD COLUMN IF NOT EXISTS segment          TEXT;
 ALTER TABLE expert_insights ADD COLUMN IF NOT EXISTS time_orientation TEXT;
+-- Forward-claim resolution lifecycle: close the loop on forward_looking catalysts
+-- (did the expectation realize?). Written ONLY on forward_looking rows by the daily
+-- resolve stage; backward hard-fact rows are never touched, so the event log stays
+-- effectively append-only where it matters. resolution: NULL = unresolved (re-checked
+-- each run) → terminal hit | miss | stale. realizes_event_id links the claim to the
+-- later realized event that closed it.
+ALTER TABLE kg_events       ADD COLUMN IF NOT EXISTS resolution        TEXT;
+ALTER TABLE kg_events       ADD COLUMN IF NOT EXISTS resolved_at       TIMESTAMPTZ;
+ALTER TABLE kg_events       ADD COLUMN IF NOT EXISTS realizes_event_id BIGINT REFERENCES kg_events(id);
 CREATE INDEX IF NOT EXISTS idx_expert_asof  ON expert_insights(as_of);
 CREATE INDEX IF NOT EXISTS idx_events_theme ON kg_events(theme);
+CREATE INDEX IF NOT EXISTS idx_events_resolution ON kg_events(time_orientation, resolution);
 
 -- Single timestamped "semantic fact stream": the surface the LLM agent and the
 -- backtest read. Unions the catalyst-event layer (kg_events) and the expert
@@ -410,14 +420,21 @@ CREATE OR REPLACE VIEW semantic_facts AS
   SELECT 'event'::text AS kind, e.id::text AS id, e.company_id, e.event_type AS category,
          e.event_date AS as_of, e.observed_at, e.polarity, e.summary AS content,
          e.narrative, e.time_orientation, e.tech_route_tag, e.confidence,
-         e.source_doc_id, e.license_tag, e.theme, e.segment
-    FROM kg_events e WHERE e.invalidated_at IS NULL
+         e.source_doc_id, e.license_tag, e.theme, e.segment, e.resolution
+    -- exclude expert-mirrored events: the expert_insights arm below is their canonical
+    -- representation, so without this filter every kept insight would appear twice.
+    FROM kg_events e WHERE e.invalidated_at IS NULL AND e.license_tag IS DISTINCT FROM 'expert'
   UNION ALL
   SELECT 'insight', x.id::text, x.company_id, x.catalyst_type,
          x.as_of, x.created_at, x.polarity, x.thesis,
          NULL, x.time_orientation, x.tech_route_tag, x.signal_quality,
-         x.doc_id, 'expert', x.theme, x.segment
-    FROM expert_insights x WHERE x.kept;
+         x.doc_id, 'expert', x.theme, x.segment, e2.resolution
+    -- surface the resolution written onto the expert-mirrored kg_event: those rows are
+    -- excluded from the event arm above (license_tag='expert'), so without this join a
+    -- resolved expert forward-claim would read back as NULL everywhere downstream.
+    FROM expert_insights x
+    LEFT JOIN kg_events e2 ON e2.id = x.kg_event_id
+   WHERE x.kept;
 
 -- ---------------------------------------------------------------------------
 -- Daily-ingest run log (observability + per-source incremental cursor).

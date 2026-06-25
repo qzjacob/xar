@@ -83,7 +83,10 @@ def _graph_brief(state: RunState) -> str:
                      f"mag={e['magnitude']}: {e['summary']}")
     sem = g.get("semantic", [])
     insights = [s for s in sem if s["kind"] == "insight"]
-    show = insights or [s for s in sem if s.get("narrative")]
+    # Show expert insights AND event-level causal narratives together — don't let the
+    # presence of any insight suppress the B.1 event narratives (insight rows carry none).
+    ev_narr = [s for s in sem if s["kind"] == "event" and s.get("narrative")]
+    show = insights + ev_narr
     if show:
         lines.append("\nSEMANTIC LAYER (expert stance / causal narrative / forward-looking):")
         for s in show[:15]:

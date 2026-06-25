@@ -336,6 +336,8 @@ def test_run_daily_isolates_source_failures(monkeypatch):
     monkeypatch.setattr("xar.kg.expert.process",
                         lambda **k: calls["stages"].append("expert") or {"kept": 0})
     monkeypatch.setattr("xar.kg.signals.derive_for_company", lambda cid: {})
+    monkeypatch.setattr("xar.kg.resolve_claims.resolve_forward_claims",
+                        lambda *a, **k: calls["stages"].append("resolve") or {})
     # restrict the universe so we don't iterate ~947 companies
     monkeypatch.setattr(daily, "COMPANIES", [{"id": "nvidia"}, {"id": "amd"}])
 
@@ -360,7 +362,7 @@ def test_run_daily_isolates_source_failures(monkeypatch):
     assert stats["sources"]["polymarket"]["error"] == "polymarket down"
     assert "error" not in stats["sources"]["finnhub"]
     # downstream stages ran despite the one source failure
-    assert calls["stages"] == ["parse", "kg", "expert"]
+    assert calls["stages"] == ["parse", "kg", "expert", "resolve"]
     assert stats["chunks"] == 3 and stats["companies"] == 2
 
 

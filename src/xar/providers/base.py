@@ -33,7 +33,10 @@ def get_json(url: str, *, params=None, headers=None, host: str | None = None, ti
     try:
         return _get(url, params=params, headers=headers, host=host, timeout=timeout).json()
     except Exception as e:  # noqa: BLE001
-        log.warning("GET %s failed: %s", url, e)
+        # NEVER log str(e): httpx embeds the fully-resolved URL incl. token=/apikey= query
+        # params in its messages. Log the base path (no params), exception type, and status.
+        status = getattr(getattr(e, "response", None), "status_code", "")
+        log.warning("GET %s failed: %s %s", url, type(e).__name__, status)
         return None
 
 

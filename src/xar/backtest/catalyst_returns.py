@@ -80,12 +80,30 @@ def backtest(horizons=(5, 20), limit: int = 500) -> dict:
     # forward_looking subset). `as_of` is the public-information timestamp (expert
     # rows default to the source doc's published_at). companies JOIN supplies tickers
     # (the view carries none).
+    # Entry = GREATEST(as_of, observed_at): a fact is only actionable once it is BOTH public
+    # (as_of/event_date) AND known to us (observed_at), so enter at the LATER of the two —
+    # never before we knew (no look-ahead, even for backfilled/late-ingested facts) and on a
+    # single consistent basis (no valid/tx-time mixing within an aggregation bucket). as_of
+    # NULL falls back to observed_at (which is NOT NULL).
+    # Gate: leave room for the forward window — the newest facts have no complete N-day
+    # forward price series yet, so require entry to sit ~(max_horizon trading days → calendar
+    # + slack) before the latest price date. When prices is empty the gate is skipped (rather
+    # than silently returning zero rows) and _series falls back to its per-ticker source.
+    maxp = db.query("SELECT max(d) AS m FROM prices")[0]["m"]
+    gate, params = "", []
+    if maxp is not None:
+        gate = "WHERE entry <= %s"
+        params.append(maxp - timedelta(days=int(max(horizons) * 1.7) + 5))
     rows = db.query(
-        """SELECT s.category, s.polarity, s.kind, s.time_orientation, s.as_of, c.tickers
-           FROM semantic_facts s JOIN companies c ON c.id = s.company_id
-           WHERE s.as_of IS NOT NULL
-           ORDER BY s.as_of DESC LIMIT %s""",
-        (limit,),
+        f"""SELECT category, polarity, kind, time_orientation, entry, tickers FROM (
+              SELECT s.category, s.polarity, s.kind, s.time_orientation,
+                     GREATEST(COALESCE(s.as_of, s.observed_at::date), s.observed_at::date) AS entry,
+                     c.tickers
+                FROM semantic_facts s JOIN companies c ON c.id = s.company_id
+            ) q
+            {gate}
+            ORDER BY entry DESC LIMIT %s""",
+        (*params, limit),
     )
     agg: dict = defaultdict(lambda: {h: [] for h in horizons})
     n_used = 0
@@ -93,7 +111,7 @@ def backtest(horizons=(5, 20), limit: int = 500) -> dict:
         tickers = r["tickers"] or []
         if not tickers:
             continue
-        d0 = r["as_of"]
+        d0 = r["entry"]
         # widen the window slightly on each side to land trading days
         series = None
         need = max(horizons) + 1

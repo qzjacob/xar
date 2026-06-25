@@ -159,6 +159,18 @@ def daily(
     print(json.dumps(stats, indent=2, default=str))
 
 
+@app.command("resolve-claims")
+def resolve_claims_cmd(
+    window_days: int = typer.Option(120, help="realization window (days) for a forward claim"),
+    grace_days: int = typer.Option(21, help="min age (days) before a claim is first evaluated"),
+) -> None:
+    """Close the forward-claim loop: mark forward_looking catalysts hit/miss/stale once a
+    later realized event appears (or the window lapses). Idempotent; also runs nightly."""
+    from .kg.resolve_claims import resolve_forward_claims
+
+    print(json.dumps(resolve_forward_claims(window_days=window_days, grace_days=grace_days), indent=2))
+
+
 @app.command()
 def providers_status() -> None:
     """Show which market-data / alt-data providers are configured."""

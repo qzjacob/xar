@@ -99,11 +99,14 @@ def semantic(company_id: str | None = None, theme: str | None = None,
     if theme:
         sql += " AND theme=%s"
         params.append(theme)
+    # Point-in-time: undated facts (as_of IS NULL) fall back to observed_at (tx-time), so an
+    # as_of UPPER bound does not leak facts we only learned later (no look-ahead), and a since
+    # LOWER bound doesn't silently drop them.
     if as_of:
-        sql += " AND as_of <= %s"
+        sql += " AND COALESCE(as_of, observed_at::date) <= %s"
         params.append(as_of)
     if since:
-        sql += " AND as_of >= %s"
+        sql += " AND COALESCE(as_of, observed_at::date) >= %s"
         params.append(since)
     sql += " ORDER BY as_of DESC NULLS LAST LIMIT %s"
     params.append(limit)
