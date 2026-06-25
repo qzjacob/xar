@@ -381,3 +381,40 @@ def test_providers_gate_without_keys(monkeypatch):
     assert fmp.pull("nvidia") == {} or fmp.available()
     assert polygon.pull("nvidia") == {} or polygon.available()
     cfg.get_settings.cache_clear()
+
+
+def test_model_registry_and_router():
+    """Registry candidates + task routing: bulk prefers subscription (token tail kept as
+    fallback), quality prefers strong token with cross-provider fallback, tier= unchanged."""
+    from xar.models import registry, router
+    from xar.models.registry import Billing, Capability
+    from xar.models.router import TaskClass
+
+    bulk = registry.candidates_for(Capability.CHEAP_BULK, billing_pref=Billing.SUBSCRIPTION.value)
+    assert bulk[0].billing == Billing.SUBSCRIPTION          # subscription first
+    assert any(m.billing == Billing.TOKEN for m in bulk)    # token fallback NOT dropped
+
+    assert router.resolve(TaskClass.KG_EXTRACT)[0].billing == Billing.SUBSCRIPTION
+    debate = router.resolve(TaskClass.DEBATE)
+    assert Capability.STRONG in debate[0].capabilities
+    assert len({m.provider for m in debate}) >= 2           # cross-provider fallback
+
+    assert router.as_task(None, "fast") == TaskClass.ADHOC_FAST
+    assert router.as_task(None, "strong") == TaskClass.ADHOC_STRONG
+    assert router.as_task("kg_extract", "fast") == TaskClass.KG_EXTRACT
+    assert router.resolve(TaskClass.ADHOC_FAST)[0].litellm_model == "deepseek/deepseek-v4-flash"
+    assert registry.by_litellm("deepseek-v4-flash").id == "deepseek-v4-flash"  # bare name resolves
+
+
+def test_llm_retryable_classifier():
+    """Transient errors (rate-limit/timeout) are retryable; value/auth are not."""
+    import litellm.exceptions as le
+
+    from xar.models import llm
+    assert llm._retryable(le.RateLimitError("rate", "prov", "mod")) is True
+    assert llm._retryable(ValueError("nope")) is False
+    if hasattr(le, "AuthenticationError"):
+        try:
+            assert llm._retryable(le.AuthenticationError("auth", "prov", "mod")) is False
+        except TypeError:
+            pass

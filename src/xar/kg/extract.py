@@ -126,7 +126,7 @@ def extract_from_document(doc_id: str, run_id: str | None = None, max_chars: int
         "metric needs a short verbatim evidence quote copied from the document.\n\n"
         "<DOCUMENT>\n" + text + "\n</DOCUMENT>"
     )
-    result = llm.complete_json(prompt, ExtractionResult, system=_system_for(focus), tier="fast",
+    result = llm.complete_json(prompt, ExtractionResult, system=_system_for(focus), task="kg_extract",
                                node="kg_extract", run_id=run_id, max_tokens=4000)
 
     name_to_id: dict[str, str] = {}

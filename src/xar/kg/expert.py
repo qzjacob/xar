@@ -77,7 +77,7 @@ def process_document(doc_id: str, run_id: str | None = None) -> dict:
     if not rows or not (rows[0]["text"] or "").strip():
         return {"processed": 0, "kept": 0}
     d = rows[0]
-    ins = llm.complete_json(_prompt(d), ExpertInsight, system=_SYSTEM, tier="fast",
+    ins = llm.complete_json(_prompt(d), ExpertInsight, system=_SYSTEM, task="expert",
                             node="expert", run_id=run_id, max_tokens=3000)
     polarity = {"bull": "positive", "bear": "negative"}.get((ins.stance or "").lower(), "neutral")
     etype = ins.catalyst_type if ins.catalyst_type in CATALYST_TYPES else "earnings"

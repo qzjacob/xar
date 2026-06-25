@@ -372,6 +372,15 @@ def ops_llm_test() -> dict:
     return ops.test_llm()
 
 
+@app.post("/api/ops/llm/route")
+def ops_llm_route(body: dict) -> dict:
+    """Runtime route override: {key, model_id} re-points a capability/task to a model
+    live (empty model_id clears it). No redeploy."""
+    from . import ops
+
+    return ops.set_route(str(body.get("key", "")), str(body.get("model_id", "")))
+
+
 @app.get("/api/ops/connectors")
 def ops_connectors() -> dict:
     from . import ops

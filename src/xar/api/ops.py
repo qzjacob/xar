@@ -302,41 +302,96 @@ def run_source(source_id: str) -> dict:
 # 3) LLM VENDORS / MODELS
 # ===========================================================================
 def llm() -> dict:
-    from ..models.llm import _PRICES
+    import os
 
+    from ..models import registry, router
+    from ..models.llm import _PRICES, _ensure_keys
+
+    _ensure_keys()  # mirror Settings keys → env so presence checks are uniform
     s = get_settings()
-    vendors = [
-        {"id": "anthropic", "name": "Anthropic", "configured": bool(s.anthropic_api_key),
-         "keyEnv": "ANTHROPIC_API_KEY",
-         "models": ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"]},
-        {"id": "deepseek", "name": "DeepSeek", "configured": bool(s.deepseek_api_key),
-         "keyEnv": "DEEPSEEK_API_KEY",
-         "models": ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-reasoner", "deepseek-chat"]},
-        {"id": "openai", "name": "OpenAI", "configured": bool(s.openai_api_key),
-         "keyEnv": "OPENAI_API_KEY", "models": ["gpt-4o", "gpt-4o-mini"]},
-    ]
-    usage_rows = db.query(
-        "SELECT model, count(*) calls, COALESCE(sum(input_tokens),0) in_tok, "
-        "COALESCE(sum(output_tokens),0) out_tok, COALESCE(sum(usd),0) usd "
-        "FROM llm_usage GROUP BY model ORDER BY usd DESC"
-    )
-    total = db.query(
-        "SELECT count(*) calls, COALESCE(sum(input_tokens),0) in_tok, "
-        "COALESCE(sum(output_tokens),0) out_tok, COALESCE(sum(usd),0) usd FROM llm_usage"
-    )[0]
+
+    def _present(env: str) -> bool:
+        return bool(os.environ.get(env))
+
+    vendors = registry.configured_providers(_present)
+    routing_tasks = {tc.value: {"capability": router.POLICIES[tc].capability.value,
+                                "preferBilling": router.POLICIES[tc].prefer_billing,
+                                "chain": [m.id for m in router.resolve(tc)]}
+                     for tc in router.TaskClass}
+    models = [{"id": m.id, "provider": m.provider, "litellm": m.litellm_model,
+               "billing": m.billing.value, "capabilities": [c.value for c in m.capabilities],
+               "inUsd": m.price_in, "outUsd": m.price_out, "status": m.status.value,
+               "preferred": m.preferred, "released": m.released} for m in registry.MODELS]
+
+    def _agg(sql):  # tolerate the new columns/table not existing yet (pre-init)
+        try:
+            return db.query(sql)
+        except Exception:  # noqa: BLE001
+            return []
+
+    usage_rows = _agg("SELECT model, count(*) calls, COALESCE(sum(input_tokens),0) in_tok, "
+                      "COALESCE(sum(output_tokens),0) out_tok, COALESCE(sum(usd),0) usd "
+                      "FROM llm_usage GROUP BY model ORDER BY usd DESC")
+    # Rows written before this migration have provider/task_class/billing = NULL; label them
+    # 'legacy' so historical spend stays visible and attributed rather than forming a phantom
+    # null bucket that silently aggregates the majority of past spend.
+    by_provider = _agg("SELECT COALESCE(provider,'legacy') provider, count(*) calls, "
+                       "COALESCE(sum(usd),0) usd, COALESCE(sum(input_tokens+output_tokens),0) tok "
+                       "FROM llm_usage GROUP BY 1 ORDER BY usd DESC")
+    by_billing = _agg("SELECT COALESCE(billing,'legacy') billing, count(*) calls, "
+                      "COALESCE(sum(usd),0) usd, COALESCE(sum(input_tokens+output_tokens),0) tok "
+                      "FROM llm_usage GROUP BY 1")
+    by_task = _agg("SELECT COALESCE(task_class,'legacy') task_class, count(*) calls, COALESCE(sum(usd),0) usd FROM llm_usage "
+                   "GROUP BY 1 ORDER BY usd DESC")
+    overrides = _agg("SELECT key, model_id, updated_at FROM route_overrides ORDER BY key")
+    total = (_agg("SELECT count(*) calls, COALESCE(sum(input_tokens),0) in_tok, "
+                  "COALESCE(sum(output_tokens),0) out_tok, COALESCE(sum(usd),0) usd FROM llm_usage")
+             or [{"calls": 0, "in_tok": 0, "out_tok": 0, "usd": 0}])[0]
     return {
         "vendors": vendors,
-        "routing": {"fast": s.model_fast, "strong": s.model_strong, "effort": s.model_effort,
-                    "budgetUsdPerRun": s.llm_max_usd_per_run,
+        "models": models,
+        "routing": {"tasks": routing_tasks, "fast": s.model_fast, "strong": s.model_strong,
+                    "bulk": s.model_bulk or "(registry subscription preferred)", "effort": s.model_effort,
+                    "budgetUsdPerRun": s.llm_max_usd_per_run, "budgetUsdPerBatch": s.llm_max_usd_per_batch,
                     "embedModel": s.embed_model, "embedDim": s.embed_dim},
+        "overrides": [{"key": r["key"], "modelId": r["model_id"], "updatedAt": str(r["updated_at"])}
+                      for r in overrides],
         "prices": [{"model": k, "inUsd": v[0], "outUsd": v[1]} for k, v in _PRICES.items()],
         "usage": {"total": {"calls": total["calls"], "inTok": total["in_tok"],
                             "outTok": total["out_tok"], "usd": round(float(total["usd"]), 4)},
                   "byModel": [{"model": r["model"], "calls": r["calls"], "inTok": r["in_tok"],
                                "outTok": r["out_tok"], "usd": round(float(r["usd"]), 4)}
-                              for r in usage_rows]},
-        "configured": get_settings().has_llm,
+                              for r in usage_rows],
+                  "byProvider": [{"provider": r["provider"], "calls": r["calls"], "tok": r["tok"],
+                                  "usd": round(float(r["usd"]), 4)} for r in by_provider],
+                  "byBilling": [{"billing": r["billing"], "calls": r["calls"], "tok": r["tok"],
+                                 "usd": round(float(r["usd"]), 4)} for r in by_billing],
+                  "byTask": [{"taskClass": r["task_class"], "calls": r["calls"],
+                              "usd": round(float(r["usd"]), 4)} for r in by_task]},
+        "configured": s.has_llm,
     }
+
+
+def set_route(key: str, model_id: str) -> dict:
+    """Runtime route override: point a capability or task_class at a registry model id
+    (or clear it with an empty model_id). Persisted to route_overrides + cache refreshed
+    → live re-route without a redeploy."""
+    from ..models import registry, router
+
+    valid = {c.value for c in registry.Capability} | {t.value for t in router.TaskClass}
+    if key not in valid:
+        return {"ok": False, "detail": f"key must be a capability or task_class: {sorted(valid)}"}
+    if not model_id:
+        db.execute("DELETE FROM route_overrides WHERE key=%s", (key,))
+        registry.refresh_overrides()
+        return {"ok": True, "key": key, "cleared": True}
+    if not registry.get(model_id):
+        return {"ok": False, "detail": f"unknown model_id: {model_id} (see /api/ops/llm models[])"}
+    db.execute("INSERT INTO route_overrides(key,model_id,updated_at) VALUES(%s,%s,now()) "
+               "ON CONFLICT(key) DO UPDATE SET model_id=EXCLUDED.model_id, updated_at=now()",
+               (key, model_id))
+    registry.refresh_overrides()
+    return {"ok": True, "key": key, "modelId": model_id}
 
 
 def test_llm() -> dict:

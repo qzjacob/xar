@@ -22,9 +22,18 @@ class Settings(BaseSettings):
     # LiteLLM-supported model (e.g. claude-haiku-4-5 / claude-opus-4-8).
     model_fast: str = "deepseek/deepseek-v4-flash"
     model_strong: str = "deepseek/deepseek-v4-pro"
+    model_bulk: str = ""  # bulk/search default; blank => router uses registry subscription preferred (GLM/Kimi)
     model_effort: str = "high"
     llm_max_usd_per_run: float = 5.0  # hard budget cap per report run
     llm_max_usd_per_batch: float = 20.0  # cap for batch jobs (build_kg/expert/synthesize)
+    # GLM (Zhipu) + Kimi (Moonshot): OpenAI-compatible. A token key plus an optional flat
+    # subscription / coding-plan key (and base) used to route bulk/search OFF the metered bill.
+    glm_api_key: str = Field(default="", validation_alias=AliasChoices("GLM_API_KEY", "ZHIPU_API_KEY", "ZHIPUAI_API_KEY"))
+    moonshot_api_key: str = Field(default="", validation_alias=AliasChoices("MOONSHOT_API_KEY", "KIMI_API_KEY"))
+    glm_sub_api_key: str = Field(default="", validation_alias="GLM_SUB_API_KEY")
+    glm_sub_api_base: str = Field(default="", validation_alias="GLM_SUB_API_BASE")
+    moonshot_sub_api_key: str = Field(default="", validation_alias="MOONSHOT_SUB_API_KEY")
+    moonshot_sub_api_base: str = Field(default="", validation_alias="MOONSHOT_SUB_API_BASE")
 
     # --- Embeddings ---
     embed_model: str = "BAAI/bge-small-en-v1.5"
@@ -92,7 +101,8 @@ class Settings(BaseSettings):
 
     @property
     def has_llm(self) -> bool:
-        return bool(self.anthropic_api_key or self.openai_api_key or self.deepseek_api_key)
+        return bool(self.anthropic_api_key or self.openai_api_key or self.deepseek_api_key
+                    or self.glm_api_key or self.moonshot_api_key)
 
 
 @lru_cache

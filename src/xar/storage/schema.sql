@@ -159,6 +159,20 @@ CREATE TABLE IF NOT EXISTS llm_usage (
     usd           REAL NOT NULL DEFAULT 0,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- LLM task-manager: billing-aware routing observability (additive, idempotent) so spend
+-- can be audited per provider / task / billing (token vs subscription).
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS provider   TEXT;
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS task_class TEXT;
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS billing    TEXT;
+CREATE INDEX IF NOT EXISTS idx_llm_usage_provider ON llm_usage(provider);
+CREATE INDEX IF NOT EXISTS idx_llm_usage_task     ON llm_usage(task_class);
+-- Runtime route override: re-point a capability/task to a new model generation live
+-- (ops API) without a redeploy. Strongest layer of override > env > registry preferred.
+CREATE TABLE IF NOT EXISTS route_overrides (
+    key        TEXT PRIMARY KEY,    -- a capability ('cheap_bulk') or task_class ('kg_extract')
+    model_id   TEXT NOT NULL,       -- registry ModelSpec.id
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 -- ===========================================================================
 -- STRUCTURED DATA LAYER

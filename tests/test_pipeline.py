@@ -373,3 +373,112 @@ def test_ungrounded_extraction_dropped(mocked, monkeypatch):
     # evidence that does not appear in `text` -> must be dropped
     assert extract._grounded("totally fabricated unrelated claim", text) is False
     assert extract._grounded("strategic partnership with Beta", text) is True
+
+
+class _FakeResp:
+    def __init__(self, text="OK", in_tok=5, out_tok=7):
+        self.choices = [type("C", (), {"message": type("M", (), {"content": text})()})()]
+        self.usage = type("U", (), {"prompt_tokens": in_tok, "completion_tokens": out_tok})()
+
+
+def test_llm_fallback_rotates_to_next_provider(monkeypatch):
+    """A failing first candidate (incl. its in-candidate retry) rotates to the next
+    provider in the chain rather than failing the whole call."""
+    import litellm
+    import litellm.exceptions as le
+
+    from xar.models import llm
+    # configure BOTH the first candidate (glm) and a rotation target (deepseek) so the test
+    # doesn't depend on the ambient .env leaking a key for the rotation target.
+    monkeypatch.setenv("GLM_API_KEY", "test-glm")
+    monkeypatch.setenv("GLM_SUB_API_KEY", "test-glm-sub")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-deepseek")
+    seen: list = []
+
+    def fake(**kw):
+        seen.append(kw["model"])
+        if kw["model"] == "openai/glm-4.6":     # first KG_EXTRACT candidate always fails
+            raise le.RateLimitError("rate", "zhipu", "glm-4.6")
+        return _FakeResp("ROTATED")
+
+    monkeypatch.setattr(litellm, "completion", fake)
+    out = llm.complete("hi", task="kg_extract", node="t", run_id=None, max_tokens=50)
+    assert out == "ROTATED"
+    assert "openai/glm-4.6" in seen and any(m != "openai/glm-4.6" for m in seen)
+
+
+def test_llm_subscription_rides_over_budget(monkeypatch):
+    """A subscription candidate serves bulk even with the token budget exhausted — never
+    trips BudgetExceeded — and records usd=0 with provider/task_class/billing columns."""
+    import litellm
+
+    from xar.models import llm
+    from xar.storage import db
+    db.init_schema()
+    monkeypatch.setenv("GLM_API_KEY", "test-glm")
+    monkeypatch.setenv("GLM_SUB_API_KEY", "test-glm-sub")             # genuine flat plan → usd=0
+    monkeypatch.setattr(llm, "_spent", lambda rid: 9_999.0)            # token budget blown
+    monkeypatch.setattr(litellm, "completion", lambda **kw: _FakeResp("SUB"))
+    rid = "batch-routetest"
+    db.execute("DELETE FROM llm_usage WHERE run_id=%s", (rid,))
+    out = llm.complete("hi", task="kg_extract", node="t", run_id=rid, max_tokens=50)
+    assert out == "SUB"                                                # glm-4.6-sub served
+    row = db.query("SELECT provider, task_class, billing, usd FROM llm_usage WHERE run_id=%s", (rid,))[0]
+    assert row["billing"] == "subscription" and float(row["usd"]) == 0.0
+    assert row["task_class"] == "kg_extract" and row["provider"] == "zhipu"
+    db.execute("DELETE FROM llm_usage WHERE run_id=%s", (rid,))
+
+
+def test_llm_subscription_without_sub_key_bills_as_token(monkeypatch):
+    """The billing hole guard: a SUBSCRIPTION spec with NO sub key configured falls back to
+    the provider's metered key, so it must record billing='token' with REAL usd (not 0) — the
+    metered spend stays visible to the budget cap instead of being silently free."""
+    import litellm
+
+    from xar.models import llm
+    from xar.storage import db
+    db.init_schema()
+    monkeypatch.setenv("GLM_API_KEY", "test-glm")          # token key only; NO GLM_SUB_API_KEY
+    monkeypatch.delenv("GLM_SUB_API_KEY", raising=False)
+    monkeypatch.setattr(llm, "_spent", lambda rid: 0.0)
+    monkeypatch.setattr(litellm, "completion", lambda **kw: _FakeResp("TOK", in_tok=1_000_000, out_tok=0))
+    rid = "batch-billtest"
+    db.execute("DELETE FROM llm_usage WHERE run_id=%s", (rid,))
+    llm.complete("hi", task="kg_extract", node="t", run_id=rid, max_tokens=50)
+    row = db.query("SELECT billing, usd FROM llm_usage WHERE run_id=%s", (rid,))[0]
+    assert row["billing"] == "token" and float(row["usd"]) > 0.0   # metered, not free
+    db.execute("DELETE FROM llm_usage WHERE run_id=%s", (rid,))
+
+
+def test_llm_token_only_chain_hardstops_on_budget(monkeypatch):
+    """No subscription candidate + exhausted token budget → BudgetExceeded (preserves the
+    daily.py catch)."""
+    import pytest
+
+    from xar.models import llm, registry, router
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-deepseek")   # candidate configured → skip is budget, not key
+    monkeypatch.setattr(llm, "_spent", lambda rid: 9_999.0)
+    monkeypatch.setattr(router, "resolve", lambda tc: [registry.get("deepseek-v4-flash")])  # token-only
+    with pytest.raises(llm.BudgetExceeded):
+        llm.complete("hi", task="kg_extract", node="t", run_id="batch-x", max_tokens=50)
+
+
+def test_route_override_persists_and_reroutes():
+    """ops.set_route persists a route_overrides row and re-routes resolve() live; clearing
+    reverts. Exercises the additive schema (columns + route_overrides) end to end."""
+    from xar.api import ops
+    from xar.models import router
+    from xar.models.router import TaskClass
+    from xar.storage import db
+    db.init_schema()
+    db.execute("DELETE FROM route_overrides WHERE key='cheap_bulk'")
+    router.registry.refresh_overrides()
+    try:
+        assert ops.set_route("cheap_bulk", "kimi-k2-sub")["ok"] is True
+        assert router.resolve(TaskClass.KG_EXTRACT)[0].id == "kimi-k2-sub"
+        assert ops.set_route("cheap_bulk", "")["cleared"] is True
+        assert router.resolve(TaskClass.KG_EXTRACT)[0].id == "glm-4.6-sub"
+        assert ops.set_route("cheap_bulk", "nonexistent")["ok"] is False
+    finally:  # never leak a live override into the shared DB, even on assertion failure
+        db.execute("DELETE FROM route_overrides WHERE key='cheap_bulk'")
+        router.registry.refresh_overrides()
