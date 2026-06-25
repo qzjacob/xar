@@ -781,3 +781,44 @@ GLM-5.2 起草的 `SEMANTIC_DB_PLAN.md` 提出**新建独立平行表 `semantic_
 其余 finding 与 §E（前向闭环 + PIT + 编排拆分的第二意见复核）重叠，处置见附录 E.7。
 
 > 本附录结论：语义数据库以**加性复用**而非平行表落地，避免了 GLM-5.2 计划中 `semantic_claims` 的双表割裂技术债；前向预期闭环 + PIT 回测为采纳的净新增能力。xhigh `/code-review` 的 P0 视图可见性、realizer 日期/相关性/neutral、回测 PIT、每日预算均已修复并加测试；#9 调度偏移与 #12 realizer 非排他经裁定为自用姿态下可接受的设计取舍。验证：`pytest` 36 passed、`ruff` clean、docker 双服务（app `:8000` / Dagster `:3001`）已部署。
+
+---
+
+## 附录 G：LLM 任务管理器 + 本体深度回填（扩展维度）+ 独立双审 / xhigh `/code-review` 处置（2026-06）
+
+> 本附录记录分支 `feat/semantic-db-daily-ingest` 的两组变更：(1) 用 **LLM 任务管理器**（registry + router + fallback + billing-aware 预算 + 运行时 `route_overrides`）替换原审 §1.6 / §5.2 所述的"两级 fast/strong 路由"；(2) 把 569 家 universe 公司**回填到策展核心深度**（多主题 / 技术路线 / 别名 / 段位精修），并新增 8 条数据驱动的扩展技术路线（25→33）。落地状态：`pytest` 43 passed、`ruff check` 通过、docker 双服务（app `:8000` / Dagster `:3001`）运行中。**本附录修正原审 §1.6 / §5.2 对"两级路由"的描述——该机制已被任务路由取代。**
+
+### G.1 LLM 任务管理器（取代两级路由）
+
+原审 §1.6 / §5.2 描述的"`models/llm.py` 两级路由（fast=Haiku / strong=Opus）+ 单 run USD 上限"已重构为**任务路由 + 可更新模型库 + billing-aware 预算 + 全链 fallback**（扩展 `models/llm.py`，无平行系统、无新增重依赖——LiteLLM 已能直连 `zhipu/`/`moonshot/`）：
+
+- **代码即真相的模型库** `src/xar/models/registry.py`：`Provider` + `ModelSpec` dataclass；枚举 `Billing(token|subscription)` / `Capability(fast|strong|reasoning|long_context|cheap_bulk)` / `Status(active|preview|deprecated)`。`PROVIDERS` 含 `deepseek`/`anthropic`/`openai`/`zhipu`(=GLM)/`moonshot`(=Kimi)；`MODELS` 含 token 模型（DeepSeek v4-flash/pro、Claude opus/haiku/sonnet）+ GLM/Kimi 的 **SUBSCRIPTION** 条目（`glm-4.6-sub`/`kimi-k2-sub`，`price_in/out` 为兜底计价、flat-plan 命中记 0）。`candidates_for(capability, billing_pref=...)`（`:202`）按 **billing-first 稳定排序**（preferred-billing 优先但保留 token fallback 尾部，非丢弃），叠加 `preferred` 标志 + `price_in` + id；另有 `preferred`/`by_litellm`/`provider_of`。**换代 = 改这一个文件**（加 `ModelSpec`、置 `preferred=True`、旧的翻 `deprecated`）；`_PRICES` 由 `MODELS` 派生。
+- **任务路由器** `src/xar/models/router.py`：`TaskClass` 枚举（11 类：`kg_extract`/`expert`/`search_bulk`/`analyst`/`debate`/`editor`/`judge`/`synth`/`eval`/`adhoc_fast`/`adhoc_strong`）+ `RoutePolicy` + `POLICIES`；`resolve(task)`（`:111`）→ 有序候选链。**批量 / 搜索类**（`kg_extract`/`expert`/`search_bulk`）→ `CHEAP_BULK` + **SUBSCRIPTION-first**（GLM/Kimi flat-rate，使 947 公司语料的夜间抽取永不撞无界 token 账单），其后才是预算内的廉价 DeepSeek token；**质量类**（`debate`/`editor`/`synth`）→ `STRONG` token + 跨 provider fallback。解析优先级：`route_overrides` 表（ops API）> env（`XAR_MODEL_*`）> registry `preferred`。`tier="fast|strong"` 经 `as_task`（`:66`）保留为向后兼容别名——未迁移调用点不变。
+- **`models/llm.py` 重构**：`complete()`/`complete_json()` 新增 `task=`；一个**fallback 执行器**（按候选经 `_endpoint`（`:147`）取 api_base/key；跳过未配置 provider；按 **EFFECTIVE billing** 跳过超预算的 token 候选 + 硬停 `BudgetExceeded`；transient 错误经 `_retryable`（`:132`）做一次候选内重试；失败/空响应轮转到下一候选）。**billing-aware 计价**（`_record`，`:112`）：真正的 flat-plan 调用记 `usd=0`（订阅批量永不触发预算上限）；而一个**回落到 provider 计费 key 的订阅 spec 记其真实 per-token 成本**（billing 漏洞闭合，见 G.3 P0）。`llm_usage` 新增 `provider`/`task_class`/`billing` 列。
+- **配套**：`config.py` 加 `glm_api_key`/`moonshot_api_key` + sub key/base 字段；`schema.sql` 加性补 `llm_usage` 三列 + `route_overrides` 表（运行时换模型）；`api/ops.py` 的 `/api/ops/llm`（`ops.py:304`）surface registry vendors/models/routing-table + 按 billing/provider/task 的花费（旧行标 `legacy`，无 null bucket）+ `set_route()`；`api/app.py` 新增 `POST /api/ops/llm/route`（`app.py:375`，运行时换代无需重部署）。`kg/extract.py` + `kg/expert.py` 已从 `tier="fast"` 迁移到 `task="kg_extract"`/`"expert"`；批量拉取路径（`orchestration/daily.py`）自动经 `task=` 路由。
+
+> 对原审 §5.2 "值得保留：两级 LLM 路由 + per-run USD 上限"的更新：该实践**已演进**为任务路由 + billing-aware 预算 + 全候选链 fallback，且闭合了原审 §1.6 指出的"批量路径无预算"（订阅 flat-rate 天然封顶 + token 候选按 effective billing 受预算约束）与"价格表虚假"（subscription 命中不计价、计费回落记真实成本）两项。
+
+### G.2 本体深度回填到策展核心 + 8 条扩展技术路线
+
+基础本体（sector/industry/segment/chain_role）原已对 947 家 100% 完整；本轮为 569 家 bulk-generated universe 公司**补深度**：多主题成员、技术路线暴露、更丰富别名、段位精修。
+
+- **`scripts/ontology_enrich.py`**：whitelist 校验的批量 LLM 富集，经任务管理器路由（`task="search_bulk"`，`:188`；GLM 订阅 + DeepSeek 兜底，528 公司成本约 \$0.43）。每公司新增（全部严格校验 against 本体词表，越界即丢）：额外主题成员（+ 该主题下的 segment）、技术路线标签、额外别名（原生 / 罗马音 / 简称 / 品牌）、更优 primary segment；free-text `suggest_route` 字段 surface 扩展候选。确定性 `_CORRECTIONS` 表（`:62`）编码 18 项审计确认的修正；`generate()`（`:229`）合并 cache + corrections → 以 Python repr 重写 `src/xar/ingestion/universe.py`。
+- **`registry.py` `TECH_ROUTES`：25 → 33**——新增 8 条数据驱动的**扩展路线**（来自反复出现的 `suggest_route`）：`tr_cybersec`、`tr_ddic`（display-driver IC）、`tr_power_semi`、`tr_cv`（computer vision）、`tr_med_imaging`、`tr_pneumatic`、`tr_industrial_gas`、`tr_ceramic_pkg`——覆盖原 optical / chip-centric 之外的专门化。
+- **`kg/store.py` `bootstrap_seed`**：富集后的 `tech_routes` 成为 `uses_techroute` 边（`license_tag='enriched'`）；`competes_in`(seed) + `uses_techroute`(enriched) 现按 roster **delete-then-recreate**（`store.py:185-186`），使修正在 reseed 时干净传播——一个幂等性修复（curated `SEED_EDGES` 与抽取边因 rel_type/license_tag 不同而不受影响）。
+- **结果（live DB，全 947）**：多主题公司 80、技术路线节点 33、`uses_techroute` 边 724（其中 enriched 360）、`competes_in` 1024、entity_aliases 3623。
+
+### G.3 独立双审 + xhigh `/code-review` 处置
+
+- **独立双审（36 agents）+ xhigh `/code-review`：裁定 GO**。全链完整（0 词表违规、5 项完整性不变量通过）；common-sense 质量约 **3% 错误率**（LLM 把 supplier 误当 route、多主题过度归属），均 P1–P3，经确定性 `_CORRECTIONS` 修复。**勾稽核查**（`universe.py` ↔ DB ↔ vocab）对齐 clean：0 条跨主题 segment、0 条 out-of-vocab route、corrections 双向反映。
+- **xhigh `/code-review` 各 finding 处置**：
+
+| # | finding | 裁定 | 处置 |
+|---|---|---|---|
+| P0 | 订阅计价漏洞——SUBSCRIPTION spec 在无 sub key 时回落到 provider 计费 key，却仍记 `usd=0` → 该笔 token 花费对预算上限不可见 | **成立·已修** | `_record`（`llm.py:112-126`）按 **effective billing** 计价：`used_sub` 决定 token/subscription；真 flat-plan 记 0，回落到计费 key 的订阅按其**真实 per-token list price** 记账 → 预算可见、billing 漏洞闭合 |
+| P1 | retry-gating——不应对 auth/bad-request 等确定性错误重试 | **成立·已修** | `_retryable`（`:132`）只对 transient 错误做一次候选内重试；确定性错误直接轮转下一候选 |
+| P1 | ops null-bucket——`llm_usage` 旧行 provider/task_class/billing 为 NULL 会形成幻影空桶 | **成立·已修** | `ops.py` 三处聚合 `COALESCE(..., 'legacy')`（`:338/341/344`）→ 历史花费标 `legacy`、保持可见可归属，无 null bucket |
+| P2 | retryable-set——可重试错误集合需收紧 | **成立·已修** | `_retryable` 限定 transient 集合 |
+| P2 | test-hygiene（2 项） | **成立·已修** | 测试卫生修复 2 处 |
+
+> 本附录结论：两级路由已由**任务管理器**取代（registry + router + fallback + billing-aware 预算 + 运行时 `route_overrides`），订阅 vs token 的计价决策使 947 公司语料的夜间批量在订阅 flat-rate 下天然封顶、且回落计费时真实记账（P0 漏洞闭合）；本体回填把 569 家 universe 公司补到策展核心深度并新增 8 条扩展技术路线（25→33）；独立双审裁定 GO、约 3% common-sense 错误率经确定性 `_CORRECTIONS` 修复、勾稽核查对齐 clean。验证：`pytest` 43 passed、`ruff` clean、docker 双服务（app `:8000` / Dagster `:3001`）运行中。

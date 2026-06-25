@@ -20,7 +20,7 @@
 | 知识图谱 | Graphiti → Neo4j | **自建双时态 KG**（`kg_nodes/edges/events`，supersession + 事件级去重 + 确定性实体消解） |
 | 检索 | Graphiti + RAGFlow 混合 | **pgvector 稠密 + pg_trgm 词法，RRF(k=60) 融合 + GraphRAG 遍历** |
 | 多 Agent | LangGraph DAG | **自建可控 DAG**：规划→图谱检索→5 分析师→多空辩论→风险→主编→证据闸→人审中断（检查点入 `report_runs.state`） |
-| 模型网关 | LiteLLM → Claude | **LiteLLM** 两级路由 + 单次美元预算上限 + 成本计费；**默认 DeepSeek V4**：`XAR_MODEL_FAST=deepseek/deepseek-v4-flash`（抽取/分类/快速合成）+ `XAR_MODEL_STRONG=deepseek/deepseek-v4-pro`（推理/辩论/前沿合成），`XAR_MODEL_EFFORT=high`；`complete_json` 走 JSON-mode（V4 推理模型按需调 `reasoning_effort`）保障结构化输出；一行 env 可切任意 LiteLLM 模型（`claude-opus-4-8` / `claude-haiku-4-5`，配 `ANTHROPIC_API_KEY`） |
+| 模型网关 | LiteLLM → Claude | **LiteLLM + LLM 任务管理器**（code-as-truth 模型库 `models/registry.py` + 任务路由 `models/router.py` + `llm.py` 跨候选回退执行器）：按 `TaskClass`（11 类）路由到有序候选链，**计费感知**（token vs 订阅）+ 单次/单批美元预算上限 + 成本计费；bulk/search 任务（`kg_extract`/`expert`/`search_bulk`）订阅优先（GLM/Kimi 平价）、quality 任务（debate/editor/synth）强 token 跨厂回退；运行时换代经 `route_overrides` 表（`POST /api/ops/llm/route`）。**默认 DeepSeek V4**：`XAR_MODEL_FAST=deepseek/deepseek-v4-flash` + `XAR_MODEL_STRONG=deepseek/deepseek-v4-pro` + `XAR_MODEL_BULK`，`XAR_MODEL_EFFORT=high`；`complete_json` 走 JSON-mode 保障结构化输出；一行 env 或注册表 `preferred=True` 即切任意 LiteLLM 模型（`claude-opus-4-8` / `claude-haiku-4-5` / GLM / Kimi）。详见 §6.1 |
 | 编排 | Dagster | **已部署**：`orchestration/daily.py run_daily` 每日增量链（CLI `xar daily`）+ Dagster 旁车（`orchestration/definitions.py`：`pull_shard` 分片 06:00 / `extract_all` 06:30，docker-compose 暴露 `:3001` UI/重试/run 历史） |
 | 评测/追踪 | Phoenix + Langfuse | 自建检索命中率 + 报告 rubric(LLM-judge)；`llm_usage` 表做成本追踪；Phoenix 可选(`.[eval]`) |
 | 前端 | Next.js + Vercel AI SDK | **React + TS + Tailwind SPA**（`web/`，FastAPI 托管编译产物；无构建时回退内置原生单页 `api/static/index.html`，见 `UI.md`） |
@@ -151,7 +151,7 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 | **知识图谱（核心）** | Graphiti → Neo4j 作系统-of-record；Pydantic 节点/边本体；**确定性实体消解作为一等公民**；可选 Neo4j LLM Graph Builder 做 HITL 摄取/可视化 | Graphiti `Apache-2.0`(双时态+Pydantic 已确认)；Neo4j Community `GPLv3`(外部服务)；LLM Graph Builder `Apache-2.0`；设计参考 iText2KG/ATOM `Apache-2.0` | 唯一一线维护、宽松许可、原生**双时态事实 + episode 溯源**的 KG 框架——正是"有日期、会被后续事实推翻、需按'某日为真'引用"的订单/催化剂所需原语。Pydantic 类型让抽取受 schema 约束 |
 | **多 Agent 编排（核心）** | LangGraph 确定性外层 DAG + 受限的多空辩论子图；终端节点 = **图谱溯源的报告合成（非交易决策）**；`interrupt()` 人审 | LangGraph `MIT`；参考重写 TradingAgents `Apache-2.0`、FinRobot `Apache-2.0` | 深度报告是可控、可审计的多阶段流水线，不是放任 swarm。LangGraph 提供确定性阶段序、节点级重试、检查点续跑、原生人审中断。自治仅限辩论子图 |
 | **GraphRAG 检索** | Graphiti 原生 图+语义+时序 检索（MVP）；LightRAG 复用同一 Neo4j 做全局主题查询（P4 延后） | Graphiti（同上）；LightRAG `MIT`(延后)；MS GraphRAG `MIT`(参考) | MVP 先做实体/时序检索（"X 在 Q2 的订单"、"谁在某日前二供了 EML"、"GB300 量产时 NVIDIA 已认证的供应商"）；全局主题延后 |
-| **模型网关 + 成本控制** | LiteLLM 网关（仅 MIT core）；**默认 DeepSeek V4**（v4-flash 抽取/摘要、v4-pro 论点/批判/辩论，high effort）；可经一行 env 切 Claude（`claude-haiku-4-5` 抽取、`claude-opus-4-8` 推理）；稳定 prompt + 共享 filing 上下文开**prompt caching**；按调用计费 + 单次运行预算上限 | LiteLLM `MIT` core | 供应商无关换模型 + 成本控制（计费/预算/降级/缓存）。两级路由 + 复用 filing 上下文缓存是控住辩论成本的主要手段 |
+| **模型网关 + 成本控制** | LiteLLM 网关（仅 MIT core）+ **LLM 任务管理器**（注册表 + 任务路由 + 计费感知回退，见 §6.1）；**默认 DeepSeek V4**（v4-flash 抽取/摘要、v4-pro 论点/批判/辩论，high effort）；可经一行 env / 注册表 / 运行时 `route_overrides` 切 Claude（`claude-haiku-4-5` 抽取、`claude-opus-4-8` 推理）或 GLM/Kimi 订阅；稳定 prompt + 共享 filing 上下文开**prompt caching**；按调用计费 + 单次/单批预算上限 | LiteLLM `MIT` core | 供应商无关换模型 + 成本控制（计费/预算/降级/缓存）。按任务路由（订阅优先做 bulk、强 token 做 quality）+ 复用 filing 上下文缓存是控住成本的主要手段 |
 | **存储** | 一个 PostgreSQL（pgvector + Apache AGE）；Neo4j Community 作外部网络服务=时序图谱系统-of-record；MinIO 存原始 filing；Redis 单飞/队列；Qdrant 延后（向量 >~1000 万再上） | pgvector `PostgreSQL-license`；Apache AGE `Apache-2.0`；Neo4j Community `GPLv3`(外部进程)；MinIO；Redis；Qdrant `Apache-2.0`(延后) | 向量+关系+次级图谱合到一个 Postgres，2 人团队一套备份/HA/监控。图谱双时态遍历需真正属性图，故 Neo4j 作独立进程跑在网络边界后（不嵌入即不触 GPLv3） |
 | **公告/财报采集** | edgartools（美股 10-K/Q/8-K、20-F、XBRL、13F、Form 3/4/5）；AKShare（cninfo 公告 + A 股报表 + 研报**元数据**）；AData（不开代理轮换）取概念篮子；Tushare Pro（积分，可选）；FinanceToolkit 作纯计算库 | edgartools `MIT`；AKShare `MIT`；AData `Apache-2.0`；Tushare 客户端 `BSD`；FinanceToolkit `MIT` | edgartools 免 key 解决 XBRL/HTML，能处理 Fabrinet 的 20-F；AKShare 是唯一原生覆盖 cninfo 公告+财报+研报元数据的宽松库；FinanceToolkit 是即插即用的比率引擎（需补非日历财年 + 20-F 期对齐）。单维护者库要 vendor + 锁版本 |
 | **嵌入 + 重排（中英）** | BGE-M3（一模出稠密+稀疏+ColBERT，喂 RAGFlow 稀疏+稠密）主 + bge-reranker-v2-m3；Qwen3-Embedding/Reranker（0.6B/4B）共默认；gte-multilingual-base CPU 兜底；TEI/vLLM 服务；嵌入器保持可换 | BGE-M3 `MIT`；Qwen3-Embedding/Reranker `Apache-2.0`(含权重)；gte `Apache-2.0`；**排除** jina-v3(`CC-BY-NC`) | BGE-M3 单模混合输出直接对上 RAGFlow 稀疏+稠密、中英混合 filing。重嵌入成本真实，前沿在动，故保持可换 |
@@ -217,7 +217,7 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 
 > Graphiti Pydantic 节点/边类型 → Neo4j（As-Built 实现为自建 `kg_nodes/edges/events`，见 §0）。**每个事实带双时间**：`t_valid`/`t_invalid`（世界中为真的有效期）+ 观测/摄取时间（我们何时获知）——后发文档不覆盖先前为真的事实，"某日为真"可查询。每个节点/边/事件带 `source_filing_id` + `license_tag` + `confidence`。**`kg_events` 现加性扩列**承载语义层：`theme`/`segment`（本体锚定）、`narrative`（≤2 句因果/前瞻语境）、`time_orientation`（`forward_looking`|`backward_looking`）、`resolution`/`resolved_at`/`realizes_event_id`（前瞻声明解析生命周期）——全部经 `semantic_facts` 视图统一点查（见 §5.6）。
 
-**多主题与细分**（As-Built，`ingestion/registry.py`）：篮子由 `THEMES`/`SEGMENTS`/`TECH_ROUTES` 驱动，覆盖 **8 大主题 / 947 公司 / 59 细分**（其中 5 条 AI 产业链主题 + 3 条消费周期主题，后者见 §5.5）。公司 `themes` 为 TEXT[]（可跨主题，如 NVDA/AVGO/MRVL 同属 `ai_optical`+`ai_chip`），逐主题细分存 `meta.segments`（`seg` 字段）；chain 主题细分 `tier` 排上游→下游。五条 AI 产业链主题：
+**多主题与细分**（As-Built，`ingestion/registry.py`）：篮子由 `THEMES`/`SEGMENTS`/`TECH_ROUTES` 驱动，覆盖 **8 大主题 / 947 公司 / 59 细分 / 33 技术路线**（其中 5 条 AI 产业链主题 + 3 条消费周期主题，后者见 §5.5；`TECH_ROUTES` 经本体增强从 25 扩到 33，见 §5.8）。公司 `themes` 为 TEXT[]（可跨主题，如 NVDA/AVGO/MRVL 同属 `ai_optical`+`ai_chip`），逐主题细分存 `meta.segments`（`seg` 字段）；chain 主题细分 `tier` 排上游→下游。五条 AI 产业链主题：
 
 - **`ai_optical`（AI 光互连产业链）**：4 段。上游器件→光模块厂→代工→下游客户。
 - **`ai_chip`（AI 算力芯片产业链）**：9 段（含跨主题巨头）。WFE→材料/EDA→晶圆代工→存储/GPU/CPU→先进封装→PCB。
@@ -324,11 +324,21 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 
 **Finnhub/FMP 新闻源**（补上真实源缺口）：`providers/finnhub.pull_news`(+`pull_general_news`) 与 `providers/fmp.pull_news` 把公司新闻落 `documents`（source=`finnhub`/`fmp`，permission=`grey`，**抽取事实自用——存摘要非全文**，内容哈希去重）。`api/ops.py` 注册 `finnhub_news` 源 + `run_source` 分支；`kg/expert.ALT_SOURCES` 纳入 `finnhub`/`fmp`，使新闻同时流入 `build_kg` 与专家层。
 
+### 5.8 Universe 本体增强（As-Built，2026-06）
+
+基础本体（sector/industry/segment/chain_role）此前已对全 947 司 100% 完整。本次为 569 家 bulk 生成的"universe"公司**补深度**——多主题成员、技术路线暴露、更丰富别名、细分精化，使其达到精选核心的本体深度并叠加扩展维度。
+
+- **`scripts/ontology_enrich.py`——白名单校验的批量 LLM 增强**：经任务管理器路由（`task="search_bulk"`，GLM 订阅 + DeepSeek 回退，528 司约 $0.43）。逐公司产出（全部严格校验于本体词表，词表外**一律丢弃**）：附加主题成员（+该主题下细分）、技术路线标签、额外别名（原生/罗马化/简称/品牌）、更优主要细分；自由文本 `suggest_route` 字段浮出扩展候选。确定性 `_CORRECTIONS` 表编码 18 条审计确认的修正。`generate()` 合并缓存 + 修正 → 重写 `ingestion/universe.py`（Python repr）。
+- **`registry.TECH_ROUTES`：25 → 33**——从复现的 `suggest_route` 中数据驱动新增 **8 条扩展路线**：`tr_cybersec`、`tr_ddic`（显示驱动 IC）、`tr_power_semi`（功率半导体）、`tr_cv`（计算机视觉）、`tr_med_imaging`（医疗影像 AI）、`tr_pneumatic`（气动执行器）、`tr_industrial_gas`（工业/电子特气）、`tr_ceramic_pkg`（陶瓷封装基板），覆盖原光学/芯片集之外的专业化。
+- **`kg/store.py bootstrap_seed`**：增强后的 `tech_routes` 落为 `uses_techroute` 边（`license_tag='enriched'`）；`competes_in`(seed) 与 `uses_techroute`(enriched) 现**从 roster 删后重建**（幂等性修复），使修正在 reseed 时干净传播。
+- **结果（live DB，全 947）**：多主题公司 80、技术路线节点 33、`uses_techroute` 边 724（其中 360 enriched）、`competes_in` 1024、`entity_aliases` 3623。
+- **独立双审（36 agents）+ /code-review（xhigh）裁定 GO**：全链完整（0 词表违规、5 项完整性不变量通过）；常识质量约 3% 错误率（LLM 把供应商误判为路线、多主题过度归属），均 P1–P3，已由确定性 `_CORRECTIONS` 修复。勾稽核查（`universe.py`↔DB↔词表）对账无误。
+
 ---
 
 ## 6. 多 Agent 报告流水线
 
-**可控 LangGraph DAG**（确定性、检查点、低温、结构化输出、LiteLLM 单次预算），仅含**一个受限自治岛**（多空辩论子图）。RAG + 时序 KG + 实时数据是 Agent 调用的**工具**；**无源不出结论**（每条挂 RAGFlow chunk / EDGAR-cninfo filing ID / 双时态图谱事实 + 有效期）。LiteLLM 路由：抽取/摘要/分类走 `model_fast`（默认 `deepseek-v4-flash`），论点/批判/辩论走 `model_strong`（默认 `deepseek-v4-pro`，high effort、结构化输出）；一行 env 可切 `claude-haiku-4-5` / `claude-opus-4-8`。
+**可控 LangGraph DAG**（确定性、检查点、低温、结构化输出、LiteLLM 单次预算），仅含**一个受限自治岛**（多空辩论子图）。RAG + 时序 KG + 实时数据是 Agent 调用的**工具**；**无源不出结论**（每条挂 RAGFlow chunk / EDGAR-cninfo filing ID / 双时态图谱事实 + 有效期）。模型路由经 **LLM 任务管理器**（§6.1）按 `TaskClass` 分派：抽取/摘要/分类（`kg_extract`/`expert`/`analyst`/`judge`）走快/廉价候选链，论点/批判/辩论（`debate`/`editor`/`synth`）走强 token 候选链（默认 `deepseek-v4-pro`，high effort、结构化输出，跨厂回退）；运行时经 `route_overrides` 或一行 env 即可切 `claude-haiku-4-5` / `claude-opus-4-8` / GLM / Kimi。
 
 **节点**
 1. **规划** — 解析请求类型（深度报告 | 跟踪更新 | 单催化剂启示）+ 篮子，经实体消解映射到规范图谱实体；锁定版本化数据快照
@@ -343,7 +353,19 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 **一图三品**：(a) 深度报告（按需全论点）；(b) 跟踪摘要（Dagster 调度的 vs 上一快照 diff——双时态"自某日变化了什么"；只重跑催化剂+KG delta+摘要节点）；(c) 启示（图谱引用的要点列表）。
 **护栏**：检查点续跑；节点级重试；辩论迭代上限 + LiteLLM 单次预算；每份报告快照版本化并绑定其数据快照；每条结论带溯源 + 许可标签；KG 写入前跑确定性实体消解。端到端经 Langfuse 追踪（按节点 token/成本/延迟）；Phoenix 上对留出报告集做离线回归。
 
-> **探索模块的合成层**与本流水线**共享同一模型网关与预算纪律**，但是**单节点**前沿合成（`tier="strong"`），不含多空辩论/人审中断——它产出方向性研究前沿而非可交易结论。
+> **探索模块的合成层**与本流水线**共享同一模型网关与预算纪律**，但是**单节点**前沿合成（`task="synth"`，强 token），不含多空辩论/人审中断——它产出方向性研究前沿而非可交易结论。
+
+### 6.1 LLM 任务管理器（As-Built，2026-06）
+
+旧的"两级（fast/strong）路由"已升级为**任务管理器**——**扩展** `models/llm.py`、**不引入并行系统、不增重依赖**（LiteLLM 本就讲 `zhipu/` 与 `moonshot/`）。三件：
+
+- **`models/registry.py`——code-as-truth 模型库（可更新的"模型库"）**：`Provider` + `ModelSpec` 数据类；枚举 `Billing`(token|subscription) / `Capability`(fast|strong|reasoning|long_context|cheap_bulk) / `Status`(active|preview|deprecated)。`PROVIDERS`：deepseek、anthropic、openai、**zhipu(=GLM)**、**moonshot(=Kimi)**。`MODELS`：token 模型（DeepSeek v4-flash/pro、Claude opus/haiku/sonnet）+ GLM/Kimi **订阅**条目。辅助 `candidates_for(capability, billing_pref)`（billing 优先稳定排序、保留 token 回退尾）、`preferred`、`get`/`by_litellm`/`provider_of`。**换代 = 改这一个文件**（加 `ModelSpec`、置 `preferred=True`、旧的翻 `deprecated`）；`_PRICES` 从 `MODELS` 派生。
+- **`models/router.py`——任务路由**：`TaskClass`（11 类：kg_extract、expert、search_bulk、analyst、debate、editor、judge、synth、eval、adhoc_fast、adhoc_strong）+ `RoutePolicy` + `POLICIES`；`resolve(task)` 返回有序候选链。bulk/search 任务 → `CHEAP_BULK` + 订阅优先（GLM/Kimi 平价，使对 947 司语料的夜间抽取**永不跑出无界 token 账单**），再接预算内的廉价 DeepSeek token；quality 任务（debate/editor/synth）→ 强 token + 跨厂回退。解析优先级：`route_overrides` 表（ops API）> env（`XAR_MODEL_*`）> 注册表 `preferred`。`tier="fast|strong"` 作向后兼容别名（`as_task`），未迁移调用点不变。
+- **`llm.py` 回退执行器**：`complete()`/`complete_json()` 新增 `task=`；逐候选取 api_base/key（`_endpoint`）、跳过未配置 provider、**预算感知**跳过超额 token 候选 + 硬停 `BudgetExceeded`、瞬时错误一次候选内重试（`_retryable`）、失败/空则轮转下一候选。**计费感知成本**：真订阅调用记 `usd=0`（订阅 bulk 不触预算闸），订阅 spec 回退到 provider 计量 key 时记**真实**按 token 成本（堵上计费漏洞）；`llm_usage` 增 `provider/task_class/billing` 列。
+
+**运营接入**：`api/ops.py` 的 `/api/ops/llm` 现呈现注册表 vendors/models/路由表 + 按 billing/provider/task 的花费（历史行标 `legacy`、无 null 桶）+ `set_route()`；`api/app.py` 暴露 `POST /api/ops/llm/route`（不重部署的运行时**换代**）。`config.py` 增 `glm_api_key`/`moonshot_api_key` + 订阅 key/base + `model_bulk`；`schema.sql` 增 `llm_usage` 列 + `route_overrides` 表。调用点 `kg/extract.py`/`kg/expert.py` 已由 `tier="fast"` 迁移到 `task="kg_extract"`/`"expert"`；每日 bulk 拉取链（`orchestration/daily.py`）自动经 `task=` 路由。
+
+> **独立双审 + /code-review（xhigh）裁定 GO**：`/code-review` 另**修复了 P0 订阅计费漏洞**、P1 重试门控 + ops null 桶、P2 retryable 集合 + 2 处测试卫生问题。
 
 ---
 

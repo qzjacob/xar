@@ -10,10 +10,11 @@
 
 ```bash
 cp .env.example .env
-# 编辑 .env，填任一 LLM Key 即可（经 LiteLLM 路由）。默认走 DeepSeek V4：
+# 编辑 .env，填任一 LLM Key 即可（经 LiteLLM + 任务路由器）。默认走 DeepSeek V4：
 #   DEEPSEEK_API_KEY=sk-...          默认（v4-flash 抽取 / v4-pro 推理，开箱即用）
-#   ANTHROPIC_API_KEY=sk-ant-...     + 设 XAR_MODEL_FAST/STRONG=claude-haiku-4-5/claude-opus-4-8
+#   ANTHROPIC_API_KEY=sk-ant-...     质量任务跨厂回退（claude-opus-4-8 / claude-haiku-4-5）
 #   OPENAI_API_KEY=sk-...
+#   GLM_API_KEY=... / MOONSHOT_API_KEY=...  可选；批量/检索任务走 GLM/Kimi 订阅制（封顶账单）
 docker compose up --build
 ```
 
@@ -63,6 +64,8 @@ xar serve                         # Web UI: http://localhost:8000
 **3 条消费经济周期主题（`kind=cycle`）：** `internet`（互联网平台）· `retail`（美国零售）· `restaurants`（餐饮服务）。这些不走供应链 tier 轴，而用新增的**经济周期本体**（`ontology/cycle.py`）：5 态 `CyclePosition`（early_cycle / mid_cycle / late_cycle / defensive / counter_cyclical），`CYCLE_RANK` 兼作 segment tier，于是热力图渲染为「Cycle Map（周期图）」。
 
 **全宇宙构建**：`scripts/universe_build.py` 以 Finnhub 各交易所符号集为存在性闸 + 按主题×地区 LLM 枚举 + 确定性校验（存在性 / 去重 / 美股市值 > $2B 闸 / 消费主题非美区周期黑名单 / 名称↔代码同主体校验），生成 `ingestion/universe.py`（`UNIVERSE` 追加进 `registry.COMPANIES`）。覆盖 US + JP/KR/TW（+ 部分 CN）；地区分布约 US 356 / JP 223 / TW 143 / KR 134 / CN 77。仪表盘内做 FX 归一。市值校验 > $2B（美股用 Finnhub，其余用 Yahoo + 汇率）。
+**本体纵深补全**：基础本体（sector/industry/segment/chain_role）已对全部 947 家公司 100% 覆盖；`scripts/ontology_enrich.py`（经任务路由器 `task=search_bulk`，GLM 订阅 + DeepSeek 回退）进一步把 569 家批量生成的「universe」公司补到与精选核心同等纵深——多主题成员、技术路线暴露（`uses_techroute`，`license_tag='enriched'`）、更丰富的别名、更准的主段；所有产出严格按本体词表白名单校验，词表外一律丢弃，另有一张确定性 `_CORRECTIONS` 表编码 18 处审计确认的修正，merge 后回写 `ingestion/universe.py`。**技术路线 25 → 33**（按反复出现的建议数据驱动新增 8 条扩展路线：`tr_cybersec` / `tr_ddic`（显示驱动 IC）/ `tr_power_semi` / `tr_cv`（计算机视觉）/ `tr_med_imaging` / `tr_pneumatic` / `tr_industrial_gas` / `tr_ceramic_pkg`）。
+
 **知识图谱抽取按主题感知**：`kg/extract.py` 的 `_focus_for(company)` 依公司所属主题选取行业框架（修复了此前 prompt 被硬编码为光模块的潜在 bug）。
 
 ## 前沿探索模块（Exploration）
@@ -100,21 +103,23 @@ xar serve                         # Web UI: http://localhost:8000
 | 远期主张闭环 | `kg/resolve_claims.py` `resolve_forward_claims()`：forward_looking 催化剂遇同公司后续 realization 型 backward 事件 → 结算 hit/miss，否则 stale（可复查）；`kg_events` 增 resolution/resolved_at/realizes_event_id，经 `semantic_facts.resolution` 浮现 | — |
 | 检索 | pgvector 稠密 + trigram 词法，RRF 融合 + GraphRAG | RAGFlow、LightRAG |
 | 多 Agent | 可控 DAG：规划→图谱→分析师→多空辩论→风险→主编→**证据闸**→**人工审批** | LangGraph（同构） |
-| 模型 | **LiteLLM** 路由：DeepSeek V4 默认（v4-flash 抽取 / v4-pro 推理）+ 成本追踪 + 单次预算上限 | 任意 LiteLLM provider / 本地开源 |
+| 模型 | **LiteLLM + 任务路由器**：按 `TaskClass` 路由的可更新模型库（`models/registry.py`/`router.py`），计价感知（批量/检索→GLM/Kimi 订阅制，质量→token 跨厂回退）+ 计费感知成本追踪 + 单次预算上限 | 任意 LiteLLM provider / 本地开源 |
 | 编排 | Dagster 资产化增量刷新（`.[orchestration]`）：`orchestration/definitions.py` 的 `pull_shard`（8 静态分区，06:00 调度）+ `extract_all`（单批，06:30）+ `core_daily`（按需）；compose 中 **dagster 边车** 暴露 <http://localhost:3001> | — |
 | 日级自动采集 | `orchestration/daily.py` `run_daily(stages=('pull','extract'))`：按源增量 PULL（按公司分片、隔离失败）→ 解析/嵌入 → build_kg → expert → signals → `resolve_forward_claims`；`storage/runlog.py` + 新表 **`ingest_runs`** = 运行日志 + 增量游标（last_success_ts），内容哈希 + NOT-EXISTS 游标做幂等/可续跑。CLI `xar daily` | — |
 | 评测 | 检索命中率 + 报告 rubric（LLM-judge）+ Phoenix（`.[eval]`） | — |
 | 回测 | 催化剂→远期收益 信号有效性：驱动自 **`semantic_facts`**（非仅 kg_events），按 (category, polarity, kind, time_orientation) 键控，严格 PIT 进场 = `GREATEST(as_of, observed_at)` | — |
 
-## 模型路由（LiteLLM）
+## 模型路由（LiteLLM + 任务路由器）
 
-两级路由，默认 provider = **DeepSeek V4**（`config.py`，全部经 `XAR_*` 覆盖）：
+**任务路由器**取代旧的两档 fast/strong 路由：调用按 `TaskClass` 而非笼统的「快/强」分流，路由到一个**可更新的代码即真模型库**（`models/registry.py` 的 `Provider`/`ModelSpec`，含 `Billing`/`Capability`/`Status` 枚举）。`换代` = 编辑这一个文件（加 `ModelSpec`、置 `preferred=True`、把旧的 flip 成 `deprecated`）。默认 provider 仍为 **DeepSeek V4**（`config.py`，全部经 `XAR_*` 覆盖）。
 
-- `XAR_MODEL_FAST=deepseek/deepseek-v4-flash` — 抽取 / 分类 / 快速综合。
-- `XAR_MODEL_STRONG=deepseek/deepseek-v4-pro` — 推理 / 多空辩论 / 研究前沿综合。
-- `XAR_MODEL_EFFORT=high` — 推理强度（V4 推理模型需调 `reasoning_effort`）。
+- **`TaskClass`**（`models/router.py`，11 类：`kg_extract` / `expert` / `search_bulk` / `analyst` / `debate` / `editor` / `judge` / `synth` / `eval` / `adhoc_fast` / `adhoc_strong`）→ `resolve(task)` 给出有序候选回退链；`tier="fast|strong"` 经 `as_task` 保留为向后兼容别名，未迁移的调用点不变。
+- **计价感知路由**：批量/检索类（`kg_extract`/`expert`/`search_bulk`）走 **CHEAP_BULK + 订阅制优先**——**GLM（智谱）/ Kimi（月之暗面）** 的 flat-rate 订阅，使夜间对 947 家公司全量抽取/枚举**不会跑出无上限的 token 账单**，其后再回退到预算内的廉价 DeepSeek token；质量类（`debate`/`editor`/`synth`）走 **STRONG token + 跨厂回退**。
+- **解析优先级**：`route_overrides` 表（运维 API）> 环境变量（`XAR_MODEL_*`）> 库内 `preferred`。
+- **回退执行器 + 计费感知成本**（`models/llm.py`）：逐候选取 api_base/key、跳过未配置 provider、按预算跳过超额 token 候选并 hard-stop `BudgetExceeded`、瞬时错误单次重试、失败/空响应轮换下一候选；真正命中 flat-plan 的调用记 `usd=0`（订阅批量不触预算上限），而订阅 spec 回退到计量 key 时则记**真实按 token 成本**（计费缺口已堵）。`llm_usage` 增 `provider`/`task_class`/`billing` 列。
+- **运维 `换代`**（无需重发布）：`POST /api/ops/llm/route {key, model_id}` 在运行时把某能力/任务重定向到新模型；`/api/ops/llm` 面板浮现库内厂商/模型/路由表 + 按 billing/provider/task 的花费。
 
-`complete_json` 走 JSON-mode。可覆盖为任意 LiteLLM 模型（如带 `ANTHROPIC_API_KEY` 时设 `claude-opus-4-8` / `claude-haiku-4-5`）。每次运行有美元预算上限（`XAR_LLM_MAX_USD_PER_RUN`，默认 5）。
+`complete()` / `complete_json()` 接受 `task=`；后者走 JSON-mode。providers 含 deepseek / anthropic / openai / **zhipu(=GLM)** / **moonshot(=Kimi)**，env key 分别为 `GLM_API_KEY`（亦认 `ZHIPU_API_KEY`）/ `MOONSHOT_API_KEY`（亦认 `KIMI_API_KEY`），均可选。每次运行有美元预算上限（`XAR_LLM_MAX_USD_PER_RUN`，默认 5）。
 
 ## CLI
 
@@ -187,7 +192,7 @@ xar ingest-wechat                            # 抓取→解析→入本体；或
 - **数值对账闸**：表格类 chunk 的合计行须与列和对账，不过则标记，数值结论不在其上 grounding。
 - **证据闸**：每份报告计算证据覆盖度/数值对账/幻觉风险（LLM-judge），低置信报告醒目标注交人工。
 - **人工审批**：报告默认 `awaiting_approval`，经人审才发布；强制非投资建议免责声明。
-- **成本控制**：两级模型路由 + 单次运行美元预算上限（`XAR_*` 可调）。
+- **成本控制**：计价感知的任务路由（批量走 GLM/Kimi 订阅制封顶账单、质量走 token 跨厂回退）+ 计费感知成本追踪 + 单次运行美元预算上限（`XAR_*` 可调）。
 
 ## 测试
 
