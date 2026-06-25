@@ -177,9 +177,12 @@ def _overrides() -> dict[str, str]:
         from ..storage import db
         rows = db.query("SELECT key, model_id FROM route_overrides")
         _OVERRIDES = {r["key"]: r["model_id"] for r in rows if get(r["model_id"])}
+        _OVERRIDES_AT = now
     except Exception:  # noqa: BLE001 — overrides are best-effort
-        _OVERRIDES = {}
-    _OVERRIDES_AT = now
+        # serve-stale-until-recover: on a transient DB hiccup keep the LAST good overrides
+        # and do NOT advance the timestamp, so the next call retries immediately. Caching an
+        # empty dict for a full TTL would silently disable a live ops route switch for 60s.
+        pass
     return _OVERRIDES
 
 

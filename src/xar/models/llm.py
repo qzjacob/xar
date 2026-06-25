@@ -199,6 +199,11 @@ def complete(
     spent = _spent(run_id) if run_id else 0.0
     last_err: Exception | None = None
 
+    # Fallback is resilience, not free insurance: during a partial provider outage a quality
+    # task can rotate down its chain to a pricier model (e.g. deepseek-pro → sonnet → opus),
+    # so a report costs more than usual. It is NOT a runaway — token spend still counts toward
+    # the budget cap and over-cap token candidates are skipped below — but spend accelerates
+    # while the preferred provider is down. (Subscription/flat-plan candidates record usd=0.)
     for spec in chain:
         base, key_env, used_sub = _endpoint(spec, s)
         if key_env and not os.environ.get(key_env):   # skip unconfigured provider — no wasted call

@@ -822,3 +822,75 @@ GLM-5.2 起草的 `SEMANTIC_DB_PLAN.md` 提出**新建独立平行表 `semantic_
 | P2 | test-hygiene（2 项） | **成立·已修** | 测试卫生修复 2 处 |
 
 > 本附录结论：两级路由已由**任务管理器**取代（registry + router + fallback + billing-aware 预算 + 运行时 `route_overrides`），订阅 vs token 的计价决策使 947 公司语料的夜间批量在订阅 flat-rate 下天然封顶、且回落计费时真实记账（P0 漏洞闭合）；本体回填把 569 家 universe 公司补到策展核心深度并新增 8 条扩展技术路线（25→33）；独立双审裁定 GO、约 3% common-sense 错误率经确定性 `_CORRECTIONS` 修复、勾稽核查对齐 clean。验证：`pytest` 43 passed、`ruff` clean、docker 双服务（app `:8000` / Dagster `:3001`）运行中。
+
+---
+
+## 附录 H：LLM 任务管理器 + 本体回填的后续独立复核（第一性原理·commit 59213a8，2026-06）
+
+> 视角：基本面量化策略 + 后端架构；**第一性原理**而非"行业最佳实践"；从"可信结果 / 不埋技术债"的项目核心目标出发推理最佳实现。
+> 复核对象：commit `59213a8`（"Docs: LLM task manager + ontology enrichment"）本身为**文档提交**；按本会话惯例复核其描述的实际代码——`src/xar/models/{registry,router,llm}.py`（任务管理器）+ `scripts/ontology_enrich.py`（本体回填）+ `kg/store.py`。
+> 方法：逐文件读取源码 + 核验 git 状态；`pytest` 43 passed、`ruff check` 通过。
+> 与附录 G 的关系：G 是本批变更的**建设记录 + 首轮 xhigh 审查处置**（P0 计价漏洞、retry-gating、null-bucket 等）；本附录是对**同一代码的后续独立复核**，捕获 G.3 未覆盖的 3 项低危 + 1 项可维护性。**本附录仅记录意见，不修改代码。**
+> **结论先行**：**未发现正确性 bug**——code-as-truth registry、billing-aware 计价、metered-fallback 漏洞修复（`usd=0` 仅当 flat-plan 真命中）、`bootstrap_seed` 的 `license_tag` 作用域 delete-then-recreate 均成立。下面 3 项 Low 为健壮性/可观测性改进点，1 项为应控制其增长的技术债。均不阻塞，但建议在下次触及相应文件时顺手处理。
+
+### H.1 低危（健壮性 / 可观测性）
+
+**H.1.1 `_overrides()` 在瞬时 DB 错误时把空结果缓存满 TTL [低 / cache-failure 反模式]**
+
+- 位置：`src/xar/models/registry.py:172-183`（核验：`:180-181` `except Exception: _OVERRIDES = {}`，`:182` `_OVERRIDES_AT = now`）。
+- 现状：TTL 到期时若恰好 Postgres 抖动，`_OVERRIDES={}` 被缓存满 `_OVERRIDES_TTL`（60s/进程）。
+- 影响：运营者经 `route_overrides` 表做的运行时换模型在该进程**静默失效最多 60s**。爆炸半径有限——批量回落到 registry 默认值（仍 subscription-first），不会触发计价失控；但属典型"cache failure"反模式。
+- 建议：异常路径**返回先前缓存的 `_OVERRIDES` 且不推进 `_OVERRIDES_AT`**（serve-stale-until-recover，尽快重试），而非缓存空值。
+
+**H.1.2 `as_task` 对未知 task 字符串静默降级 [低 / 潜伏]**
+
+- 位置：`src/xar/models/router.py:66-75`（核验：`:73` `except ValueError: pass`，`:75` `return ADHOC_STRONG if tier=="strong" else ADHOC_FAST`）。
+- 现状：拼写错误或 `TaskClass` 重命名后的 stale 值（如 `"kg_extact"`）静默落到 `ADHOC_FAST`（一个 **token** 计费模型），而非报错。
+- 影响：对批量任务，这会**静默绕过 subscription-first 的计费保护**——而这正是任务管理器的核心目的。当前所有调用点正确，故潜伏；但未来回归不可见。
+- 建议：`ValueError` 路径加 `log.warning("unknown task %r, falling back to adhoc", task)`，把未来回归变 loud。
+
+**H.1.3 跨 provider fallback 在部分 outage 下可把单次调用成本抬升约 10× [低 / 非失控]**
+
+- 位置：`src/xar/models/llm.py:202-237`（核验：候选链 `:202`、按 effective billing 跳过超预算 token 候选 `:210`、失败轮转 `:218-227`）。
+- 现状：一个 quality 任务的候选链 `[deepseek-v4-pro $0.60/$2.40 → sonnet $3/$15 → opus $5/$25 → …]`，在部分 provider outage 下单次 debate/editor 调用会轮转到 Opus。
+- 影响：**非失控**——总花费仍受预算上限约束（token spend 计入、`spent >= cap` 跳过后续 token 候选 `:210`）。但 outage 期间的一次 report 会比改动前的单模型行为**消耗预算明显更快**。"fallback" 读起来像免费保险，实际不是。
+- 建议：在 ops 控制台 / 文档显式说明 fallback 的成本语义（已在附录 G.1 描述 billing-aware 预算，可补一句"outage 期间预算消耗加速"）。
+
+### H.2 可维护性（应控制其增长的技术债）
+
+**H.2.1 `_CORRECTIONS` 是架在非确定性 LLM 输出之上的手维护补丁表 [技术债 / 半衰期]**
+
+- 位置：`scripts/ontology_enrich.py:62-108`（核验：`:62` `_CORRECTIONS: dict[str, dict] = {`，18 项审计修正；`:85` `fix = _CORRECTIONS.get(c["id"])`）。
+- 现状：18 项修正以 company id 为键的 dict 编码，对当前 18 个案例**实用且务实**。
+- 技术债特征：重跑 `enrich` 会**再次产生同样的 ~3% LLM 错误**，故 `_CORRECTIONS` 必须**永远携带、并与 prompt/词表改动同步编辑**；失效条目（公司移除/重生成）静默 no-op 并累积。从第一性原理看，这些修正的**正确归宿是 whitelist 校验器（`_valid`）/ prompt 约束**，使错误无法被产生——例如 "supplier-vs-route 混淆" 一类（`u_us_lin`/`u_jp_7751`/`u_jp_4188`）看起来可由 `provider_of(route) != provider_of(company)` 式不变量在源头拦截。
+- 建议：非阻塞；但在该表**增长前**把可规则化的类别上移到 `_valid` 不变量/prompt 约束。否则每次 enrich 迭代都会再添几行。
+
+### H.3 经复核认可的项（成立）
+
+- **metered-fallback 计价修复正确**：`used_sub` 由 key *presence* 派生，`usd=0` 仅在 flat-plan 真命中时记录（`llm.py:119-120` 核验）——附录 G.3 的 P0 漏洞确已闭合。
+- **`bootstrap_seed` 的 delete-then-recreate 作用域正确**：仅按 `license_tag` 删 enriched/seed 边（`store.py:179-191`），**不触碰** curated `SEED_EDGES` 与抽取边；reseed 幂等。
+- **批量预算前缀路由一致**：`build_kg`→`kg-`、`expert`→`expert-`、`synthesize_all`→`synth-`、`daily`→`batch-`（`_BATCH_PREFIXES`）；`daily.py:161,173` 捕获 `BudgetExceeded`。
+- **`generate()` 输出合法**：经 `repr()` 产出有效 Python、保留 unicode——`universe.py` 解析干净（与本会话多次 regenerate 一致）。
+
+### H.4 处置建议（按优先级，均可独立交付、零新依赖）
+
+1. **H.1.1**（cache-failure）：异常路径返回旧 `_OVERRIDES` 且不推进 `_OVERRIDES_AT`——标准 serve-stale 模式，一行级。
+2. **H.1.2**（silent downgrade）：`as_task` 的 `ValueError` 路径加 `log.warning`，防未来回归。
+3. **H.2.1**（`_CORRECTIONS` 技术债）：在该表增长前，把可规则化类别上移到 `_valid` 不变量 / prompt 约束。
+4. **H.1.3**（fallback 成本语义）：ops 控制台/文档补一句说明，非代码改动。
+
+> 第二意见结论：**本批代码（任务管理器 + 本体回填）高质量、无正确性 bug**，附录 G.3 的 P0/P1 处置经核验成立。本附录捕获的 3 项 Low（override cache-failure、as_task 静默降级、fallback 成本加速）与 1 项可维护性（`_CORRECTIONS` 补丁表）均不阻塞合入，建议按 H.4 顺序在下次触及相应文件时顺手闭合，避免技术债累积。
+
+### H.5 独立复核与处置（本会话，逐条实证后修复成立项）
+
+逐条对照源码独立复核，4 项**全部成立**，已修：
+
+- **H.1.1（cache-failure，已修）** `registry.py:_overrides()` 异常路径改为 **serve-stale**：保留上次成功的 `_OVERRIDES`、**不推进** `_OVERRIDES_AT`（下次立即重试），不再把空值缓存满 60s TTL → 瞬时 DB 抖动不再让运行时换模型静默失效。
+- **H.1.2（silent downgrade，已修）** `router.py:as_task()` 在未知/拼错 task 字符串落到 adhoc 前加 `log.warning(...)`，把"静默绕过 subscription-first 计价保护"的未来回归变 loud。
+- **H.1.3（fallback 成本语义，已修·注释级）** `llm.py` fallback 循环上方补注释，显式说明 outage 期间轮转到更贵模型会**加速预算消耗**（仍受预算上限约束、非失控）——把成本语义留在维护者最先看到的地方。
+- **H.2.1（`_CORRECTIONS` 技术债，已按第一性原理上移到不变量）** 采纳 GLM 的核心建议——把**可规则化的"跨域路线误标"类别**从事后补丁上移到**源头 `_valid` 不变量**：在 `registry.py` 新增 **code-as-truth 的 `ROUTE_THEMES`**（每条 tech-route 声明其 home theme，新增路线被强制声明），`ontology_enrich._valid` 据此对**主题零重叠**的路线 tag 在富集时即拒绝（如"芯片公司被标空间推进路线"）。该不变量使**重跑 enrich 无法再生成此错误类**，降低对 `_CORRECTIONS` 的未来依赖。
+  - 用当前（已修正）`universe.py` 对该 map 做了**反向校验**：初版 map 过紧，误伤 Nextchip(`tr_cv`)——一家做视觉 SoC 的 ai_chip 公司，遂将 `tr_cv` 的 home theme 补 `ai_chip`（视觉芯片确属 chip 域）。校验体现了"宁可放行、只拦零重叠"的保守设计。
+  - **不做追溯性清洗**：gate 仅作用于**未来富集**（`_valid`），不在 `generate()` 回溯改动已审计数据——因残留 2 例（Ushio `tr_euv`、Dell `tr_genai_infra`）属**主题集不完整**而非路线错误（Ushio 确为 EUV 光源供应商），追溯丢弃会误删真实信号；正确归宿是补主题而非删路线，留作后续观察。
+  - 既有 18 项 `_CORRECTIONS` 含异**域内事实性错误**（如 Canon=纳米压印≠EUV、多主题越界、别名串号），不可规则化，合理保留。
+
+验证：`ruff` 通过、`pytest` **43 passed**、route↔theme map 反向校验仅余 2 例可解释残留。

@@ -737,6 +737,39 @@ TECH_ROUTES: list[dict] = [
     {"id": "tr_ceramic_pkg", "name": "Ceramic Packaging Substrates", "attrs": {"family": "ceramic substrates"}},
 ]
 
+# Home theme(s) for each tech-route — the themes in which a company can legitimately be
+# exposed to that route. Code-as-truth: the source of the cross-domain validity invariant
+# used by scripts/ontology_enrich.py (a route tag whose home themes don't overlap the
+# company's themes is a domain confusion — e.g. a chip company tagged a space-propulsion
+# route — and is rejected at enrichment time rather than patched after). Permissive (lists
+# every theme where the route really appears); a route absent here is unconstrained.
+ROUTE_THEMES: dict[str, tuple[str, ...]] = {
+    # optical (CPO/SiPh straddle optical + chip)
+    "tr_800g": ("ai_optical", "ai_chip"), "tr_1600g": ("ai_optical", "ai_chip"),
+    "tr_cpo": ("ai_optical", "ai_chip"), "tr_lpo": ("ai_optical", "ai_chip"),
+    "tr_siph": ("ai_optical", "ai_chip"), "tr_eml": ("ai_optical", "ai_chip"),
+    # chip
+    "tr_euv": ("ai_chip",), "tr_2nm": ("ai_chip",), "tr_cowos": ("ai_chip",),
+    "tr_hbm": ("ai_chip",), "tr_chiplet": ("ai_chip",),
+    # ai_software (internet platforms also adopt these AI capabilities)
+    "tr_ai_agents": ("ai_software", "internet"), "tr_copilots": ("ai_software", "internet"),
+    "tr_rag": ("ai_software", "internet"), "tr_genai_infra": ("ai_software", "internet"),
+    # space
+    "tr_reusable": ("space_exploration",), "tr_methalox": ("space_exploration",),
+    "tr_megaconstellation": ("space_exploration",), "tr_orbital_compute": ("space_exploration",),
+    "tr_electric_prop": ("space_exploration",),
+    # humanoid
+    "tr_harmonic": ("humanoid_robotics",), "tr_roller_screw": ("humanoid_robotics",),
+    "tr_frameless": ("humanoid_robotics",), "tr_vla": ("humanoid_robotics",),
+    "tr_tactile": ("humanoid_robotics",),
+    # extension (power-semis/vision span chip + humanoid)
+    "tr_cybersec": ("ai_software",), "tr_ddic": ("ai_chip",),
+    "tr_power_semi": ("ai_chip", "humanoid_robotics"),
+    "tr_cv": ("ai_software", "humanoid_robotics", "ai_chip"),  # vision SoC/ISP makers are ai_chip too
+    "tr_med_imaging": ("ai_software",), "tr_pneumatic": ("humanoid_robotics",),
+    "tr_industrial_gas": ("ai_chip",), "tr_ceramic_pkg": ("ai_chip",),
+}
+
 # --- Seed structural edges (bootstraps each chain's graph backbone) ---------
 SEED_EDGES: list[tuple[str, str, str]] = [
     # ai_optical

@@ -329,6 +329,7 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 基础本体（sector/industry/segment/chain_role）此前已对全 947 司 100% 完整。本次为 569 家 bulk 生成的"universe"公司**补深度**——多主题成员、技术路线暴露、更丰富别名、细分精化，使其达到精选核心的本体深度并叠加扩展维度。
 
 - **`scripts/ontology_enrich.py`——白名单校验的批量 LLM 增强**：经任务管理器路由（`task="search_bulk"`，GLM 订阅 + DeepSeek 回退，528 司约 $0.43）。逐公司产出（全部严格校验于本体词表，词表外**一律丢弃**）：附加主题成员（+该主题下细分）、技术路线标签、额外别名（原生/罗马化/简称/品牌）、更优主要细分；自由文本 `suggest_route` 字段浮出扩展候选。确定性 `_CORRECTIONS` 表编码 18 条审计确认的修正。`generate()` 合并缓存 + 修正 → 重写 `ingestion/universe.py`（Python repr）。
+- **route↔theme 源不变量（code-as-truth `registry.ROUTE_THEMES`）**：33 条技术路线各声明其"主场"主题（公司可合法暴露于该路线的主题集）；`_valid()` 在增强**源头**拒绝任何主场主题与公司主题**零重叠**的路线提案（跨域混淆，如芯片公司被打上空间推进路线）。这把可规则化的"供应商误判为路线"一类**从事后 `_CORRECTIONS` 补丁表上提为源不变量**——重跑增强不再可能重新生成该类错误。宽容设计（仅零重叠才丢；如 `tr_cv` 对 `ai_software`/`humanoid_robotics`/`ai_chip` 三者皆合法——视觉 SoC/ISP 厂亦属 `ai_chip`）；前向守护，非对存量数据的回溯重写。
 - **`registry.TECH_ROUTES`：25 → 33**——从复现的 `suggest_route` 中数据驱动新增 **8 条扩展路线**：`tr_cybersec`、`tr_ddic`（显示驱动 IC）、`tr_power_semi`（功率半导体）、`tr_cv`（计算机视觉）、`tr_med_imaging`（医疗影像 AI）、`tr_pneumatic`（气动执行器）、`tr_industrial_gas`（工业/电子特气）、`tr_ceramic_pkg`（陶瓷封装基板），覆盖原光学/芯片集之外的专业化。
 - **`kg/store.py bootstrap_seed`**：增强后的 `tech_routes` 落为 `uses_techroute` 边（`license_tag='enriched'`）；`competes_in`(seed) 与 `uses_techroute`(enriched) 现**从 roster 删后重建**（幂等性修复），使修正在 reseed 时干净传播。
 - **结果（live DB，全 947）**：多主题公司 80、技术路线节点 33、`uses_techroute` 边 724（其中 360 enriched）、`competes_in` 1024、`entity_aliases` 3623。

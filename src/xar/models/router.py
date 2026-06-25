@@ -20,8 +20,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from ..logging import get_logger
 from . import registry
 from .registry import Billing, Capability, ModelSpec
+
+log = get_logger("xar.router")
 
 
 class TaskClass(str, Enum):
@@ -71,7 +74,10 @@ def as_task(task: TaskClass | str | None, tier: str) -> TaskClass:
         try:
             return TaskClass(task)
         except ValueError:
-            pass
+            # A typo'd / stale task string would silently fall to a token adhoc class,
+            # bypassing the subscription-first bulk billing protection — make it loud so a
+            # future regression is visible rather than a silent cost leak.
+            log.warning("unknown task %r — falling back to tier=%r adhoc routing", task, tier)
     return TaskClass.ADHOC_STRONG if tier == "strong" else TaskClass.ADHOC_FAST
 
 

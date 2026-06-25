@@ -302,6 +302,7 @@ Week 4:  [P1-3 ─ P1-4] 完成 P1
 - ❌ 日度 ingest 不引重型队列；✅ `ingest_runs` 表 + content-hash + NOT-EXISTS 游标做幂等可续，由 Dagster sidecar 调度（不侵入 app 容器，仅 app 跑 `xar init`）。
 - ❌ **LLM 路由不另起平行系统**；✅ 扩展既有 `models/llm.py` + code-as-truth `registry.py`（LiteLLM 已通 zhipu/moonshot，无新重依赖），`换代` 改一处 ModelSpec / 经 `route_overrides` 运行时改写（见 ADR：reuse-llm-not-parallel-router）。
 - ❌ **本体富化不另起新层**；✅ 加深既有 roster——白名单校验 LLM delta 经 `_CORRECTIONS` 合并后写回 `ingestion/universe.py`，`bootstrap_seed` 从 roster delete-then-recreate 派生边（见 ADR：additive-ontology-writeback）。
+- ✅ **可规则化的 LLM-output 纠错优先上升为 source 不变量，而非堆 hand-patch 表**：route↔theme 归属由 code-as-truth `registry.ROUTE_THEMES`（33 路线各声明其 home theme(s)）声明，`ontology_enrich._valid()` 在富化源头丢弃 home theme 与公司 theme 集**零交集**的越域路线（如芯片公司被打上航天推进路线），把"供应商↔路线混淆"这一可规则类别从事后 `_CORRECTIONS` 提升为不变量——重跑富化不再重生该错误类（仅守未来富化，非回溯改写；permissive：仅零交集才丢，如 `tr_cv` 对 ai_software/humanoid/ai_chip 均合法）（见 ADR：route-theme-invariant、Appendix H.5）。
 - ✅ Exploration 保持"方向性而非交易"：不写 `kg_events`、不进 signals、不触报告流水线。
 - ✅ 每个新功能过"垂直知识更准 / 信任纪律更硬"双门槛；交付走"独立 agent 审计"（本轮语义 DB + 日度 ingest 经多个独立 multi-agent 审计 + xhigh code-review，P0/P1 发现已修复）。
 
@@ -323,6 +324,7 @@ Week 4:  [P1-3 ─ P1-4] 完成 P1
 | LLM 路由 | **LLM 任务管理器（取代旧两档 fast/strong）**：code-as-truth 模型库 `models/registry.py`（Provider/ModelSpec + Billing/Capability/Status 枚举，5 厂商 deepseek/anthropic/openai/zhipu=GLM/moonshot=Kimi）+ 任务路由 `models/router.py`（`TaskClass` 11 类 + `POLICIES` → `resolve()` 候选链）。bulk/search 任务（kg_extract/expert/search_bulk）SUBSCRIPTION 优先（GLM/Kimi 包月→廉价 DeepSeek token 兜底），quality 任务跨厂商 STRONG 兜底。优先级 `route_overrides` 表 > env `XAR_MODEL_*` > registry `preferred`；`tier="fast/strong"` 保留为回退别名 | 计费感知（token 计真实成本并守预算上限、subscription 记 `usd=0`、回退到计量 key 时记真实成本以堵账单洞）+ 跨厂商 fallback 执行器；`换代` = 改 `registry.py` 一处或经 `POST /api/ops/llm/route` 运行时改写，无需重部署 |
 | LLM 富化写回（本体） | **加深既有 roster + 写回 `universe.py`，不另起本体层** | 白名单校验 LLM delta + `_CORRECTIONS` 合并 → `bootstrap_seed` 从 roster delete-then-recreate 派生 `competes_in`/`uses_techroute` 边；additive、corrections 干净传播 |
 | 技术路线 vocab | `TECH_ROUTES` 25 → 33（+8 条数据驱动 EXTENSION：cybersec/ddic/power_semi/cv/med_imaging/pneumatic/industrial_gas/ceramic_pkg） | 由 `suggest_route` 复现频次驱动，覆盖原 optical/chip 中心集之外的专业化 |
+| route↔theme 源不变量 | **code-as-truth `registry.ROUTE_THEMES`（33 路线各声明 home theme(s)）+ `_valid()` 越域门**：富化源头丢弃 home theme 与公司 theme 集零交集的路线 | 把可规则化的"供应商↔路线混淆"从事后 `_CORRECTIONS` 提升为 source 不变量，重跑富化不再重生该错误类；permissive（仅零交集才丢）、forward-only（不回溯改写）（GLM-5.2 follow-up Appendix H.5：lift corrections to invariants） |
 | 存储 | 坚持 单 PG + pgvector | 运维成本骤降、能力等价；不回退 Neo4j |
 | Agent 编排 | 坚持自建确定性 DAG | 可控可审计；不回退 LangGraph |
 | 鉴权 | 可选 `XAR_API_TOKEN` | 自用默认关，`/approve`、`/exploration/refresh`、`*/run` 建议开 |

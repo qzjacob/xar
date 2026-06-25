@@ -38,6 +38,7 @@ for _sid, _sm in R.SEGMENTS.items():
     SEG_BY_THEME.setdefault(_sm.get("theme"), []).append(_sid)
 THEMES = list(R.THEMES.keys())
 ROUTES = {r["id"]: r["name"] for r in getattr(R, "TECH_ROUTES", [])}
+ROUTE_THEMES = getattr(R, "ROUTE_THEMES", {})
 ROUTE_BY_NAME = {v.lower(): k for k, v in ROUTES.items()}
 ROUTE_BY_ID = {k.lower(): k for k in ROUTES}
 
@@ -153,11 +154,21 @@ def _valid(c: dict, e: OntoEnrich) -> dict:
         t, s = (a.theme or "").strip(), (a.segment or "").strip()
         if t in THEMES and t not in cur_themes and s in SEG_BY_THEME.get(t, []):
             add.append({"theme": t, "segment": s})
+    # the company's full theme set after this enrichment's additions, for the cross-domain
+    # route gate below
+    co_themes = cur_themes | {a["theme"] for a in add}
     routes = []
     for r in e.tech_routes:
         rid = ROUTE_BY_ID.get(str(r).lower()) or ROUTE_BY_NAME.get(str(r).lower())
-        if rid and rid not in routes:
-            routes.append(rid)
+        if not rid or rid in routes:
+            continue
+        # cross-domain invariant (registry.ROUTE_THEMES, code-as-truth): reject a route whose
+        # home themes don't overlap the company's themes — a domain confusion (e.g. a chip
+        # company tagged a space-propulsion route). Routes absent from the map are unconstrained.
+        home = set(ROUTE_THEMES.get(rid, ()))
+        if home and not (home & co_themes):
+            continue
+        routes.append(rid)
     name_l = c["name"].lower()
     have = {a.lower() for a in (c.get("aliases") or [])} | {name_l}
     aliases = []
