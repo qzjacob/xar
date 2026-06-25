@@ -724,6 +724,17 @@ TECH_ROUTES: list[dict] = [
     {"id": "tr_frameless", "name": "Frameless Torque Motor", "attrs": {"family": "无框力矩电机"}},
     {"id": "tr_vla", "name": "VLA Embodied Model", "attrs": {"family": "具身大模型"}},
     {"id": "tr_tactile", "name": "Tactile Sensing", "attrs": {"family": "触觉传感"}},
+    # --- extension routes: data-driven from the universe ontology enrichment
+    # (scripts/ontology_enrich.py), where these specializations recurred across the
+    # broader 569-company universe and were not covered by the optical/chip-centric set.
+    {"id": "tr_cybersec", "name": "Cybersecurity", "attrs": {"family": "security software"}},
+    {"id": "tr_ddic", "name": "Display Driver IC", "attrs": {"family": "DDIC"}},
+    {"id": "tr_power_semi", "name": "Power Semiconductors", "attrs": {"family": "power devices"}},
+    {"id": "tr_cv", "name": "Computer Vision", "attrs": {"family": "vision AI"}},
+    {"id": "tr_med_imaging", "name": "Medical AI Imaging", "attrs": {"family": "medical imaging AI"}},
+    {"id": "tr_pneumatic", "name": "Pneumatic Actuators", "attrs": {"family": "气动执行器"}},
+    {"id": "tr_industrial_gas", "name": "Industrial / Electronic Gases", "attrs": {"family": "electronic specialty gases"}},
+    {"id": "tr_ceramic_pkg", "name": "Ceramic Packaging Substrates", "attrs": {"family": "ceramic substrates"}},
 ]
 
 # --- Seed structural edges (bootstraps each chain's graph backbone) ---------

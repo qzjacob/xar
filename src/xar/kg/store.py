@@ -176,10 +176,19 @@ def bootstrap_seed() -> None:
                     attrs={"theme": meta.get("theme"), "tier": meta.get("tier"), "segment": seg_id})
     for src, dst, rel in SEED_EDGES:
         add_edge(src, dst, rel, confidence=0.9, license_tag="seed")
+    # competes_in (per company-segment) and enriched uses_techroute are FULLY DERIVED from
+    # the roster — delete + recreate so roster corrections (a dropped theme/segment/route)
+    # propagate on reseed instead of leaving stale edges behind. (Curated SEED_EDGES and
+    # extracted edges are untouched: different rel_type / license_tag.)
+    db.execute("DELETE FROM kg_edges WHERE rel_type=%s AND license_tag='seed'", (EdgeType.COMPETES_IN.value,))
+    db.execute("DELETE FROM kg_edges WHERE rel_type=%s AND license_tag='enriched'", (EdgeType.USES_TECHROUTE.value,))
     for c in COMPANIES:
         for seg_id in dict.fromkeys((c.get("seg") or {}).values()):
             add_edge(c["id"], f"em_{seg_id}", EdgeType.COMPETES_IN.value,
                      confidence=0.8, license_tag="seed")
+        for rid in (c.get("tech_routes") or []):   # enriched tech-route exposure (universe)
+            add_edge(c["id"], rid, EdgeType.USES_TECHROUTE.value,
+                     confidence=0.7, license_tag="enriched")
     log.info("KG seed bootstrapped (%d companies, %d tech routes, %d end-markets)",
              len(COMPANIES), len(TECH_ROUTES), len(SEGMENTS))
 
