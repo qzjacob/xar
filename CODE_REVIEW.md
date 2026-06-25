@@ -663,3 +663,121 @@ D.1（name↔ticker 校验，复用已缓存 description）与 D.2（intra-unive
 **净效果**：1007→**947 家**（剔除 **60** 条错配/思维链污染记录），余者 name 全部权威化、CoT 别名清除、`dup_names=0`、US 全硬过 $2B。`pytest` 21 passed、`ruff` 通过、docker 重建后 live API 947 家全主题渲染、name-truth 抽验通过（Arcadyan 改正、污染名消失、权威名保留）。
 
 > 第三方裁定：附录 D 的 **4 项（D.1/D.2/D.3/D.4）全部修复**，并据 D.1 同法**连带修正一处策展 name↔ticker 错误（Sercomm→Arcadyan）**；附录 C 的 `CLEAN` 按 D.5 修正为「在含 name↔ticker 一致性 + 实体去重的扩充校验集上 CLEAN」。GLM-5.2 本轮复核质量高、定位准，is a genuinely valuable second opinion。
+
+---
+
+## 附录 E：前向预期闭环 + semantic_facts PIT/去重 + 日常编排拆分 独立复核（2026-06-24）
+
+> 视角：基本面量化策略 + 后端架构；延续前序附录的"可信结果"第一性原理视角。
+> 复核对象：本次**未提交工作树变更**——前向预期解决阶段（`kg/resolve_claims.py` + schema + CLI + daily 接入）、`semantic_facts` 视图修正、回测 PIT/入场修正、`run_daily` 拆分 pull/extract、Dagster 双作业、provider 日志去密、extract narrative 接地策略变更、`nodes._graph_brief`、`graphrag` PIT 等。新增未跟踪文件 `resolve_claims.py`。
+> 方法：逐文件读取 + 实证（`pytest` **36 passed**、`ruff check` 通过、关键 SQL/逻辑经测试覆盖）。
+> **结论先行**：**未发现正确性 bug**——核心逻辑（hit/miss/stale、PIT 入场、视图去重、编排拆分）经新增测试与全量测试验证成立，整体是对原审 §1.x / §3.2 的延续闭合，方向正确。但有 **1 项信任层行为变更需明确签字**（narrative 不再接地）、**1 项正确但下游可观测的行为变更**（视图去重改变回测/检索输入），以及若干低危性能/健壮性/仓库卫生项。**本附录仅记录意见，不修改代码。**
+
+### E.1 正确性：未发现 bug（经测试实证）
+
+逐项核验，均成立：
+
+- **前向预期闭环 `resolve_forward_claims`**（`kg/resolve_claims.py:46-96`）：hit/miss/stale 三态与 docstring 一致；grace 窗口（`base < today - grace_days`，`:65`）防止过新 claim 被过早判定；realizer 窗口 `> base 且 <= base+window_days`（`:77-78`）边界正确；`stale` 非终态——每轮重查，迟到的回填 realizer 仍可升级为 hit/miss（`:61` 查询含 `resolution='stale'`，`:84-87` 覆写）；幂等（终态 hit/miss 被排除、stale 已写则不重写 `:90`）。`(%s || ' days')::interval` 整型参数模式与既有 `structured.upcoming_calendar:178` 一致、测试通过（非 bug）。
+- **`semantic_facts` 视图**（`schema.sql:419-437`）：event 臂新增 `license_tag IS DISTINCT FROM 'expert'` 去重正确（expert 镜像由 insight 臂承载，二者经 `expert_insights.kg_event_id` 关联，`expert.py:95-117` 已建立该镜像关系）；insight 臂 `LEFT JOIN kg_events e2 ON e2.id = x.kg_event_id` 不会扇放大（`id` 主键），`resolution` 正确透出。`test_resolve_expert_forward_claim_visible_via_view` 钉死该 P0 契约。
+- **回测 PIT 入场**（`backtest/catalyst_returns.py:92-107`）：`entry = GREATEST(COALESCE(as_of, observed_at::date), observed_at::date)`——因 `observed_at` 为 `NOT NULL`（`schema.sql:88,110`），`entry` 恒非空，闭合原审 §3.2-B2 前视；空 `prices` 表时 `maxp IS NULL` 跳过 gate（`:94`）而非静默返回零行；与附录 A.1.1 的 `_series(…, need)` 兜底协同正确。
+- **`run_daily` 拆分**（`orchestration/daily.py:104-170`）：shard 切片仅作用于 `pull`（`:134-135`）；`extract` 的 signals 迭代 `all_ids`（全宇宙，`:164`）而非分片——修正了旧 Dagster 每 shard 只 derive 本片信号的覆盖缺口；BudgetExceeded 仅捕获 LLM 阶段（`:158-163`），DB-only 的 signals/resolve 照跑；与 `test_run_daily_isolates_source_failures` 一致（stages 含 `resolve`）。
+- **Dagster 双作业**（`orchestration/definitions.py`）：job 名（`pull_shard_job`/`extract_all_job`/`core_daily_job`）与 asset/op 名解耦，闭合原"job 名与 asset 名冲突"；`extract_schedule` 单 run/日、晚 pull 30min，run_key 无碰撞。
+- **provider 日志去密**（`providers/base.py:36-39`）：token 走 `params`（finnhub/fmp/polygon 均如此），`url` 为基路径——不再把含 `token=`/`apikey=` 的完整 URL 写进日志，正确闭合原审 §4.1 凭证进日志（针对 GET 失败路径）。
+
+### E.2 行为变更（非 bug，需 awareness / 签字）
+
+**E.2.1 `extract.py` narrative 不再做接地校验 [中 / 信任层行为变更]**
+
+- 位置：`kg/extract.py:173-178`。
+- 现状：旧代码 `narrative = ev.narrative if (ev.narrative and _grounded(ev.narrative, text)) else None`——对 narrative 这一"改写型"字段额外做逐字接地；新代码 `narrative = (ev.narrative or "").strip() or None`——**narrative 不再校验是否在原文中**，与 `summary`（`:183` 本就直通不接地）对齐。
+- 判断：**非 bug，逻辑自洽**——event 的*存在性*仍由 `:167` `_grounded(ev.evidence, text)` 闸住（未接地 event 整条丢弃，§8.1 核心信任修复保留），narrative 只是 LLM 对"为何/驱动什么"的改写，逐字接地召回损失（~95% 被判 blank）确实无原则依据。
+- 需签字的点：narrative 是 `forward_looking` 事件流入 `_graph_brief`（`agents/nodes.py`，本轮改为 insight+event-narrative 合并展示）与 agent 上下文的语义字段——**这是 LLM 最易幻觉、且最不被 event 证据引文覆盖的内容**。本变更放宽了对该字段的接地，与项目"可信/可溯源"护城河方向相反。属作者有意识的取舍（注释充分），但建议至少：保留接地作为*软标记*（narrative 未接地时打 `grounded=False` 标志位而非丢弃），或确认 narrative 在下游仅作 advisory 上下文、不进结构化结论。
+
+**E.2.2 `semantic_facts` 视图去重改变回测/检索输入 [行为变更 / 正向修复]**
+
+- 位置：`schema.sql:426`。
+- 现状：event 臂从"全部 kg_events"收窄为"排除 `license_tag='expert'`"。此前一条带 kg_event 镜像的 kept expert_insight 会同时出现在 event 臂（kind=event）与 insight 臂（kind=insight）——**被双计入回测 n 与 graphrag 检索**。本轮去重正确。
+- 提示：这是**下游可观测的数值变更**——回测 `events_used`、按 `kind` 分桶的统计、`graphrag.semantic()` 返回行数都会变（变少、变准）。若存在历史快照/对外披露的回测数字，需注明口径变更。另：insight 臂 narrative 恒为 `NULL`（`schema.sql:430` 第 9 列），expert 镜像的真实 narrative 现仅在 kg_events 层（已从视图 event 臂剔除）——expert 行的 causal narrative 经视图不再可见；当前 expert 镜像多不带 narrative（`expert.py:98` 未传 narrative），实际无损失，但属契约收紧，知悉即可。
+
+### E.3 低危：性能 / 健壮性
+
+- **E.3.1 `resolve_forward_claims` 为 N+1 查询 [低 / 夜间批]**（`kg/resolve_claims.py:69-81`）：claims 查询无 LIMIT，对每条未决 forward claim 各跑一次 realizer 查询。全宇宙（~947 家）累积下可达数千次 round-trip/夜。非热路径、夜间运行，当前可接受；如需优化可改为单条 `LATERAL`/窗口函数一次命中。
+- **E.3.2 `run_daily(stages=...)` 无合法性校验 [低]**（`orchestration/daily.py:126`）：`do_pull, do_extract = "pull" in stages, "extract" in stages`——拼写错误（如 `stages=("puli",)`）会静默退化为"仅 seed/bootstrap"的空跑，无告警。建议校验未知 stage 名或至少 `log.warning`。
+- **E.3.3 `graphrag` 过滤用 COALESCE、排序用裸 as_of [低 / cosmetic]**（`retrieval/graphrag.py:104-109`）：WHERE 用 `COALESCE(as_of, observed_at::date)` 做 PIT，但 `ORDER BY as_of DESC NULLS LAST` 仍按裸 `as_of`——过滤口径与排序口径不一致。仅影响无 `as_of` 行的相对顺序，非正确性问题。
+- **E.3.4 `store.add_fundamental_from_extraction` FK 守卫为逐条查询 [低]**（`kg/store.py:140`）：每次抽取指标都 `SELECT 1 FROM companies`。正确防御 FK 违例，但属 per-metric 查询；自用规模无碍。
+- **E.3.5 `realizes_event_id` / `resolved_at` 无索引 [低 / 当前无消费者]**（`schema.sql:406-408`）：`idx_events_resolution` 覆盖了 `(time_orientation, resolution)` 查询；若日后要反查"某 realizer 关闭了哪些 claim"会需 `realizes_event_id` 索引，当前无此查询，可不加。
+
+### E.4 设计点（记录，非缺陷）
+
+- **E.4.1 realizer 不按 `license_tag` 过滤 [设计]**（`kg/resolve_claims.py:71-81`）：realizer 仅按 `event_type ∈ _REALIZER_TYPES` + backward + 极性 + 时间窗匹配，不区分来源。故 `signals.py` 镜像的 signal 事件（`license_tag='signal'`，`:58/78/106`）或 social-extracted 事件亦可作 realizer。`SIGNAL_TO_CATALYST` 映射出的 guidance/earnings 类 signal 事件可能在语义上并非"真实兑现"，构成轻度噪声；grace/window/极性约束已大幅限噪，属可接受的设计取舍。
+- **E.4.2 docker-compose Dagster 端口 3000→3001(host) [配置变更]**（`docker-compose.yml:40,61`）：合理（避 Grafana 占用），注释已同步；若 README/healthcheck/外部监控仍引用 3000 需顺带更新。
+
+### E.5 仓库卫生
+
+- **E.5.1 `src/xar/ingestion/universe.py`（577 行生成产物）状态不一致 [低]**：该文件为 `scripts/universe_build.py` 生成、被 `registry.py`（commit 396e861）`COMPANIES += UNIVERSE` 加载，但当前**既未提交也未 gitignore**（`git check-ignore` = NOT-IGNORED，`git status` = 未跟踪）。后果：本地能跑 947 家，但**新鲜 clone 缺该文件**（registry 的 `except ImportError` 优雅退回策展核心，无崩溃，但静默少一半公司且无日志）。建议二选一：作为生成事实源**提交**，或纳入 `.gitignore` 并在 CI/文档明确"需先跑 universe_build"。注意 `.gitignore` 已忽略 `.universe_cache/` 但未涵盖该输出文件本身。
+- **E.5.2 `scripts/universe_build.py` 同为未跟踪**：生成器工具应随 universe.py 一并提交（否则无法复现生成）。`SEMANTIC_DB_PLAN.md` / `ultraplan.md` 为规划文档，按需提交或忽略。
+
+### E.6 经复核认可的项（成立）
+
+- 前向预期闭环是"semantic DB 唯一不可从 fundamentals/estimates/prices 派生的真实缺口"的正确填补；写仅在 `forward_looking` 行、backward 硬事实永不触犯，事件日志在"该保持 append-only 处"保持 append-only——与双时态承诺一致。
+- 回测 `entry = GREATEST(as_of, observed_at)` + recency gate 是原审 §3.2-B2（前视）的干净闭合，且不丢非美/无 as_of 事件。
+- daily 拆分把"分片安全"的 pull 与"必须全局一次"的 extract 正交化，消除旧实现"N× LLM 预算 + 同文档竞态"的真实风险；注释与实现一致。
+- provider 失败日志去密是针对原审 §4.1（凭证进日志）的具体、正确处置，且未损失可观测性（保留异常类型 + status）。
+- 新增测试 `test_resolve_forward_claims` / `test_resolve_expert_forward_claim_visible_via_view` 覆盖了 hit/miss/stale 三态 + expert 镜像经视图可读的 P0 路径，质量高。
+
+### E.7 处置建议（按优先级，均可独立交付、零新依赖）
+
+1. **E.2.1 签字**：明确 narrative 不接地是否可接受；推荐保留接地为软标志位（不丢、仅标记），以守住信任层。
+2. **E.5.1/E.5.2**：决定 `universe.py` / `universe_build.py` 的提交或忽略策略——这是当前最易"静默退化"的仓库状态风险。
+3. **E.3.2**：`run_daily` 校验未知 stage 名（一行），防静默空跑。
+4. 其余 E.3.x / E.4.x 为低危/记录项，按需处理，不阻塞。
+
+> 第二意见结论：**本轮变更高质量、无正确性 bug、测试覆盖到位、方向契合"可信结果"主线**；唯一需在合入前明确的是 E.2.1（narrative 接地取舍）与 E.5（universe 文件提交状态）。E.2.2 的视图去重是正向修复但属下游可观测的数值口径变更，建议在产物中注明。
+
+---
+
+## 附录 F：语义数据库 + 每日自动化建设、`SEMANTIC_DB_PLAN.md`（GLM-5.2）方案评估、xhigh `/code-review` 处置（2026-06）
+
+> 本附录记录本会话（分支 `feat/semantic-db-daily-ingest`）的三件事：(1) 语义数据库 + 每日自动 ingest 的实际建设范围；(2) 对 GLM-5.2 起草的 `SEMANTIC_DB_PLAN.md` 的方案评估与取舍（拒绝平行表、采纳前向闭环 + PIT 回测）；(3) xhigh 档 `/code-review` 各 finding 的处置裁定。落地状态：36 个 pytest 通过、`ruff check` 通过、docker 双服务（app `:8000` + Dagster `:3001`）已部署。
+
+### F.1 本会话建设范围（经源码核对）
+
+- **三个消费周期主题**（在原 5 个 AI 产业链主题之上 → 共 **8 主题**）：`internet` / `retail` / `restaurants`。它们不走产业链 upstream→downstream tier 轴，改用**经济周期轴**——新 ontology 维度 `src/xar/ontology/cycle.py`，含 5 态 `CyclePosition`（`early_cycle`/`mid_cycle`/`late_cycle`/`defensive`/`counter_cyclical`）与单调 `CYCLE_RANK`（兼作 segment tier，使热力图渲染为 "Cycle Map"）。`registry.py:23-31` 的 `THEMES` 新增 `kind` 判别（`"chain"` vs `"cycle"`）；前端 `ChainHeatmap` 对 cycle 主题改标 Cycle Map。8 主题：`ai_optical`/`ai_chip`/`ai_software`/`space_exploration`/`humanoid_robotics`/`internet`/`retail`/`restaurants`（详见附录 B/C/D）。
+- **个股域扩展至 947 家**（自约 378 名策展核心起）：`scripts/universe_build.py` 生成 `src/xar/ingestion/universe.py`（`COMPANIES += UNIVERSE`）；覆盖 US + JP/KR/TW（+ 部分 CN）。生成流水线、闸门与数据可靠性修复见附录 C / D（含 D.8 的 name↔ticker 校验、`dup_names` 去重、$2B 硬闸）。
+- **语义数据库**（本会话主线）：带时间戳、可回测、anchored 到 Ontology 的语义层，承载结构化数值表（fundamentals/estimates/prices）所不覆盖的催化剂叙事、立场、因果、前瞻预期。**设计决策**：加性复用既有三张双时态表，而非新建平行表（见 F.2）——`kg_events`（追加列 `theme`/`segment`/`narrative`/`time_orientation`）+ `kg_edges`（`causally_linked` EdgeType，`ontology/edges.py:41`）+ `expert_insights`（追加 `as_of`/`theme`/`segment`/`time_orientation`），由单一 SQL 视图 `semantic_facts`（`schema.sql:419-437`）统一（event 臂 `license_tag IS DISTINCT FROM 'expert'`、insight 臂经 `kg_event_id` LEFT JOIN 回 `kg_events` 透出 `resolution`）。抽取（`kg/extract.py`）填 `time_orientation`、接地的 `narrative`（因果/前瞻"为何/将驱动什么"）与 drivers（因果实体 → `causally_linked` 边 + `attrs.drivers`）。检索 `graphrag.semantic()`（`retrieval/graphrag.py:88`）点查该视图；`agents/nodes.py` 把语义流注入分析师 brief（`_graph_brief`）。
+- **前向预期解决生命周期**（本会话唯一净新增能力，评估 `SEMANTIC_DB_PLAN.md` 后采纳）：`kg_events` 增 `resolution`/`resolved_at`/`realizes_event_id`（`schema.sql:406-408`）。`src/xar/kg/resolve_claims.py` 的 `resolve_forward_claims()` 闭合"预期→兑现"环——一条有向 `forward_looking` 催化剂在窗口内出现同公司 realization 型 backward 事件（earnings/order/product_ramp…）即解析为 hit/miss（按 `COALESCE(event_date, observed_at)` 定时），否则 stale（可再检）。仅改写 forward 行；经 `semantic_facts.resolution` 透出；CLI `xar resolve-claims`。
+- **Finnhub/FMP 新闻 ingestion**（补上真实来源缺口）：`providers/finnhub.pull_news`（+ `pull_general_news`）与 `providers/fmp.pull_news` 把公司新闻落进 `documents`（`source='finnhub'`/`'fmp'`，`permission='grey'`，content-hash 去重）。`api/ops.py` 注册 `finnhub_news` 源（`ops.py:146` + `run_source` 分支 `:259`）；`kg/expert.ALT_SOURCES`（`expert.py:29`）加入 `finnhub`/`fmp`，使新闻同时流入 `build_kg` 与 expert 层。
+- **每日自动 ingest**：`src/xar/orchestration/daily.py` 的 `run_daily(stages=('pull','extract'))`——按来源增量 PULL（按公司分片、隔离失败）→ parse/embed → `build_kg` → expert → signals → `resolve_forward_claims`（extract 全局只跑一次，非每片；LLM 阶段限预算但廉价 DB 阶段照跑）。`src/xar/storage/runlog.py` + 新表 `ingest_runs`（`schema.sql:443`）= 运行日志 + 每源增量游标（`last_success_ts`）。CLI `xar daily`（`cli.py:147`），content-hash + NOT-EXISTS 游标使其幂等/可续。
+- **Dagster sidecar**（每日运行时，已部署）：`src/xar/orchestration/definitions.py` —— `pull_shard`（8 静态分区，06:00 调度）+ `extract_all`（单 run，06:30，单批预算）+ `core_daily`（按需）。`docker-compose.yml` 新增 dagster 服务，host 端口 `:3001`（容器内仍 3000）、`dagster_home` 卷；仅 app 容器跑 `xar init`（schema owner）。
+- **回测扩展**：`backtest/catalyst_returns.py` 改驱动于 `semantic_facts`（不止 `kg_events`），按 `(category, polarity, kind, time_orientation)` 分桶，回答"前瞻/情绪层是否预测收益"。严格 PIT 入场 = `GREATEST(as_of, observed_at)`（无前视），本地 `prices` 表优先（yfinance 仅兜底）。
+- **新增 schema 对象**（均加性/幂等，`storage/schema.sql`）：上述追加列；`semantic_facts` 视图；`ingest_runs` 表；`init_schema()` 可重复跑。
+
+### F.2 `SEMANTIC_DB_PLAN.md`（GLM-5.2）方案评估
+
+GLM-5.2 起草的 `SEMANTIC_DB_PLAN.md` 提出**新建独立平行表 `semantic_claims`**（`SEMANTIC_DB_PLAN.md:13,66-119`），经 `realizes_event_id` + 一个 `signal_events` 视图与 `kg_events` 桥接，并以 `UNION ALL` 视图供回测/检索/agents 统一入口。
+
+裁定：
+
+- **拒绝平行 `semantic_claims` 表（判为技术债）**。理由：(1) 它在 `kg_events` 之外再立一套催化剂/事件实体，回测、检索、agent、双时态语义被迫维护两条几乎同构的路径，正是"双表割裂"的来源；(2) 既有 `kg_events`/`kg_edges`/`expert_insights` 已是双时态、已 anchored 到 Ontology，缺的只是几个语义列与一个统一视图——加性扩列 + 一个 `semantic_facts` 视图即可达成同样的"单一入口"目标，且不复制写路径。**采纳的落地**：F.1 所述的加性三表复用 + `semantic_facts` 视图。
+- **采纳 `Resolution` 前向闭环**（计划 §1.2 提出 `pending|hit|miss|withdrawn|stale` 生命周期）。这是计划中唯一**无法从 fundamentals/estimates/prices 派生**的真实净新增能力，落地为 `resolve_claims.py` 的 hit/miss/stale 三态（去掉了 `pending`/`withdrawn`——以 `resolution IS NULL` 表达未决，stale 为非终态可再检），仅写 `forward_looking` 行、backward 硬事实永不触犯。
+- **采纳 PIT 回测口径**（计划要求观测点入场）。落地为 `backtest/catalyst_returns.py` 的 `entry = GREATEST(as_of, observed_at)`，闭合原审 §3.2-B2 前视偏差。
+- 计划 §0 要求落地时一并修掉本审核附录 A 的若干既有缺陷——已在前序轮次处理（见附录 A.5）。
+
+### F.3 xhigh `/code-review` 处置
+
+对本会话工作树变更跑 xhigh 档 `/code-review`，逐条裁定：
+
+| # | finding | 裁定 | 处置 |
+|---|---|---|---|
+| P0 | `semantic_facts` 视图 expert 臂可见性 bug——前向 expert claim 的 `resolution` 经视图不可见 | **成立·已修** | insight 臂 `LEFT JOIN kg_events e2 ON e2.id = x.kg_event_id` 透出镜像 event 的 `resolution`；新增 `test_resolve_expert_forward_claim_visible_via_view` 钉死该契约（`schema.sql:419-437`） |
+| — | realizer 日期口径——hit/miss 定时应按 `COALESCE(event_date, observed_at)` 两侧一致 | **成立·已修** | `resolve_claims.py:52` 两侧均用 `COALESCE(event_date, observed_at)` |
+| — | realizer 相关性——不应让无关 litigation/short-report/管理层变动 充当兑现 | **成立·已修** | realizer 限 `event_type ∈ _REALIZER_TYPES`（earnings/order/product_ramp…）的 backward 硬结果（`resolve_claims.py:38-42`） |
+| — | neutral 极性参与 hit/miss——非有向，不应判定 | **成立·已修** | `_SIGN` 仅含 positive/negative，neutral 被排除（`resolve_claims.py:43`） |
+| — | 回测前视（事件日入场） | **成立·已修** | PIT 入场 `GREATEST(as_of, observed_at)`（见 F.2） |
+| — | 每日 extract 预算——分片各跑一次 LLM 抽取 = N× 预算 + 同文档竞态 | **成立·已修** | extract 全局只跑一次（`extract_all` 单 run 单批预算）；signals 迭代全宇宙 `all_ids` 而非分片（`daily.py`、`definitions.py`） |
+| #9 | 调度偏移——`pull_shard` 06:00 与 `extract_all` 06:30 仅隔 30min，慢 pull 可能未落地 | **接受（带理由）** | extract 阶段本就只抽"已有文档但无抽取"的 doc（NOT-EXISTS 游标），迟到的 pull 在次日窗口被抽；偏移仅为吞吐优化、非正确性约束。自用单租户姿态下 30min 足够，不引入跨作业 sensor 依赖 |
+| #12 | realizer 非排他——一条 realizer 可关闭多条 forward claim | **接受（带理由）** | 同公司多条前瞻主张被同一兑现事件关闭，在语义上正确（一次 earnings 可同时兑现多条对该季的预期）；grace/window/极性约束已限噪。强行一对一会丢失合法的多对一兑现关系，故不加排他约束 |
+
+其余 finding 与 §E（前向闭环 + PIT + 编排拆分的第二意见复核）重叠，处置见附录 E.7。
+
+> 本附录结论：语义数据库以**加性复用**而非平行表落地，避免了 GLM-5.2 计划中 `semantic_claims` 的双表割裂技术债；前向预期闭环 + PIT 回测为采纳的净新增能力。xhigh `/code-review` 的 P0 视图可见性、realizer 日期/相关性/neutral、回测 PIT、每日预算均已修复并加测试；#9 调度偏移与 #12 realizer 非排他经裁定为自用姿态下可接受的设计取舍。验证：`pytest` 36 passed、`ruff` clean、docker 双服务（app `:8000` / Dagster `:3001`）已部署。

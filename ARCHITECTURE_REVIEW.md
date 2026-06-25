@@ -1,6 +1,6 @@
 # XAR 架构评审与改造计划（CTO / 首席架构师）
 
-> 评审范围：全仓代码（`src/xar` ~7,812 LOC）+ schema + tests + CI + 部署。
+> 评审范围：全仓代码（`src/xar` ~10,860 LOC）+ schema + tests + CI + 部署。
 > 评审视角：技术 / 用户 / 架构 / 第一性原理。
 > 决策前提（已与项目方确认）：**目标部署形态 = 自用 / 单团队研究工具**；平台现为**三个并列顶层模块**——产业链投研主轴（Research Portal `/`）、运维控制台（Operations Console `/ops/*`）、**前沿探索（Exploration `/explore`）**。Exploration 已从"早期范围漂移信号"转正为正式第三模块，并经独立 agent 审计 PASS。
 > 文档用途：团队对齐基线，指导后续 P0/P1/P2 改造。证据均带 `file:line` 可追溯。
@@ -9,12 +9,15 @@
 
 ## 〇、总体裁决
 
-**这是一份品味明显高于行业平均的工程实现**：~7,812 行代码撑起了 15 数据源（含新增 arXiv / journals 两个 frontier 源）+ 双时态图谱 + 多 Agent 流水线 + 全栈三模块终端，"交钥匙 + 优雅降级"的工程纪律扎实，许可合规作为 CI 硬规则体现了机构级自觉。**不是屎山，信噪比很高。**
+**这是一份品味明显高于行业平均的工程实现**：~10,860 行代码撑起了 15+ 数据源（含新增 arXiv / journals 两个 frontier 源 + Finnhub/FMP 公司新闻）+ 双时态图谱 + **时间锚定的语义数据库** + 多 Agent 流水线 + **Dagster 日度自动 ingest** + 全栈三模块终端，"交钥匙 + 优雅降级"的工程纪律扎实，许可合规作为 CI 硬规则体现了机构级自觉。**不是屎山，信噪比很高。**
 
-平台自上次评审以来发生了两处结构级演进，且都做得克制、对齐主轴纪律：
+平台自上次评审以来发生了多处结构级演进，且都做得克制、对齐主轴纪律：
 
-1. **投研主轴从 2 主题扩到 5 主题、全球化**：`ai_optical`(13 公司/4 段)、`ai_chip`(29+3 共享/9 段)、`ai_software`(95/9 段，tier=企业 AI 普及浪)、`space_exploration`(78/8 段，含"太空数据中心/在轨算力")、`humanoid_robotics`(79/8 段)。合计 **294 公司、38 段、25 技术路线**，覆盖 US/CN/JP/KR/EU/TW/HK/SG/SE 全球宇宙并做 FX 归一。新增主题严格走"加 theme + 加公司"的既定路径（registry.py:17-23），架构未变形。
-2. **Exploration 第三模块转正**：6 个前沿域（ai 优先打通 + physics/math/cs_systems/neuro/complex），融合 arXiv + 期刊（Quanta/Physics World RSS）+ X 专家声音，由强推理 tier LLM 蒸馏出**前瞻性研究前沿**（方向/成熟度/视野/意义/动能，附 grounded+validated 的 arXiv 引用），落 `frontier_fronts` + `frontier_domain_state` 两表。**复用既有栈（documents/embeddings/llm/db/同套 FastAPI+SPA chrome），是方向性研究而非交易**。该交付经独立 agent 审计 → **PASS**。
+1. **投研主轴从 2 主题扩到 8 主题、全球化**：5 条产业链主题（`kind="chain"`，走上游→下游 tier 轴）`ai_optical` / `ai_chip` / `ai_software` / `space_exploration` / `humanoid_robotics`，外加 3 条**消费周期主题**（`kind="cycle"`，走经济周期轴而非供应链 tier）`internet` / `retail` / `restaurants`。THEMES 新增 `kind` 判别符（registry.py:19-31）。周期主题不复用 tier 轴，而是引入新本体维度 `src/xar/ontology/cycle.py`——5 态 `CyclePosition`（early/mid/late/defensive/counter_cyclical）+ `CYCLE_RANK`（兼作 segment tier，让热力图渲染为 "Cycle Map"）；前端 ChainHeatmap 对 cycle 主题改标为 Cycle Map。
+2. **宇宙从 ~378 策展核扩到 947 公司**：`scripts/universe_build.py` 以 Finnhub 各交易所符号集为存在性闸 + 按 theme×region LLM 枚举 + 确定性 verify（存在性 + 去重 + US ≥$2B 市值闸 + 消费非美周期 blocklist + 名↔票同实体校验）生成 `src/xar/ingestion/universe.py`，`UNIVERSE` 追加进 `registry.COMPANIES`（registry.py:685）。覆盖 US + JP/KR/TW（+部分 CN），合计 **947 公司**。新增主题/宇宙严格走"加 theme + 加公司"的既定路径，架构未变形。
+3. **语义数据库（本轮头条）**：一个时间戳化、可回测、本体锚定的语义层，承载结构化数值表（fundamentals/estimates/prices）**不**承载的内容——催化剂叙事、stance、因果、前瞻预期。设计决策为**加列复用既有三张双时态表而非另起平行表**：`kg_events`（加 theme/segment/narrative/time_orientation）+ `kg_edges`（新增 `causally_linked` EdgeType）+ `expert_insights`（加 as_of/theme/segment/time_orientation），由单一 SQL VIEW `semantic_facts`（UNION）统一（schema.sql:419）。抽取 `kg/extract.py` 现填 `time_orientation`（forward/backward）、grounded 叙事、drivers（因果实体→`causally_linked` 边）；检索 `graphrag.semantic()` 点查该视图并注入分析师 brief。
+4. **前瞻断言解析生命周期（本轮唯一净新能力）**：`kg_events` 加 resolution/resolved_at/realizes_event_id；`src/xar/kg/resolve_claims.py` 的 `resolve_forward_claims()` 闭合"预期→兑现"环——一条 forward_looking 催化剂在窗口内出现同公司 backward 兑现事件即解析为 hit/miss，否则 stale（可复查），只改 forward 行，经 `semantic_facts.resolution` 暴露，CLI `xar resolve-claims`。
+5. **Exploration 第三模块转正**：6 个前沿域（ai 优先打通 + physics/math/cs_systems/neuro/complex），融合 arXiv + 期刊（Quanta/Physics World RSS）+ X 专家声音，由强推理 tier LLM 蒸馏出**前瞻性研究前沿**（方向/成熟度/视野/意义/动能，附 grounded+validated 的 arXiv 引用），落 `frontier_fronts` + `frontier_domain_state` 两表。**复用既有栈（documents/embeddings/llm/db/同套 FastAPI+SPA chrome），是方向性研究而非交易**。该交付经独立 agent 审计 → **PASS**。
 
 但作为"机构级投研平台"而非"研究玩具"，仍存在 **5 个走向生产前应修复的硬伤**（API 零鉴权、无任务持久化、事务边界缺失、关键路径无测试、流水线不可恢复）。其中**护城河代码（双时态 / 实体消解 / 对账闸 / 证据闸）恰恰是测试覆盖最薄的地方**——这是最危险的不对称。
 
@@ -66,14 +69,19 @@
 
 ### ✅ 已解决（带证据，保留以记录闭环）
 
-- **[已修复] KG 抽取曾硬编码为"光模块产业"** —— 这是一处潜伏的正确性 bug：旧 prompt 把所有文档都框定到 optical-module industry，导致 chip/software/space/humanoid 的财报/公告抽取被系统性抑制（提取出错误或空的供应链事实）。**现已修复为 theme-aware**：`kg/extract.py` 新增 `_focus_for(company_id)`（extract.py:35-42）+ `_THEME_FOCUS` 映射（extract.py:18-31），按锚定公司的 theme 选择行业框架（软件文档出软件事实、航天文档出航天事实），`_system_for(focus)` 与 prompt 均参数化（extract.py:45-72）。**这是 5 主题扩张能真正落地的前提，价值很高。**
+- **[已修复] KG 抽取曾硬编码为"光模块产业"** —— 这是一处潜伏的正确性 bug：旧 prompt 把所有文档都框定到 optical-module industry，导致 chip/software/space/humanoid 的财报/公告抽取被系统性抑制（提取出错误或空的供应链事实）。**现已修复为 theme-aware**：`kg/extract.py` 新增 `_focus_for(company_id)`（extract.py:35-42）+ `_THEME_FOCUS` 映射（extract.py:18-31），按锚定公司的 theme 选择行业框架（软件文档出软件事实、航天文档出航天事实），`_system_for(focus)` 与 prompt 均参数化（extract.py:45-72）。**这是 8 主题扩张能真正落地的前提，价值很高。**
 - **[已落地] 新增 arXiv + journals 两个 provider** —— `providers/arxiv.py`、`providers/journals.py`，已在 provider 套件注册（`providers/__init__.py:17,33-34`）并在运维控制台源注册表中以 `category="frontier"` 暴露、可手动触发（`api/ops.py:148-153`，`ops.run_source` 分派见 ops.py:239-241）。均为 green 许可、仅摘要/元数据、key-gated 优雅降级，与既有 13 源同纪律。
-- **[已采用] "独立 agent 审计交付物"模式** —— Exploration 模块交付经一个独立 agent 审计 → PASS。该模式本身值得固化为新功能的验收闸之一。
+- **[已采用] "独立 agent 审计交付物"模式** —— Exploration 模块交付经一个独立 agent 审计 → PASS。该模式本身值得固化为新功能的验收闸之一。**本轮（语义 DB + 日度 ingest）进一步固化：多个独立 multi-agent 审计 + 一轮 xhigh code-review 在本会话执行，其 P0/P1 发现均已修复**（36 pytest 全绿、ruff clean、docker 运行）。
+- **[已落地] 语义数据库（时间锚定、可回测、本体锚定）** —— 复用既有三张双时态表加列、由 `semantic_facts` VIEW（schema.sql:419，UNION `kg_events` 非 expert 行 + `expert_insights`，insight 臂 LEFT JOIN `kg_events` 以浮出 resolution）统一。抽取侧 `kg/extract.py` 填 `time_orientation` + grounded 因果叙事 + drivers→`causally_linked` 边（extract.py:189；edges.py:41）；检索侧 `graphrag.semantic()` 点查视图，`agents/nodes.py` 注入分析师 brief。所有 schema 对象（加列 + 视图 + `ingest_runs` 表）均加在 `storage/schema.sql`、幂等、`init_schema()` 可重跑。
+- **[已落地] 前瞻断言解析生命周期** —— `kg/resolve_claims.py:resolve_forward_claims()`（window_days/grace_days）把 forward_looking 催化剂解析为 hit/miss/stale，只改 forward 行，经 `semantic_facts.resolution` 暴露；CLI `xar resolve-claims`（cli.py:162）。这是评估 GLM-5.2 `SEMANTIC_DB_PLAN.md` 后唯一采纳的净新能力。
+- **[已落地] Finnhub / FMP 公司新闻 ingestion（补真实源缺口）** —— `providers/finnhub.pull_news`(+`pull_general_news`)（finnhub.py:140/158）与 `providers/fmp.pull_news`（fmp.py:134）把公司新闻落进 `documents`（source='finnhub'/'fmp'、permission='grey'、仅摘要非全文、content-hash 去重）；`api/ops.py` 注册 `finnhub_news` 源（ops.py:146）+ `run_source` 分派（ops.py:259）；`kg/expert.ALT_SOURCES` 加入 finnhub/fmp（expert.py:29），使新闻同时进 build_kg 与 expert 层。
+- **[已落地] 日度自动 ingest（曾列为待办，现真实部署）** —— `orchestration/daily.py:run_daily(stages=('pull','extract'))`：每源增量 PULL（按公司分片、隔离失败）→ parse/embed → build_kg → expert → signals → `resolve_forward_claims`（extract 阶段全局只跑一次而非每片；LLM 阶段预算上限封顶但廉价 DB 阶段照跑）。`storage/runlog.py` + 新 `ingest_runs` 表（schema.sql:443）= 运行日志 + 每源增量游标（last_success_ts）。CLI `xar daily`（cli.py:147）。content-hash + NOT-EXISTS 游标 → 幂等可续。
+- **[已落地] Dagster sidecar（日度运行时，现已部署）** —— `orchestration/definitions.py`：`pull_shard`（静态分片、06:00 调度，cron `0 {hour}`）+ `extract_all`（单 run、单批预算、06:30 调度，cron `30 {hour}`，**刻意不分片**因其读全局队列）+ `core_daily`（按需）。`docker-compose.yml` 新增 dagster 服务，host 端口 **3001**（UI/run-history/retries）+ `dagster_home` 卷；仅 app 容器跑 `xar init`（schema owner）。
 
 ### 🟢 做得好的（保持）
 - **tie-out 数值对账闸**（`parsing/tie_out.py`）—— 金融场景的锋利洞察，多数同类产品没有。
 - **统一催化剂流**（`kg/signals.py`）—— 把结构化/另类/非结构化蒸馏进同一条 `kg_events`，抽象优雅。
-- **theme-aware 抽取的克制设计** —— 一个 `_focus_for` + 一张映射表即把 5 主题的行业框架解耦，没有为每主题分叉 pipeline。
+- **theme-aware 抽取的克制设计** —— 一个 `_focus_for` + 一张映射表即把 8 主题的行业框架解耦，没有为每主题分叉 pipeline。
 - **Exploration 复用既有栈** —— 不另起炉灶：复用 `documents`/embeddings/`models.llm`/`db` 与同套 FastAPI+SPA chrome，新增面仅两张表 + 一个 domain 注册表（见三、架构审核的专节）。
 - **key-gated 优雅降级** —— 真正的交钥匙品味。
 - **许可纪律作为 CI** —— 机构级自觉。
@@ -90,7 +98,7 @@
 - **KG 纠错回路缺失**（★★ 高价值）：用户发现错误图谱事实（实体消解错了、边过期了）无任何 UI/API 修正。人审应从"批准报告"扩展到"治理图谱"。→ **P1-3**。
 - 软指标（crowding/conviction/house view）是 `dashboard.py` 的显式启发式，README 诚实标注"非杜撰"，但对终端用户可能被误读为"信号"。应在 UI 标注"derived heuristic"。
 - **Exploration 的"方向性而非交易"姿态需在 UI 显性化**：研究前沿带 maturity/horizon/momentum/confidence，是长期方向判断，不应被误读为可交易信号；前沿 momentum 与投研主轴的 conviction 是两套语义，UI 需明确区隔（indigo shell 已在视觉上分流，但措辞仍需"forward-looking, not a trade"标注）。
-- **新公司/新主题接入 = 改 `registry.py` 代码 + re-seed**（registry.py 现已 925 行手工策展，含 294 公司 + 25 技术路线 + 数百条 SEED_EDGES）。curated 垂直知识是真正护城河，但作为静态代码愈发不可持续。→ **P2-3**。
+- **新公司/新主题接入 = 改 `registry.py` 代码 + re-seed**（手工策展的 8 主题策展核 + 数百条 SEED_EDGES；947 公司中的扩展宇宙现已抽到生成的 `ingestion/universe.py` 并追加进 `COMPANIES`）。curated 垂直知识是真正护城河，但作为静态代码愈发不可持续。→ **P2-3**。
 
 ---
 
@@ -123,7 +131,7 @@ Exploration 是第三个顶层模块（App.tsx:42-45 的 `/explore` 路由 + 独
 
 剥掉所有"管道商品"（provider 套件、UI、RAG、单 PG），**XAR 真正在卖的只有三样东西**：
 
-1. **编码进代码与图谱的垂直领域知识**（本体 + 10 类催化剂分类法 + SEED_EDGES + 技术路线节点 + 5 主题 294 公司的策展产业链）——唯一无法被复制的部分，护城河的河床。Exploration 的 6 域前沿映射是这条河床向"知识前沿"的自然延伸。
+1. **编码进代码与图谱的垂直领域知识**（本体 + 10 类催化剂分类法 + cycle 周期本体 + SEED_EDGES + 技术路线节点 + 8 主题 947 公司的策展产业链/周期图）——唯一无法被复制的部分，护城河的河床。**本轮新增的语义层（catalyst 叙事 / stance / 因果 / forward 期望 + 前瞻断言解析）正是这条河床里"结构化数值表装不下"的那一半。** Exploration 的 6 域前沿映射是这条河床向"知识前沿"的自然延伸。
 2. **金融场景的信任纪律**（双时态 + 实体消解 + 数值对账闸 + 证据闸 + 人审 + 引用 grounding）——把"LLM 研报"升级为"机构级研报"的工程化方法论。Exploration 的 `valid_ids` 引用校验是同一信任纪律在前沿研究上的复刻。
 3. **可控可审计的多 Agent 编排哲学**（确定性 DAG + 一个受限自治岛 + 独立 agent 审计交付物）——与 swarm 套壳的根本分野。
 
@@ -223,7 +231,7 @@ Exploration 是第三个顶层模块（App.tsx:42-45 的 `/explore` 路由 + 独
 - **工时**：2 天
 
 #### P1-4　schema 迁移机制（alembic）
-- **动机**：在有真实数据前引入成本最低；`CREATE IF NOT EXISTS` 无法表达列变更（5 主题扩张 + `frontier_*` 两表已让 schema 演进压力变大）。
+- **动机**：在有真实数据前引入成本最低；`CREATE IF NOT EXISTS` 无法表达列变更（8 主题扩张 + `frontier_*` 两表 + 语义层加列/`semantic_facts` 视图/`ingest_runs` 表已让 schema 演进压力变大——本轮虽全走幂等 `ALTER ... ADD COLUMN IF NOT EXISTS`，但仍非正式迁移机制）。
 - **做法**：引入 alembic，把 `schema.sql` 转为初始 migration；`xar init` 改 `alembic upgrade head`。
 - **验收**：空库与已有库均能 `upgrade`；新增一个改列类型的测试 migration。
 - **工时**：1.5 天
@@ -256,7 +264,7 @@ Exploration 是第三个顶层模块（App.tsx:42-45 的 `/explore` 路由 + 独
 - **工时**：1 天
 
 #### P2-3　公司/主题录入数据化
-- **动机**：`registry.py`（925 行手工策展，294 公司 + 5 主题）是护城河但已临近不可持续。
+- **动机**：手工策展的 `registry.py`（8 主题策展核）+ 生成的 `universe.py`（合计 947 公司）是护城河但已临近不可持续。
 - **做法**：抽出 `companies`/`seed_edges`/`tech_routes` 为可版本化数据（YAML/SQL seed）+ "新增公司" API；保留代码作回退。同理可把 exploration 的 `domains.py` 一并数据化。
 - **工时**：2 天
 
@@ -287,9 +295,11 @@ Week 4:  [P1-3 ─ P1-4] 完成 P1
 - ❌ 不自建多租户 / RBAC（自用姿态已排除）。
 - ❌ 不回退 LangGraph；✅ 确定性 DAG + 一个自治岛。
 - ❌ 不为 Exploration 另起存储/依赖；✅ 复用 documents/embeddings/llm/db 与同套 chrome。
-- ⚠️ 新增数据源需进运维控制台源注册表 + key-gated 优雅降级（arxiv/journals 已遵循）；非必要不再扩源。
+- ⚠️ 新增数据源需进运维控制台源注册表 + key-gated 优雅降级（arxiv/journals、新增 `finnhub_news`/fmp 公司新闻均已遵循：仅摘要非全文、content-hash 去重、permission='grey'）；非必要不再扩源。
+- ❌ **不为语义层另起平行表**；✅ 加列复用 `kg_events`/`kg_edges`/`expert_insights` + 单一 `semantic_facts` VIEW（见 ADR：reuse-not-new-table）。所有 schema 改动走幂等 `ALTER ... ADD COLUMN IF NOT EXISTS` / `CREATE ... IF NOT EXISTS`。
+- ❌ 日度 ingest 不引重型队列；✅ `ingest_runs` 表 + content-hash + NOT-EXISTS 游标做幂等可续，由 Dagster sidecar 调度（不侵入 app 容器，仅 app 跑 `xar init`）。
 - ✅ Exploration 保持"方向性而非交易"：不写 `kg_events`、不进 signals、不触报告流水线。
-- ✅ 每个新功能过"垂直知识更准 / 信任纪律更硬"双门槛；交付走"独立 agent 审计"。
+- ✅ 每个新功能过"垂直知识更准 / 信任纪律更硬"双门槛；交付走"独立 agent 审计"（本轮语义 DB + 日度 ingest 经多个独立 multi-agent 审计 + xhigh code-review，P0/P1 发现已修复）。
 
 ---
 
@@ -300,8 +310,12 @@ Week 4:  [P1-3 ─ P1-4] 完成 P1
 | 部署形态 | 自用 / 单团队 | 多租户/RBAC/RLS 不计划；零鉴权降级为文档+可选 token |
 | 顶层模块 | 三模块并列：Research Portal `/` + Operations Console `/ops` + Exploration `/explore` | 三者复用同一 PG/LLM/embeddings 栈，分立 shell |
 | Exploration 模块 | **转正为正式第三支柱（撤销上版"冻结"）** | 复用既有栈、姿态清晰（方向性非交易）、有独立 API/CLI/schema/UI、经独立 agent 审计 PASS |
-| 投研主题 | 5 主题全球化（光/芯/软件/航天/人形），294 公司 | "加 theme + 加公司"既定路径，架构未变形；FX 归一 |
-| KG 抽取框架选择 | **theme-aware `_focus_for`（修复 optical 硬编码 bug）** | 一表一函数解耦 5 主题行业框架，避免 pipeline 分叉 |
+| 投研主题 | 8 主题（5 产业链 `kind=chain`：光/芯/软件/航天/人形 + 3 消费周期 `kind=cycle`：互联网/零售/餐饮），947 公司 | "加 theme + 加公司"既定路径，架构未变形；周期主题走 `cycle.py` 周期轴而非 tier 轴；FX 归一 |
+| 周期主题轴 | 新本体维度 `ontology/cycle.py`（5 态 `CyclePosition` + `CYCLE_RANK` 兼作 segment tier） | 消费股看经济周期位次而非供应链上下游；热力图渲染为 Cycle Map |
+| 语义数据库存储 | **加列复用既有三张双时态表 + 单一 `semantic_facts` VIEW，不另起平行表** | 评估 GLM-5.2 `SEMANTIC_DB_PLAN.md` 后定；additive/幂等/可回测；catalyst 叙事/stance/因果/forward 期望落在数值表装不下的那一半 |
+| 前瞻断言解析 | 采纳 `resolve_forward_claims`（hit/miss/stale，只改 forward 行） | 本轮唯一净新能力；闭合"预期→兑现"环，经 `semantic_facts.resolution` 暴露 |
+| 日度 ingest 运行时 | Dagster sidecar（`pull_shard` 分片 06:00 + `extract_all` 单 run 06:30），host 端口 3001 | extract 全局只跑一次（不分片）；content-hash + `ingest_runs` 游标 → 幂等可续；仅 app 容器跑 `xar init` |
+| KG 抽取框架选择 | **theme-aware `_focus_for`（修复 optical 硬编码 bug）** | 一表一函数解耦 8 主题行业框架，避免 pipeline 分叉 |
 | LLM 路由 | 默认 DeepSeek V4：`deepseek-v4-flash`(fast) + `deepseek-v4-pro`(strong)，可经 `XAR_MODEL_FAST/STRONG` 覆盖为 claude-opus-4-8 / claude-haiku-4-5 | 成本/能力两级；任意 LiteLLM 模型可换 |
 | 存储 | 坚持 单 PG + pgvector | 运维成本骤降、能力等价；不回退 Neo4j |
 | Agent 编排 | 坚持自建确定性 DAG | 可控可审计；不回退 LangGraph |
@@ -313,4 +327,4 @@ Week 4:  [P1-3 ─ P1-4] 完成 P1
 
 ---
 
-*评审基于 2026-06-18 代码快照。证据均带 `file:line` 可追溯；工时为单人乐观估算，含测试。本文件为活文档，每完成一个 P0/P1 任务即勾选并附 PR 链接。*
+*评审基于 2026-06-24 代码快照（分支 `feat/semantic-db-daily-ingest`：8 主题 / 947 公司 / 语义数据库 + 前瞻断言解析 / Finnhub-FMP 新闻 / Dagster 日度 ingest，36 pytest 全绿、ruff clean、docker 运行：app `:8000` / Dagster `:3001` / Postgres+pgvector）。证据均带 `file:line` 可追溯；工时为单人乐观估算，含测试。本文件为活文档，每完成一个 P0/P1 任务即勾选并附 PR 链接。*

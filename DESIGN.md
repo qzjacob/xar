@@ -1,6 +1,6 @@
 # 开源产业链投研平台 — 设计蓝图
 
-> 围绕一组并行的产业链主题（首发：**AI 光模块 / 光互连产业链**，现已扩展为 **5 大主题**：AI 光互连 · AI 算力芯片 · AI 软件普及 · 太空探索 · 人形机器人），自动汇聚公司公告、财报、研报、新闻、产品页与招聘信息，构建**产业链知识图谱 + RAG 检索系统**，识别客户、供应商、技术路线、订单与催化剂变化，并由**多 Agent** 生成深度报告、跟踪摘要与投资启示。在投研主线之外，新增**前沿探索（Exploration）模块**，把同一套文档/嵌入/LLM/数据库栈对准**人类知识的前沿方向**（arXiv 预印本 + 顶刊 + 专家声音 → 前瞻性研究前沿）。
+> 围绕一组并行的主题（首发：**AI 光模块 / 光互连产业链**，现已扩展为 **8 大主题**：5 条 AI **产业链**主题（`kind="chain"`，上下游 tier 轴）AI 光互连 · AI 算力芯片 · AI 软件普及 · 太空探索 · 人形机器人，加 3 条**消费周期**主题（`kind="cycle"`，经济周期位置轴）互联网 · 零售 · 餐饮服务），自动汇聚公司公告、财报、研报、新闻、产品页与招聘信息，构建**知识图谱 + RAG 检索系统 + 时间戳化语义数据库**，识别客户、供应商、技术路线、订单、催化剂叙事与前瞻预期变化，并由**多 Agent** 生成深度报告、跟踪摘要与投资启示。在投研主线之外，新增**前沿探索（Exploration）模块**，把同一套文档/嵌入/LLM/数据库栈对准**人类知识的前沿方向**（arXiv 预印本 + 顶刊 + 专家声音 → 前瞻性研究前沿）。
 
 本文档是项目的总体设计与技术选型决策记录。所有选型基于对现有开源生态的检索调研（2026-06），原则是**最大化复用业界最佳开源方案，避免重造轮子**。
 
@@ -21,7 +21,7 @@
 | 检索 | Graphiti + RAGFlow 混合 | **pgvector 稠密 + pg_trgm 词法，RRF(k=60) 融合 + GraphRAG 遍历** |
 | 多 Agent | LangGraph DAG | **自建可控 DAG**：规划→图谱检索→5 分析师→多空辩论→风险→主编→证据闸→人审中断（检查点入 `report_runs.state`） |
 | 模型网关 | LiteLLM → Claude | **LiteLLM** 两级路由 + 单次美元预算上限 + 成本计费；**默认 DeepSeek V4**：`XAR_MODEL_FAST=deepseek/deepseek-v4-flash`（抽取/分类/快速合成）+ `XAR_MODEL_STRONG=deepseek/deepseek-v4-pro`（推理/辩论/前沿合成），`XAR_MODEL_EFFORT=high`；`complete_json` 走 JSON-mode（V4 推理模型按需调 `reasoning_effort`）保障结构化输出；一行 env 可切任意 LiteLLM 模型（`claude-opus-4-8` / `claude-haiku-4-5`，配 `ANTHROPIC_API_KEY`） |
-| 编排 | Dagster | 可选(`.[orchestration]`)；核心流程用 CLI/后台任务驱动 |
+| 编排 | Dagster | **已部署**：`orchestration/daily.py run_daily` 每日增量链（CLI `xar daily`）+ Dagster 旁车（`orchestration/definitions.py`：`pull_shard` 分片 06:00 / `extract_all` 06:30，docker-compose 暴露 `:3001` UI/重试/run 历史） |
 | 评测/追踪 | Phoenix + Langfuse | 自建检索命中率 + 报告 rubric(LLM-judge)；`llm_usage` 表做成本追踪；Phoenix 可选(`.[eval]`) |
 | 前端 | Next.js + Vercel AI SDK | **React + TS + Tailwind SPA**（`web/`，FastAPI 托管编译产物；无构建时回退内置原生单页 `api/static/index.html`，见 `UI.md`） |
 | 包/运行 | 多服务 compose | Python 包 `xar`（`pip install` / `docker compose up`），CLI 入口 `xar` |
@@ -36,9 +36,12 @@
 6. **专家智能体另类数据加工平台**（`kg/expert.py`）—— 对 X / 公众号 / 资讯 / AIFINmarket 运行领域专家 LLM，按相关性+立场+信号质量过滤，仅保留高信噪比观点（带 entity/stance/quality），写入 `expert_insights` 表 + `kg_events(license=expert)`，是原始召回式抽取之上的信噪比放大层（实测 80 篇公众号→3 条买方级观点，keep-rate 3.75%；在 `/ops/altdata` 呈现）。
 7. **X(推特)专家信息源**（`providers/twitter.py`）—— 经 TwitterAPI.io `advanced_search`，按主题精选专家账号 + 领域关键词检索，落 `social_posts`+`documents(source=x)`，经专家加工进本体。
 8. **AIFINmarket(万得终端)**（`providers/aifinmarket.py`）—— CN A 股专业源（**MCP-over-HTTP**）：A 股基本面(→`FinMetric`)+公告/资讯(→`documents`→本体)，gated；多市场行情仍由 Yahoo/Finnhub/FMP/Polygon 覆盖。
-9. **五大产业链主题（294 公司 / 38 细分 / 25 技术路线）** —— 在 `ingestion/registry.py` 中由 `THEMES`/`SEGMENTS` 驱动：`ai_optical`（AI 光互连，4 段 13 司）、`ai_chip`（AI 算力芯片，9 段 29 专属司 + 3 跨主题巨头）、`ai_software`（AI 软件普及，9 段 95 司，tier=企业 AI 采用浪潮，每段带中文 `thesisCn`）、`space_exploration`（太空探索，8 段 78 司，含**太空数据中心/在轨算力**子段）、`humanoid_robotics`（人形机器人，8 段 79 司）。全球域（US/CN/JP/KR/EU/TW/HK/SG/SE），仪表盘做 FX 归一；市值阈 >$2B（美股 Finnhub，其余 Yahoo+FX 核验）。公司 `themes` TEXT[] 可跨主题，逐主题细分存 `meta.segments`。
+9. **八大主题（947 公司 / 59 细分）** —— 在 `ingestion/registry.py` 中由 `THEMES`/`SEGMENTS` 驱动，`THEMES[*].kind` 判别 `"chain"`（5 条 AI 产业链，上下游 `tier` 轴）vs `"cycle"`（3 条消费周期，经济周期位置轴，见 §5.5）：chain = `ai_optical`（AI 光互连，4 段）、`ai_chip`（AI 算力芯片，9 段，含跨主题巨头）、`ai_software`（AI 软件普及，9 段，tier=企业 AI 采用浪潮，每段带中文 `thesisCn`）、`space_exploration`（太空探索，8 段，含**太空数据中心/在轨算力**子段）、`humanoid_robotics`（人形机器人，8 段）；cycle = `internet`（互联网，8 段）、`retail`（零售，7 段）、`restaurants`（餐饮服务，6 段）。全球域（US/CN/JP/KR/EU/TW/HK/SG/SE），仪表盘做 FX 归一；市值阈 >$2B（美股 Finnhub，其余 Yahoo+FX 核验）。公司 `themes` TEXT[] 可跨主题，逐主题细分存 `meta.segments`。**Universe 由 ~378 名精选核心扩展到 947 司**（`scripts/universe_build.py` 生成 `ingestion/universe.py`：Finnhub 各交易所符号集作存在性闸 → 逐主题×地域 LLM 枚举 → 确定性核验（存在性 + 去重 + 美股 ≥$2B 市值闸 + 消费非美周期黑名单 + 名↔ticker 同实体校验）→ append 进 `registry.COMPANIES`；地域约 US 356 / JP 223 / TW 143 / KR 134 / CN 77）。
 10. **主题感知的 KG 抽取**（`kg/extract.py` `_focus_for()`）—— 按锚点公司所属主题选取产业框架（光互连/芯片/软件/太空/人形），**修复了 prompt 曾硬编码为光模块的潜伏 bug**，使软件 filing 产出软件事实而非光学事实。
 11. **前沿探索模块（Exploration，第三个顶层模块）** —— 6 个前沿领域（AI 优先），arXiv 预印本 + 顶刊 + X 专家声音 → LLM 合成前瞻性**研究前沿**；复用 documents/embeddings/LLM/db 栈，新增 `frontier_fronts` + `frontier_domain_state` 两表（详见 §2.2/§5.3/§9）。该交付经独立审计 Agent 复核 → **PASS**。
+12. **语义数据库（headline，时间戳化、可回测、本体锚定的语义层）** —— 承载结构化数值表（基本面/估计/价格）**不**承载的内容：催化剂叙事、立场、因果、前瞻预期。设计决策=**加性复用既有三张双时态表**而非另立并行表：`kg_events`（新增列 theme/segment/narrative/time_orientation/resolution/…）+ `kg_edges`（新增 `causally_linked` EdgeType）+ `expert_insights`（新增 as_of/theme/segment/time_orientation），由单一 SQL `VIEW semantic_facts`（UNION）统一点查；抽取（`kg/extract.py`）填 `time_orientation`(forward/backward) + 因果/前瞻 `narrative` + `drivers`（因果实体→`causally_linked` 边）；`graphrag.semantic()` 点查该视图，`agents/nodes.py` 把语义流注入分析师 brief（详见 §5.6）。
+13. **前瞻声明解析生命周期** —— `kg/resolve_claims.py resolve_forward_claims()` 闭合"预期→兑现"环：一条有方向的 `forward_looking` 催化剂在窗口内出现同公司 `backward_looking` 兑现型事件时解析为 **hit/miss**（极性一致=hit、相反=miss；按 `COALESCE(event_date, observed_at)` 定时），否则 **stale**（可复查）；**仅** mutate forward 行，经 `semantic_facts.resolution` 暴露；CLI `xar resolve-claims`（详见 §5.6）。
+14. **每日自动增量链 + Finnhub/FMP 新闻源** —— `orchestration/daily.py run_daily(stages=('pull','extract'))`：按公司分片的逐源增量 PULL（隔离失败）→ 解析/嵌入 → `build_kg` → expert → signals → `resolve_forward_claims`（extract 全局只跑一次，LLM 阶段有预算上限、廉价 DB 阶段照常跑）；`storage/runlog.py` + 新表 `ingest_runs` = run 日志 + 逐源增量游标（`last_success_ts`），幂等可续（内容哈希 + NOT-EXISTS 游标）；CLI `xar daily`。`providers/finnhub.pull_news`(+`pull_general_news`)/`providers/fmp.pull_news` 把公司新闻落 `documents`（source=finnhub/fmp，permission=grey，自用摘要、内容哈希去重），`api/ops.py` 注册 `finnhub_news` 源，`kg/expert.ALT_SOURCES` 纳入 finnhub/fmp（新闻同入 build_kg 与专家层）。
 
 ---
 
@@ -46,7 +49,7 @@
 
 - **问题**：单一行业（如 AI 光模块）的投研信息高度碎片化——美股 10-K/8-K、A 股公告/财报、中外研报、产业新闻、厂商产品页、招聘动向分散在数十个来源，且**关系（谁供谁、走哪条技术路线、何时拿到订单）和时间（某事实在某日是否成立）**没有任何工具能结构化呈现。
 - **目标产出**：一个自托管平台，把上述信息汇聚成一张**带时间维度、可溯源引用**的产业链知识图谱，并通过多 Agent 流水线产出三类可信制品：**深度报告 / 跟踪摘要 / 投资启示**——每一条结论都能点回到源文件或图谱事实。
-- **预期成果**：6 周内交付 AI 光模块垂直切片（约 15 家公司）端到端可用；该 MVP 不是抛弃品，而是长期系统的 P0–P3。**实现现状已扩展到 5 大主题、294 家公司**，并把同一套引擎延伸到**前沿探索**（投研之外的"知识方向"层）。
+- **预期成果**：6 周内交付 AI 光模块垂直切片（约 15 家公司）端到端可用；该 MVP 不是抛弃品，而是长期系统的 P0–P3。**实现现状已扩展到 8 大主题（5 产业链 + 3 消费周期）、947 家公司**，并把同一套引擎延伸到**前沿探索**（投研之外的"知识方向"层）。
 
 ### 1.1 关键范围决策（已与需求方确认）
 
@@ -212,15 +215,15 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 
 ## 5. 产业链知识图谱本体（双时态）
 
-> Graphiti Pydantic 节点/边类型 → Neo4j（As-Built 实现为自建 `kg_nodes/edges/events`，见 §0）。**每个事实带双时间**：`t_valid`/`t_invalid`（世界中为真的有效期）+ 观测/摄取时间（我们何时获知）——后发文档不覆盖先前为真的事实，"某日为真"可查询。每个节点/边/事件带 `source_filing_id` + `license_tag` + `confidence`。
+> Graphiti Pydantic 节点/边类型 → Neo4j（As-Built 实现为自建 `kg_nodes/edges/events`，见 §0）。**每个事实带双时间**：`t_valid`/`t_invalid`（世界中为真的有效期）+ 观测/摄取时间（我们何时获知）——后发文档不覆盖先前为真的事实，"某日为真"可查询。每个节点/边/事件带 `source_filing_id` + `license_tag` + `confidence`。**`kg_events` 现加性扩列**承载语义层：`theme`/`segment`（本体锚定）、`narrative`（≤2 句因果/前瞻语境）、`time_orientation`（`forward_looking`|`backward_looking`）、`resolution`/`resolved_at`/`realizes_event_id`（前瞻声明解析生命周期）——全部经 `semantic_facts` 视图统一点查（见 §5.6）。
 
-**多主题与细分**（As-Built，`ingestion/registry.py`）：篮子由 `THEMES`/`SEGMENTS`/`TECH_ROUTES` 驱动，覆盖 **5 大主题 / 294 公司 / 38 细分 / 25 技术路线**。公司 `themes` 为 TEXT[]（可跨主题，如 NVDA/AVGO/MRVL 同属 `ai_optical`+`ai_chip`），逐主题细分存 `meta.segments`（`seg` 字段）；细分 `tier` 排上游→下游。五大主题：
+**多主题与细分**（As-Built，`ingestion/registry.py`）：篮子由 `THEMES`/`SEGMENTS`/`TECH_ROUTES` 驱动，覆盖 **8 大主题 / 947 公司 / 59 细分**（其中 5 条 AI 产业链主题 + 3 条消费周期主题，后者见 §5.5）。公司 `themes` 为 TEXT[]（可跨主题，如 NVDA/AVGO/MRVL 同属 `ai_optical`+`ai_chip`），逐主题细分存 `meta.segments`（`seg` 字段）；chain 主题细分 `tier` 排上游→下游。五条 AI 产业链主题：
 
-- **`ai_optical`（AI 光互连产业链）**：4 段、13 司。上游器件→光模块厂→代工→下游客户。
-- **`ai_chip`（AI 算力芯片产业链）**：9 段、29 专属司（+3 跨主题巨头）。WFE→材料/EDA→晶圆代工→存储/GPU/CPU→先进封装→PCB。
-- **`ai_software`（AI 软件普及链）**：9 段、95 司。tier=企业 **AI 采用浪潮**（研发与 AI 基础设施/可观测最先放量，如 JFrog/Datadog；CRM/Salesforce 较晚）；每段带中文 `thesisCn`。
-- **`space_exploration`（太空探索产业链）**：8 段、78 司。发射→推进→卫星→**太空数据中心 / 在轨算力**（SpaceX 为中心的天基算力，非地面 DC）→地面站→组件→应用→防务。
-- **`humanoid_robotics`（人形机器人产业链）**：8 段、79 司。执行器/谐波减速器/滚柱丝杠→无框力矩电机→传感器→域控/AI 大脑→电池→灵巧手→材料→整机 OEM。
+- **`ai_optical`（AI 光互连产业链）**：4 段。上游器件→光模块厂→代工→下游客户。
+- **`ai_chip`（AI 算力芯片产业链）**：9 段（含跨主题巨头）。WFE→材料/EDA→晶圆代工→存储/GPU/CPU→先进封装→PCB。
+- **`ai_software`（AI 软件普及链）**：9 段。tier=企业 **AI 采用浪潮**（研发与 AI 基础设施/可观测最先放量，如 JFrog/Datadog；CRM/Salesforce 较晚）；每段带中文 `thesisCn`。
+- **`space_exploration`（太空探索产业链）**：8 段。发射→推进→卫星→**太空数据中心 / 在轨算力**（SpaceX 为中心的天基算力，非地面 DC）→地面站→组件→应用→防务。
+- **`humanoid_robotics`（人形机器人产业链）**：8 段。执行器/谐波减速器/滚柱丝杠→无框力矩电机→传感器→域控/AI 大脑→电池→灵巧手→材料→整机 OEM。
 
 全球域（US/CN/JP/KR/EU/TW/HK/SG/SE），仪表盘做 FX 归一；市值阈 >$2B（美股 Finnhub，其余 Yahoo+FX 核验）。
 
@@ -288,10 +291,38 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 在 5 个 **AI 产业链主题**（供应链上下游 `tier` 轴）之外，新增 3 个 **消费周期主题**（互联网 / 零售 / 餐饮服务）。这三类**不适用产业链上下游追踪**，改用一条新的 code-as-truth 本体维度组织——**经济周期位置**：
 
 - **周期本体**（`ontology/cycle.py`）—— `CyclePosition`（5 态：`early_cycle/mid_cycle/late_cycle/defensive/counter_cyclical`）+ `Cyclicality` + `CycleProfile(position,cyclicality,sensitivity,note)`。单调 `CYCLE_RANK`（"越晚下跌排越后"：early=1…counter=5）**直接用作 cycle 主题细分的 `tier`**，使现有细分排序 / 热力图 / landscape **零改复用**。公司经 `cycle_of_company()` 从其细分继承周期画像（可公司级覆盖），落 `companies.meta.cycle`。直接编码用户语义——**折扣零售 = 逆周期、最晚下跌**（rank 5 > 服装 rank 1）。
-- **主题判别**（`registry.THEMES[*].kind`）—— `"chain"`（产业链）| `"cycle"`（经济周期）。新增 3 主题 + 21 细分（按周期位置）+ **84 只美股 roster**（`_consumer()` 构造，无 SEED_EDGES）；主要由非美国经济周期驱动的标的（PDD/BABA/YUMC…）**排除**。细分→`industry`/KPI 包复用既有 `internet_media/ecommerce/retail/consumer_staples`，新增 `restaurants` 行业 + `RESTAURANTS_PACK`（same-store-sales/AUV/traffic/check/unit-count…）。
+- **主题判别**（`registry.THEMES[*].kind`）—— `"chain"`（产业链）| `"cycle"`（经济周期）。新增 3 主题 + 21 细分（按周期位置）+ **美股 roster**（`_consumer()` 构造 84 名精选核心，universe 扩展后约 127 只美股、无 SEED_EDGES）；主要由非美国经济周期驱动的标的（PDD/BABA/YUMC…）**排除**（消费非美周期黑名单）。细分→`industry`/KPI 包复用既有 `internet_media/ecommerce/retail/consumer_staples`，新增 `restaurants` 行业 + `RESTAURANTS_PACK`（same-store-sales/AUV/traffic/check/unit-count…）。
 - **消费即可用**（零新表）—— `dashboard` 的 `tier` 直取全部加固为 `.get`，回退细分改 theme-aware；细分/公司 payload 带 `cycle` + `axis`，`coverage` 带 `kind`，`decision()` 文案按 kind 切换（"消费周期组合 / 最强·最弱周期段"）。前端把 `ChainHeatmap` 按 `kind` 重标为 **Cycle Map**（按周期位次排序 + EC/MC/LC/DEF/CC 徽标与图例），主题切换器数据驱动自动出现 3 模块。行业格局/HHI 由细分成员市值算出，**无供应链亦可用**。
 
 > 新增任一周期行业 = 加 `THEMES`/`SEGMENTS`(带 `cycle`)/`_consumer` roster + 可选 `sectors`/`metric_packs` 行，**零核心改写**。
+
+### 5.6 语义数据库 + 前瞻声明解析（As-Built，2026-06）
+
+**意图**：结构化数值表（`fundamentals/estimates/prices`）承载"是多少"，但**不**承载催化剂**叙事 / 立场 / 因果 / 前瞻预期**。语义数据库补上这一层，且是**时间戳化、可回测、本体锚定**的。
+
+**设计决策——加性复用既有三张双时态表，不另立并行表**（`storage/schema.sql`，全部 `ADD COLUMN IF NOT EXISTS` / `CREATE OR REPLACE`，幂等）：
+- **`kg_events`** 加列 `theme`/`segment`/`narrative`/`time_orientation`（`forward_looking`|`backward_looking`）/`resolution`/`resolved_at`/`realizes_event_id`；
+- **`kg_edges`** 加 `causally_linked` EdgeType（driver→company：某驱动因素引发某催化剂）；
+- **`expert_insights`** 加 `as_of`/`theme`/`segment`/`time_orientation`。
+- **`semantic_facts` VIEW** 统一二者：`kg_events`(license_tag≠'expert') ∪ 保留的 `expert_insights`，后者 LEFT JOIN 回其镜像 `kg_event` 以浮出 `resolution`。单一可点查视图，暴露 polarity/narrative/time_orientation/resolution。
+
+**抽取（`kg/extract.py`）**：每条催化剂额外产出 `time_orientation`、一条因果/前瞻 `narrative`（"为何发生 / 将驱动什么"，仅证据支持时）、`drivers`（因果实体 → `causally_linked` 边 + `attrs.drivers`）；narrative 走反幻觉闸（事件本身已 grounded）。
+
+**检索**：`retrieval/graphrag.semantic(company_id, theme, …)` 点查该视图；`agents/nodes.py` 把语义流（30 条）注入分析师 brief，与 filing 催化剂一视同仁。
+
+**前瞻声明解析生命周期**（`kg/resolve_claims.py`，唯一净新能力，采纳自对候选方案的评估）：`resolve_forward_claims(window_days=120, grace_days=21)` 闭合"预期→兑现"环——一条有方向（polarity≠neutral）的 `forward_looking` 催化剂，在窗口内出现**同公司**的兑现型 `backward_looking` 事件（earnings/order/product_ramp…）时解析为 **hit**（极性一致）/ **miss**（极性相反），按 `COALESCE(event_date, observed_at)` 定时；否则 **stale**（非终态、可复查）。**仅 mutate forward 行**，经 `semantic_facts.resolution` 暴露，`realizes_event_id` 链回兑现事件。CLI `xar resolve-claims`，并作为每日链最后一步自动运行（§5.7）。
+
+### 5.7 每日自动增量链 + Finnhub/FMP 新闻（As-Built，2026-06）
+
+**每日链**（`orchestration/daily.py`）：`run_daily(stages=('pull','extract'))` 一遍跑全链——
+1. **PULL**（per-source，按公司分片 `shard/n_shards`，逐源/逐公司隔离失败）→ 解析/嵌入；
+2. **extract（全局只跑一次，非分片）**：`build_kg` → `expert.process` → `signals.derive_market_signals` → `resolve_forward_claims`。LLM 阶段受单批预算上限约束并在此处兜住，使廉价的纯 DB 阶段（signals/resolve）照常完成。
+
+**run 日志 + 增量游标**：`storage/runlog.py` + 新表 **`ingest_runs`**（run 记录 + 逐源 `last_success_ts` 游标）。链路**幂等可续**（内容哈希去重 + NOT-EXISTS 游标）。CLI `xar daily`。
+
+**Dagster 旁车**（`orchestration/definitions.py`，实际部署）：`pull_shard`（`StaticPartitionsDefinition` 静态分片，scheduled `0 {run_hour}`=06:00）+ `extract_all`（单 run、单批预算，scheduled `30 {run_hour}`=06:30）+ `core_daily`（按需）。`docker-compose.yml` 增 `dagster` 服务，宿主端口 **`:3001`**（UI / run 历史 / 重试），带 `dagster_home` 卷；**仅 app 容器**跑 `xar init`（schema owner）。
+
+**Finnhub/FMP 新闻源**（补上真实源缺口）：`providers/finnhub.pull_news`(+`pull_general_news`) 与 `providers/fmp.pull_news` 把公司新闻落 `documents`（source=`finnhub`/`fmp`，permission=`grey`，**抽取事实自用——存摘要非全文**，内容哈希去重）。`api/ops.py` 注册 `finnhub_news` 源 + `run_source` 分支；`kg/expert.ALT_SOURCES` 纳入 `finnhub`/`fmp`，使新闻同时流入 `build_kg` 与专家层。
 
 ---
 
@@ -336,7 +367,7 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 | **P1 — 采集 + RAG + 比率** | W1-3 | Dagster 资产化 filing/财报/新闻/产品页/ATS 招聘（全 15 家），含重试/schema 校验/新鲜度监控。RAGFlow 每公司知识库，Docling 主 / PaddleOCR-VL+MinerU 处理扫描中文；引用溯源跑通。FinanceToolkit 同业对齐比率（非日历财年+20-F 期对齐）。首轮催化剂抽取（8-K item 1.01 + cninfo 公告）。**强制 TEDS/数值对账闸上线**。原件归档 MinIO 带溯源 |
 | **P2 — 时序 KG（护城河）+ 深度报告流水线** | W3-5 | Graphiti 用确定性实体规范化（Innolight/中际旭创/Zhongji、COHR/Coherent/II-VI）+ reflection/LLM-as-judge 抽取评测环 + 高风险边人审，把双时态产业链 KG 灌入 Neo4j；供应链遍历 + 有日期催化剂/订单事件作可推翻五元组可查。LangGraph 多 Agent 流水线产出单公司**深度报告 + 跟踪摘要**，含多空辩论、风险、主编合成、引用溯源、快照版本化、批判证据闸、人审 `interrupt()` 节点。强制非建议免责声明 |
 | **P3 — 评测闸 + UI + 调度 = 首个可用版本** | W5-6 | Phoenix 在留出的**自有 filing 集**上跑离线 RAG/评测 + 证据覆盖度/命中率/幻觉风险作发布闸；Langfuse 成本仪表。React 对话研究 UI（投研门户 + 引用链接报告查看器 + KG 子图 + 催化剂时间轴）。Dagster sensor 在新 filing/催化剂上自动刷新跟踪摘要。**交付 AI 光模块垂直切片端到端（约 15 家）** |
-| **P4 — MVP 后扩展（部分已交付）** | W6+ | **已交付**：从 1 主题扩展到 **5 大主题 / 294 公司**；新增**运营控制台**与**前沿探索**两大模块；AIFINmarket(万得) + arXiv/Journals provider；主题感知抽取。**待续**：LightRAG/MS GraphRAG 做全局主题查询；需严格多跳逻辑/数值推理再评 KAG/OpenSPG；需全文研报或规模化纪要再授权 Wind/Choice/iFinD + 纪要厂商；RAGFlow 数据集范围之上加应用级多租户授权；向量超 ~1000 万再迁 Qdrant |
+| **P4 — MVP 后扩展（部分已交付）** | W6+ | **已交付**：从 1 主题扩展到 **8 大主题（5 产业链 + 3 消费周期）/ 947 公司**（`universe_build.py`）；新增**运营控制台**与**前沿探索**两大模块；**语义数据库**（`semantic_facts` + 前瞻声明解析）+ **每日自动增量链**（`run_daily` + Dagster 旁车 `:3001`）+ Finnhub/FMP 新闻源；AIFINmarket(万得) + arXiv/Journals provider；主题感知抽取。**待续**：LightRAG/MS GraphRAG 做全局主题查询；需严格多跳逻辑/数值推理再评 KAG/OpenSPG；需全文研报或规模化纪要再授权 Wind/Choice/iFinD + 纪要厂商；RAGFlow 数据集范围之上加应用级多租户授权；向量超 ~1000 万再迁 Qdrant |
 
 ---
 
@@ -347,23 +378,23 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 **As-Built（实际）**
 ```
 .
-├── docker-compose.yml          # db(pgvector) + app（+ 可选 --profile wechat: we-mp-rss）
+├── docker-compose.yml          # db(pgvector) + app + dagster 旁车(:3001，每日链调度/重试/run 历史)（+ 可选 --profile wechat: we-mp-rss）
 ├── Dockerfile                  # python:3.12-slim；pip install ".[market]"；预下载 bge-small
 ├── pyproject.toml              # 包 xar；extras: cn/market/parse-deep/graph/orchestration/eval/crawl/dev
 ├── .env.example                # 一个 LLM Key 必填（默认 DeepSeek V4）；其余 provider Key 全可选
 ├── src/xar/
 │   ├── config.py               # pydantic-settings（XAR_ 前缀 + provider 别名）；默认 model_fast=deepseek-v4-flash / model_strong=deepseek-v4-pro / model_effort=high
-│   ├── cli.py                  # Typer: init/ingest/ingest-wechat/parse/build-kg/report/pull/providers-status/backtest/eval/status/explore/serve
-│   ├── ontology/               # nodes/edges/catalysts + schema(抽取) + standards(FIBO/schema.org + FinMetric)
-│   ├── storage/                # db(pgvector 池) + schema.sql(含 frontier_fronts / frontier_domain_state) + structured(结构化 upsert) + objects
-│   ├── ingestion/              # base + registry(5 主题/294 公司/38 细分/25 技术路线) + edgar/cninfo/news/jobs/wechat
+│   ├── cli.py                  # Typer: init/ingest/ingest-wechat/parse/build-kg/report/pull/providers-status/backtest/eval/status/explore/serve + daily/resolve-claims
+│   ├── ontology/               # nodes/edges/catalysts + cycle(经济周期维度) + sectors + metric_packs + schema(抽取) + standards(FIBO/schema.org + FinMetric)
+│   ├── storage/                # db(pgvector 池) + schema.sql(含 semantic_facts 视图 / kg_events 语义扩列 / ingest_runs / frontier_fronts / frontier_domain_state) + structured(结构化 upsert) + runlog(run 日志+游标) + objects
+│   ├── ingestion/              # base + registry(8 主题/947 公司/59 细分) + universe(扩展名单，scripts/universe_build.py 生成) + edgar/cninfo/news/jobs/wechat
 │   ├── providers/              # base + finnhub/fmp/polygon/yahoo/wind/aifinmarket + polymarket/twitter/reddit + arxiv/journals + sentiment（11 个 provider）
 │   ├── parsing/                # parse(分块/嵌入/索引) + tie_out(数值对账闸)
-│   ├── kg/                     # store(双时态) + resolve(实体消解) + extract(主题感知 LLM 抽取, _focus_for) + expert(专家加工) + signals(结构化→事件)
+│   ├── kg/                     # store(双时态) + resolve(实体消解) + extract(主题感知 LLM 抽取, _focus_for, 填 narrative/time_orientation/drivers) + resolve_claims(前瞻声明 hit/miss/stale) + expert(专家加工) + signals(结构化→事件)
 │   ├── exploration/            # 【新】domains(6 前沿领域) + ingest(arxiv/journals/voices→documents) + synthesis(研究前沿合成→frontier_fronts/_state)
 │   ├── retrieval/              # vector(RRF 混合) + graphrag(双时态遍历)
 │   ├── agents/                 # state/nodes/debate/evidence_gate/report/graph（可控 DAG）
-│   ├── backtest/ eval/ orchestration/   # 催化剂回测 / 评测金标 / Dagster(可选)
+│   ├── backtest/ eval/ orchestration/   # 催化剂回测(driven by semantic_facts) / 评测金标 / daily(run_daily 每日链) + definitions(Dagster pull_shard/extract_all/core_daily)
 │   └── api/                    # app(FastAPI 路由) + dashboard(投研 UI) + ops(运营控制台) + exploration(前沿探索) + static/index.html（回退原生 UI）
 ├── web/                        # 【新】React + TS + Tailwind SPA（FastAPI 托管编译产物）
 │   ├── tailwind.config.js      # 设计令牌 brand(navy)/accent(blue)/warn(amber)/explore(indigo)/pos/neg
@@ -415,16 +446,19 @@ docker-compose: Postgres(pgvector+AGE) · Neo4j · MinIO · Redis · RAGFlow · 
 
 ## 11. 待办/开放问题
 
-- [x] **催化剂信号回测**：已实现 `backtest/catalyst_returns.py`——按 event_type×polarity 量化"催化剂→远期收益"（yfinance，自用）。
+- [x] **催化剂信号回测**：已实现 `backtest/catalyst_returns.py`——现驱动于 `semantic_facts`（非仅 `kg_events`），按 `(category, polarity, kind, time_orientation)` 量化"催化剂/前瞻/情绪层→远期收益"，回答"前瞻/情绪层是否预测收益"；严格 PIT 入场 = `GREATEST(as_of, observed_at)`（无前视），优先本地 `prices` 表（yfinance 仅兜底）。
 - [x] **事件级去重**：已实现 `kg_events.dedup_key`（company+type+date+magnitude+route 内容哈希），跨源同一事件自动去重。
 - [x] **嵌入默认**：交钥匙默认 `bge-small`(384d) 求快；`BGE-M3`(1024d) 作高质量可选项，env 一行切换。
-- [x] **多主题扩展**：已从单一光模块扩展到 **5 大主题 / 294 公司 / 38 细分 / 25 技术路线**（`registry.py` `THEMES`/`SEGMENTS`），抽取已主题感知。
+- [x] **多主题扩展**：已从单一光模块扩展到 **8 大主题（5 产业链 + 3 消费周期）/ 947 公司 / 59 细分**（`registry.py` `THEMES`/`SEGMENTS`，`scripts/universe_build.py` 生成 `universe.py`），抽取已主题感知。
+- [x] **语义数据库 + 前瞻声明解析**：已实现加性复用三表的 `semantic_facts` 视图 + `kg_events` 语义扩列 + `causally_linked` 边 + `resolve_forward_claims`（hit/miss/stale），`graphrag.semantic()` 注入分析师 brief。
+- [x] **每日自动增量链**：已实现 `orchestration/daily.py run_daily` + `ingest_runs` 游标 + Dagster 旁车（`pull_shard` 06:00 / `extract_all` 06:30，`:3001`），CLI `xar daily` / `xar resolve-claims`。
+- [x] **Finnhub/FMP 新闻源**：`providers/finnhub.pull_news`/`fmp.pull_news` 落 `documents`，经 `ops` 与 `expert.ALT_SOURCES` 入本体。
 - [x] **前沿探索模块**：已交付第三个顶层模块（6 领域、arXiv+Journals+X、`frontier_fronts`/`_state`、`/api/exploration/*`、`xar explore`），独立审计 PASS。
 - [~] **报告质量评测基线**：已建 `eval/gold.json` + 检索命中率 + 报告 rubric(LLM-judge)；**仍待**扩充人工标注留出集做更强发布闸。
 - [ ] **新数据面 UI 化**：结构化/社媒/信号/预测市场/`providers`/`ingest-wechat` 等端点已就绪并经 API 暴露；React SPA 已覆盖投研门户/运营控制台/前沿探索三模块，剩余少量端点的 UI 呈现仍在补齐（见 `UI.md`）。
 - [ ] **公众号信号密度**：命中率取决于订阅哪些号——需筛选垂直号而非泛科技媒体；可经 `WERSS_FEED_MAP` 将垂直号直绑标的。
 - [ ] **前沿源密度**：探索模块命中率取决于 arXiv 类目/Journals feed/专家账号的精选；`neuro`/`complex` 等弱 arXiv 领域更依赖顶刊与 X 声音。
-- [ ] **增量调度**：provider `pull`、`ingest-wechat`、`explore` 目前手动/后台触发；定时增量（含限速/回填）可接 `.[orchestration]` Dagster 或 cron。
+- [x] **增量调度**：已落 `xar daily`（`run_daily` 逐源增量 + `ingest_runs` 游标）+ Dagster 旁车（`pull_shard` 06:00 / `extract_all` 06:30，`:3001`，含重试/run 历史）；`explore` 仍手动/后台触发。
 
 ---
 
