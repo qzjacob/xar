@@ -1,6 +1,6 @@
 import { Building2, Star } from "lucide-react";
 import {
-  CATALYST_LABEL,
+  catalystLabel,
   type Company,
   type Market,
   type Segment,
@@ -232,9 +232,9 @@ export function CompanyWatchlist({
                         <Badge
                           key={t}
                           className="bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200"
-                          title={CATALYST_LABEL[t].en}
+                          title={catalystLabel(t).en}
                         >
-                          {abbrevCatalyst(CATALYST_LABEL[t].en)}
+                          {abbrevCatalyst(catalystLabel(t).en)}
                         </Badge>
                       ))}
                       {c.signals.length > 3 && (
@@ -242,7 +242,7 @@ export function CompanyWatchlist({
                           className="text-2xs font-medium text-slate-400"
                           title={c.signals
                             .slice(3)
-                            .map((t) => CATALYST_LABEL[t].en)
+                            .map((t) => catalystLabel(t).en)
                             .join(", ")}
                         >
                           +{c.signals.length - 3}

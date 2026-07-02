@@ -32,7 +32,23 @@ export type CatalystType =
   | "supply_constraint"
   | "earnings"
   | "equity_investment"
-  | "tech_substitution";
+  | "tech_substitution"
+  // whole-economy expansion (P0/P1) — must mirror ontology/catalysts.py CATALYST_TYPES
+  | "guidance_change"
+  | "mna"
+  | "partnership"
+  | "contract_win"
+  | "pricing_change"
+  | "management_change"
+  | "buyback"
+  | "dividend"
+  | "regulatory_action"
+  | "litigation"
+  | "index_inclusion"
+  | "short_report"
+  | "macro_print"
+  | "stock_split"
+  | "secondary_offering";
 
 /** Segment-level cycle phase along the chain. */
 export type SegmentRegime =
@@ -248,7 +264,32 @@ export const CATALYST_LABEL: Record<CatalystType, { en: string; cn: string }> = 
   earnings: { en: "Earnings", cn: "业绩/指引" },
   equity_investment: { en: "Equity Investment", cn: "股权投资" },
   tech_substitution: { en: "Tech Substitution", cn: "技术替代" },
+  guidance_change: { en: "Guidance Change", cn: "指引变更" },
+  mna: { en: "M&A", cn: "并购" },
+  partnership: { en: "Partnership", cn: "合作" },
+  contract_win: { en: "Contract Win", cn: "中标/合同" },
+  pricing_change: { en: "Pricing Change", cn: "价格变动" },
+  management_change: { en: "Management Change", cn: "管理层变动" },
+  buyback: { en: "Buyback", cn: "回购" },
+  dividend: { en: "Dividend", cn: "分红" },
+  regulatory_action: { en: "Regulatory Action", cn: "监管行动" },
+  litigation: { en: "Litigation", cn: "诉讼" },
+  index_inclusion: { en: "Index Inclusion", cn: "指数纳入" },
+  short_report: { en: "Short Report", cn: "做空报告" },
+  macro_print: { en: "Macro Print", cn: "宏观数据" },
+  stock_split: { en: "Stock Split", cn: "拆股" },
+  secondary_offering: { en: "Secondary Offering", cn: "增发" },
 };
+
+/** Crash-proof label lookups: an unmapped value (a backend enum the frontend doesn't
+ * know yet) degrades to showing the raw key instead of white-screening the whole
+ * terminal (`MAP[x].en` on an undefined entry throws). */
+export function catalystLabel(t: string): { en: string; cn: string } {
+  return (CATALYST_LABEL as Record<string, { en: string; cn: string }>)[t] ?? { en: t, cn: t };
+}
+export function regimeLabel(r: string): { en: string; cn: string } {
+  return (REGIME_LABEL as Record<string, { en: string; cn: string }>)[r] ?? { en: r, cn: r };
+}
 
 /** Labels for signal sources. */
 export const SOURCE_LABEL: Record<SignalSource, string> = {

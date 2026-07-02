@@ -1,5 +1,5 @@
 import { CalendarDays } from "lucide-react";
-import { CATALYST_LABEL, type Catalyst } from "../types";
+import { catalystLabel, type Catalyst } from "../types";
 import { cn, daysUntil, fmtDate, fmtWeekday, polarityChip } from "../lib/format";
 import { Badge, Card, SectionHeader } from "./ui";
 
@@ -70,7 +70,7 @@ export function CatalystCalendar({
 function CatalystRow({ c }: { c: Catalyst }) {
   const d = daysUntil(c.date);
   const countdown = d < 0 ? "past" : d === 0 ? "today" : `in ${d}d`;
-  const label = CATALYST_LABEL[c.type];
+  const label = catalystLabel(c.type);
 
   return (
     <div className="flex items-start gap-3 border-b border-line px-4 py-2.5 transition-colors last:border-b-0 hover:bg-canvas">

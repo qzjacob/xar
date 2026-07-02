@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Radio } from "lucide-react";
 import {
-  CATALYST_LABEL,
+  catalystLabel,
   SOURCE_LABEL,
   type Segment,
   type Signal,
@@ -132,7 +132,7 @@ function SignalRow({
               style={{ backgroundColor: accent }}
               aria-hidden="true"
             />
-            {CATALYST_LABEL[sig.type].en}
+            {catalystLabel(sig.type).en}
           </Badge>
           <Badge
             className="bg-slate-100 text-slate-500 ring-1 ring-inset ring-slate-200"

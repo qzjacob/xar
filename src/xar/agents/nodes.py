@@ -182,19 +182,27 @@ def _theme_terms(company_id: str | None) -> dict:
     return _DEFAULT_TERMS
 
 
+# The analyst roster (name, query, instruction, tier, numeric) — module-level so the ops
+# console (api/ops.py skills()) can describe the pipeline without running it. The query here
+# is the theme-agnostic DEFAULT; run_analysts() overlays theme-specific terms at runtime for
+# the catalyst / supply_chain / valuation roles.
+ANALYSTS: list[tuple[str, str, str, str, bool]] = [
+    ("fundamental", "revenue growth margins guidance financial results",
+     "Assess financial trajectory: revenue growth, gross-margin mix shift toward AI, guidance.", "fast", True),
+    ("catalyst", _DEFAULT_TERMS["catalyst"],
+     "Identify the most material dated catalysts/orders and their polarity for the company.", "fast", False),
+    ("supply_chain", _DEFAULT_TERMS["supply"],
+     "Map the company's position: key suppliers, customers, single-source exposure, tech-route bets.", "fast", False),
+    ("sentiment", "demand outlook commentary risks competition",
+     "Summarize sentiment and forward demand signals from news/filings (bilingual).", "fast", False),
+    ("valuation", _DEFAULT_TERMS["valuation"],
+     "Give a valuation perspective tied to the demand clock and margin mix.", "strong", True),
+]
+
+
 def run_analysts(state: RunState) -> None:
     t = _theme_terms(state.get("company_id"))
-    analysts = [
-        ("fundamental", "revenue growth margins guidance financial results",
-         "Assess financial trajectory: revenue growth, gross-margin mix shift toward AI, guidance.", "fast", True),
-        ("catalyst", t["catalyst"],
-         "Identify the most material dated catalysts/orders and their polarity for the company.", "fast", False),
-        ("supply_chain", t["supply"],
-         "Map the company's position: key suppliers, customers, single-source exposure, tech-route bets.", "fast", False),
-        ("sentiment", "demand outlook commentary risks competition",
-         "Summarize sentiment and forward demand signals from news/filings (bilingual).", "fast", False),
-        ("valuation", t["valuation"],
-         f"Give a valuation perspective tied to the demand clock ({t['clock']}) and margin mix.", "strong", True),
-    ]
-    for name, query, instr, tier, numeric in analysts:
-        analyst(state, name, query, instr, tier=tier, numeric=numeric)
+    # theme-specific query overrides for the roles whose query is theme-dependent
+    overrides = {"catalyst": t["catalyst"], "supply_chain": t["supply"], "valuation": t["valuation"]}
+    for name, query, instr, tier, numeric in ANALYSTS:
+        analyst(state, name, overrides.get(name, query), instr, tier=tier, numeric=numeric)
