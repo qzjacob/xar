@@ -1,5 +1,8 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
 import { DataProvider } from "./context";
+
+const FennyApp = lazy(() => import("./pages/fenny/FennyApp"));
 import { Layout } from "./components/Layout";
 import { AdminLayout } from "./components/AdminLayout";
 import { ExplorationLayout } from "./components/ExplorationLayout";
@@ -34,11 +37,10 @@ function LegacyRedirect({ to }: { to: "segment" | "company" }) {
   return <Navigate to={`/genny/${to}/${id ?? ""}`} replace />;
 }
 
-function FennyPlaceholder() {
+function FennyFallback() {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 bg-canvas text-center">
-      <div className="text-sm font-semibold text-brand-900">XAR Fenny</div>
-      <div className="max-w-md text-2xs text-slate-400">结构化票据 &amp; 期权分析工作台 · 即将上线</div>
+    <div className="flex h-full items-center justify-center bg-canvas text-xs text-slate-400">
+      Loading Fenny…
     </div>
   );
 }
@@ -64,8 +66,8 @@ export default function App() {
         <Route path="/segment/:id" element={<LegacyRedirect to="segment" />} />
         <Route path="/company/:id" element={<LegacyRedirect to="company" />} />
 
-        {/* Fenny — structured-notes / options desk (Phase 7 supplies the workspaces). */}
-        <Route path="/fenny/*" element={<FennyPlaceholder />} />
+        {/* Fenny — structured-notes / options desk (lazy chunk isolates plotly) */}
+        <Route path="/fenny/*" element={<Suspense fallback={<FennyFallback />}><FennyApp /></Suspense>} />
 
         {/* Exploration — frontier module (indigo shell) */}
         <Route path="/explore" element={<ExplorationLayout />}>

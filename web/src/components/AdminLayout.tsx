@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft } from "lucide-react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { AdminSidebar } from "./AdminSidebar";
+import { ModuleNav } from "./ModuleNav";
 import { ops } from "../lib/ops";
 import { cn } from "../lib/format";
 import type { HealthInfo } from "../types-ops";
@@ -68,13 +68,7 @@ export function AdminLayout() {
                 </span>
               </div>
             )}
-            <button
-              type="button"
-              onClick={() => nav("/genny")}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-medium text-slate-400 transition hover:bg-canvas focus-visible:ring-2 focus-visible:ring-accent/40"
-            >
-              <ArrowLeft size={13} strokeWidth={2.5} /> Terminal
-            </button>
+            <ModuleNav variant="bar" />
           </div>
         </div>
         <main className="scroll-thin min-w-0 flex-1 overflow-y-auto px-5 py-5">

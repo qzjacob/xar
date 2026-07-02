@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
+import { ModuleNav } from "./ModuleNav";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { ExplorationSidebar } from "./ExplorationSidebar";
 import { exploration } from "../lib/exploration";
@@ -70,6 +71,7 @@ export function ExplorationLayout() {
                 arXiv · Journals · X
               </span>
             </div>
+            <ModuleNav variant="bar" />
             <button
               type="button"
               onClick={refresh}
