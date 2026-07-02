@@ -32,7 +32,7 @@ export function CatalystCalendar({
         titleCn="催化剂日历"
         icon={<CalendarDays size={15} strokeWidth={2} />}
         right={
-          <Badge className="bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200">
+          <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
             {filtered.length} {filtered.length === 1 ? "event" : "events"}
           </Badge>
         }
@@ -90,7 +90,7 @@ function CatalystRow({ c }: { c: Catalyst }) {
               className={cn(
                 "h-1 w-1 rounded-full",
                 !on
-                  ? "bg-slate-200"
+                  ? "bg-line"
                   : c.importance === 3
                     ? "bg-accent"
                     : "bg-warn",

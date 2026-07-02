@@ -19,6 +19,7 @@ import json
 import os
 import re
 import uuid
+from collections.abc import Iterator
 from typing import Type, TypeVar
 
 import litellm
@@ -240,6 +241,111 @@ def complete(
         return content
 
     raise last_err or RuntimeError(f"all LLM candidates failed for {node}")
+
+
+def _msg_to_dict(m) -> dict:
+    """A streamed assistant message → a JSON-serializable dict (content + tool_calls)."""
+    out: dict = {"role": "assistant", "content": m.content or ""}
+    tcs = getattr(m, "tool_calls", None)
+    if tcs:
+        out["tool_calls"] = [t.model_dump() if hasattr(t, "model_dump") else dict(t) for t in tcs]
+    return out
+
+
+def complete_stream(
+    messages: list[dict],
+    *,
+    tools: list[dict] | None = None,
+    task: "router.TaskClass | str" = "chat",
+    node: str = "andy",
+    run_id: str | None = None,
+    max_tokens: int = 4000,
+) -> Iterator[dict]:
+    """Streaming, tool-calling completion for the Andy chat agent.
+
+    `messages` is a ready OpenAI-style message list (the agent owns history). Yields
+    event dicts: `{"type":"delta","text":...}` as content streams, then exactly one
+    terminal event — `{"type":"final","message":<assistant dict incl. tool_calls>,
+    "usage":{...}}` on success, or `{"type":"error","message":...}`.
+
+    Candidate rotation happens ONLY before the first content delta (a mid-stream failure
+    surfaces as an error event, not a silent model switch). Usage + tool_calls are
+    reconstructed once via `litellm.stream_chunk_builder` and billed through `_record`.
+    """
+    _ensure_keys()
+    s = get_settings()
+    tc = router.as_task(task, "strong")
+    chain = router.resolve(tc)
+    if not chain:
+        yield {"type": "error", "message": f"no model candidates for task {tc.value}"}
+        return
+    want_strong = router.POLICIES[tc].capability in (Capability.STRONG, Capability.REASONING)
+    cap = _budget_cap(run_id, s)
+    spent = _spent(run_id) if run_id else 0.0
+    last_err: Exception | None = None
+
+    for spec in chain:
+        base, key_env, used_sub = _endpoint(spec, s)
+        if key_env and not os.environ.get(key_env):
+            last_err = RuntimeError(f"{spec.id}: {key_env} not configured")
+            continue
+        if run_id and not used_sub and spent >= cap:
+            last_err = BudgetExceeded(f"run {run_id} exceeded ${cap}")
+            continue
+        kwargs = _build_kwargs(spec, messages, max_tokens, want_strong, False, s, base, key_env)
+        kwargs["stream"] = True
+        kwargs["stream_options"] = {"include_usage": True}
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+        chunks: list = []
+        started = False
+        try:
+            for chunk in litellm.completion(**kwargs):
+                chunks.append(chunk)
+                delta = chunk.choices[0].delta if getattr(chunk, "choices", None) else None
+                text = getattr(delta, "content", None) if delta else None
+                if text:
+                    started = True
+                    yield {"type": "delta", "text": text}
+        except Exception as e:  # noqa: BLE001
+            if not started and _retryable(e):        # rotate only before the first delta
+                last_err = e
+                log.warning("stream %s candidate %s failed pre-delta: %s", node, spec.id, e)
+                continue
+            log.warning("stream %s candidate %s failed mid-stream: %s", node, spec.id, e)
+            yield {"type": "error", "message": str(e)}
+            return
+
+        try:
+            full = litellm.stream_chunk_builder(chunks, messages=messages)
+        except Exception:  # noqa: BLE001
+            full = None
+        msg = _msg_to_dict(full.choices[0].message) if full and full.choices else {"role": "assistant", "content": ""}
+        if not msg.get("content", "").strip() and not msg.get("tool_calls"):
+            last_err = ValueError("empty completion")            # rotate: nothing yielded yet
+            if not started:
+                continue
+        usage = getattr(full, "usage", None) if full else None
+        _record(run_id, node, spec, usage, tc.value, used_sub)
+        log.info("route %s -> %s [%s] (stream)", tc.value, spec.id, spec.billing.value)
+        yield {"type": "final", "message": msg,
+               "usage": _usage_dict(usage)}
+        return
+
+    yield {"type": "error", "message": str(last_err or f"all LLM candidates failed for {node}")}
+
+
+def _usage_dict(usage) -> dict:
+    if usage is None:
+        return {}
+    if hasattr(usage, "model_dump"):
+        try:
+            return usage.model_dump()
+        except Exception:  # noqa: BLE001
+            pass
+    return {"prompt_tokens": getattr(usage, "prompt_tokens", 0),
+            "completion_tokens": getattr(usage, "completion_tokens", 0)}
 
 
 def complete_json(

@@ -133,7 +133,7 @@ export function DecisionRail({
                           </span>
                         )}
                         {opp.ticker && (
-                          <Badge className="bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200">
+                          <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
                             <span className="tnum">{opp.ticker}</span>
                           </Badge>
                         )}
@@ -299,8 +299,8 @@ function ActionRow({
       {action.ticker && (
         <Badge
           className={cn(
-            "mt-px shrink-0 ring-1 ring-inset ring-slate-200",
-            done ? "bg-slate-50 text-slate-400" : "bg-slate-100 text-slate-600",
+            "mt-px shrink-0 ring-1 ring-inset ring-line",
+            done ? "bg-surface-2 text-slate-400" : "bg-surface-2 text-slate-400",
           )}
         >
           <span className="tnum">{action.ticker}</span>

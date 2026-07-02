@@ -237,7 +237,7 @@ function VendorCard({ vendor, routed }: { vendor: LlmVendor; routed: Set<string>
                 "tnum inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-2xs font-medium ring-1 ring-inset",
                 active
                   ? "bg-accent-50 text-accent-700 ring-accent/30"
-                  : "bg-surface text-slate-600 ring-line",
+                  : "bg-surface text-slate-400 ring-line",
               )}
               title={m}
             >
@@ -283,8 +283,8 @@ function Pricing({ info }: { info: LlmInfo }) {
               {rows.map((p) => (
                 <tr key={p.model} className="border-b border-line/60 last:border-0 hover:bg-canvas">
                   <td className="px-4 py-2 font-medium text-brand-900">{p.model}</td>
-                  <td className="tnum px-4 py-2 text-right text-slate-600">{fmtUsd(p.inUsd)}</td>
-                  <td className="tnum px-4 py-2 text-right text-slate-600">{fmtUsd(p.outUsd)}</td>
+                  <td className="tnum px-4 py-2 text-right text-slate-400">{fmtUsd(p.inUsd)}</td>
+                  <td className="tnum px-4 py-2 text-right text-slate-400">{fmtUsd(p.outUsd)}</td>
                 </tr>
               ))}
             </tbody>
@@ -330,9 +330,9 @@ function Usage({ info }: { info: LlmInfo }) {
               {rows.map((u) => (
                 <tr key={u.model} className="border-b border-line/60 last:border-0 hover:bg-canvas">
                   <td className="px-4 py-2 font-medium text-brand-900">{u.model}</td>
-                  <td className="tnum px-4 py-2 text-right text-slate-600">{fmtInt(u.calls)}</td>
-                  <td className="tnum px-4 py-2 text-right text-slate-600">{fmtTok(u.inTok)}</td>
-                  <td className="tnum px-4 py-2 text-right text-slate-600">{fmtTok(u.outTok)}</td>
+                  <td className="tnum px-4 py-2 text-right text-slate-400">{fmtInt(u.calls)}</td>
+                  <td className="tnum px-4 py-2 text-right text-slate-400">{fmtTok(u.inTok)}</td>
+                  <td className="tnum px-4 py-2 text-right text-slate-400">{fmtTok(u.outTok)}</td>
                   <td className="tnum px-4 py-2 text-right font-semibold text-brand-900">
                     {fmtUsd(u.usd)}
                   </td>

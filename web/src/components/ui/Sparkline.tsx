@@ -25,7 +25,7 @@ export function Sparkline({
   const y = (v: number) => pad + (1 - (v - min) / range) * (height - pad * 2);
   const line = data.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
   const up = data[data.length - 1] >= data[0];
-  const stroke = color ?? (up ? "#16A34A" : "#DC2626");
+  const stroke = color ?? (up ? "#2dc876" : "#f46060");
   const areaId = `spark-${stroke.replace(/[^a-z0-9]/gi, "")}-${data.length}`;
   return (
     <svg

@@ -48,7 +48,7 @@ export function ExplorationLayout() {
         sections={ov?.sections ?? []}
         currentPath={loc.pathname}
         onNavigate={(r) => nav(r)}
-        onBack={() => nav("/")}
+        onBack={() => nav("/genny")}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-line bg-surface px-5">
@@ -74,7 +74,7 @@ export function ExplorationLayout() {
               type="button"
               onClick={refresh}
               disabled={busy}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-canvas disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-medium text-slate-400 transition hover:bg-canvas disabled:opacity-50"
               title="Ingest latest + re-synthesize fronts"
             >
               <RefreshCw size={13} strokeWidth={2.5} className={busy ? "animate-spin" : ""} />

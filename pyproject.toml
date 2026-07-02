@@ -3,7 +3,7 @@ name = "xar"
 version = "0.1.0"
 description = "XAR — open-source industry-chain investment research platform (filings/news/jobs -> temporal knowledge graph + RAG -> multi-agent deep reports)"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 authors = [{ name = "XAR" }]
 
@@ -32,6 +32,11 @@ dependencies = [
     "trafilatura>=1.10",
     # parsing (docling optional-heavy; pdfplumber as the always-available fallback)
     "pdfplumber>=0.11",
+    # Data Room uploads (multipart) — required by the /api/genny/dataroom/upload endpoint.
+    "python-multipart>=0.0.9",
+    # Fenny (vendored src/fcn): Monte-Carlo structured-note / options pricing engine.
+    "numpy>=1.26",
+    "scipy>=1.11",
 ]
 
 [project.optional-dependencies]
@@ -44,7 +49,7 @@ graph = ["graphiti-core>=0.3", "neo4j>=5.20"]
 orchestration = ["dagster>=1.7", "dagster-webserver>=1.7"]
 eval = ["arize-phoenix>=4.0"]
 crawl = ["crawl4ai>=0.3", "playwright>=1.45"]
-dev = ["pytest>=8.2", "pytest-asyncio>=0.23", "ruff>=0.5"]
+dev = ["pytest>=8.2", "pytest-asyncio>=0.23", "ruff>=0.5", "hypothesis>=6.100"]
 
 [project.scripts]
 xar = "xar.cli:app"
@@ -54,11 +59,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/xar"]
+packages = ["src/xar", "src/fcn"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
+# Vendored Fenny (src/fcn + tests/fenny) keeps its own upstream lint config — don't churn it.
+extend-exclude = ["src/fcn", "tests/fenny"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

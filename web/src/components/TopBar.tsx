@@ -60,7 +60,7 @@ export function TopBar({
         <div className="hidden shrink-0 items-center gap-1.5 sm:flex">
           <Badge className={regimeChip(regime.phase)}>{REGIME_LABEL[regime.phase].en}</Badge>
           <span className="text-2xs uppercase tracking-wide text-slate-400">
-            score <span className="tnum font-semibold text-slate-600">{fmtScore(regime.score)}</span>
+            score <span className="tnum font-semibold text-slate-400">{fmtScore(regime.score)}</span>
           </span>
         </div>
       </div>
@@ -72,16 +72,16 @@ export function TopBar({
         onSelect={onPeriod}
         label={(p) => p}
         ariaLabel="Period"
-        activeClass="bg-brand-900 text-white"
+        activeClass="bg-surface text-white"
       />
 
       {/* Right: coverage stats + market filter */}
       <div className="flex min-w-0 items-center gap-4">
         <div className="hidden min-w-0 items-center gap-3 text-2xs text-slate-400 lg:flex">
           <span className="whitespace-nowrap">
-            <span className="tnum font-semibold text-slate-600">{coverage.companyCount}</span>{" "}
+            <span className="tnum font-semibold text-slate-400">{coverage.companyCount}</span>{" "}
             companies ·{" "}
-            <span className="tnum font-semibold text-slate-600">{coverage.segmentCount}</span>{" "}
+            <span className="tnum font-semibold text-slate-400">{coverage.segmentCount}</span>{" "}
             segments
           </span>
           <span className="flex items-center gap-1 whitespace-nowrap">
@@ -136,7 +136,7 @@ function Segmented<T extends string>({
               "tnum rounded-md px-2 py-1 text-2xs font-semibold uppercase tracking-wide transition-colors",
               isActive
                 ? cn(activeClass, "shadow-sm")
-                : "text-slate-600 hover:bg-slate-100 hover:text-brand-900",
+                : "text-slate-400 hover:bg-surface-2 hover:text-brand-900",
             )}
           >
             {label(item)}

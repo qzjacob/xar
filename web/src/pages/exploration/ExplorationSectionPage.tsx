@@ -54,7 +54,7 @@ export function ExplorationSectionPage() {
                     <span className={cn("rounded px-1.5 py-0.5 text-2xs", maturityChip(f.maturity))}>
                       {f.maturity}
                     </span>
-                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-2xs text-slate-500 ring-1 ring-inset ring-slate-200">
+                    <span className="rounded bg-surface-2 px-1.5 py-0.5 text-2xs text-slate-500 ring-1 ring-inset ring-line">
                       {horizonLabel(f.horizon)}
                     </span>
                   </div>
@@ -64,7 +64,7 @@ export function ExplorationSectionPage() {
                   <MomentumBar value={f.momentum} />
                 </div>
 
-                <p className="mt-3 text-xs leading-relaxed text-slate-600">{f.summary}</p>
+                <p className="mt-3 text-xs leading-relaxed text-slate-400">{f.summary}</p>
 
                 {f.direction && (
                   <div className="mt-3 rounded-lg bg-explore-50/70 px-3 py-2 ring-1 ring-inset ring-explore/15">
@@ -77,7 +77,7 @@ export function ExplorationSectionPage() {
 
                 {f.significance && (
                   <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                    <span className="font-medium text-slate-600">Significance: </span>
+                    <span className="font-medium text-slate-400">Significance: </span>
                     {f.significance}
                   </p>
                 )}
@@ -85,7 +85,7 @@ export function ExplorationSectionPage() {
                 {f.keyTerms.length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-1">
                     {f.keyTerms.map((t) => (
-                      <span key={t} className="rounded bg-slate-100 px-1.5 py-0.5 text-2xs text-slate-500">
+                      <span key={t} className="rounded bg-surface-2 px-1.5 py-0.5 text-2xs text-slate-500">
                         {t}
                       </span>
                     ))}

@@ -41,7 +41,7 @@ export function AdminLayout() {
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-canvas text-brand-900">
-      <AdminSidebar currentPath={loc.pathname} onNavigate={(r) => nav(r)} onBack={() => nav("/")} />
+      <AdminSidebar currentPath={loc.pathname} onNavigate={(r) => nav(r)} onBack={() => nav("/genny")} />
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-line bg-surface px-5">
           <div className="flex min-w-0 items-center gap-2">
@@ -63,15 +63,15 @@ export function AdminLayout() {
                 <span className="tnum">
                   {provActive}/{provTotal} providers
                 </span>
-                <span className="rounded bg-slate-100 px-1.5 py-0.5 ring-1 ring-inset ring-slate-200">
+                <span className="rounded bg-surface-2 px-1.5 py-0.5 ring-1 ring-inset ring-line">
                   {health.data_posture}
                 </span>
               </div>
             )}
             <button
               type="button"
-              onClick={() => nav("/")}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-canvas focus-visible:ring-2 focus-visible:ring-accent/40"
+              onClick={() => nav("/genny")}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-medium text-slate-400 transition hover:bg-canvas focus-visible:ring-2 focus-visible:ring-accent/40"
             >
               <ArrowLeft size={13} strokeWidth={2.5} /> Terminal
             </button>

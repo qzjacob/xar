@@ -1,0 +1,49 @@
+/* XAR dark financial-terminal theme — semantic tokens as space-separated RGB triples so
+ * Tailwind can apply opacity: `rgb(var(--c-surface) / <alpha-value>)`. The token NAMES match
+ * the existing Tailwind color names (canvas/surface/line/brand/accent/pos/neg/warn/explore),
+ * so most classNames survive the reskin; only chrome-bg and a few grey literals are swept.
+ *
+ * `brand` is repurposed as the light TEXT ramp (its dominant use): brand-900 = brightest
+ * primary text, descending to dimmer. Chrome backgrounds use canvas/surface/surface-2. */
+:root {
+  color-scheme: dark;
+
+  /* surfaces (dark → less dark) */
+  --c-canvas: 8 11 17;         /* app background — near-black navy */
+  --c-surface: 15 20 31;       /* cards / panels */
+  --c-surface-2: 22 29 44;     /* elevated / hover / inputs */
+  --c-line: 34 44 62;          /* hairline borders */
+
+  /* brand = text ramp (light on dark). 900 brightest → 50 dimmest. */
+  --c-brand-900: 231 237 245;  /* primary text */
+  --c-brand-800: 214 223 235;
+  --c-brand-700: 195 206 221;
+  --c-brand-600: 178 190 208;
+  --c-brand-500: 156 170 190;  /* secondary text */
+  --c-brand-200: 130 145 168;  /* dim text on chrome */
+  --c-brand-100: 205 214 228;  /* bright text on chrome */
+  --c-brand-50:  26 34 52;     /* (bg-only) subtle raised surface */
+  --c-brand-DEFAULT: 231 237 245;
+
+  /* accent = amber (Bloomberg-esque) for active / links / key highlights */
+  --c-accent-700: 180 108 6;
+  --c-accent-600: 217 138 12;
+  --c-accent-500: 245 158 11;
+  --c-accent-100: 251 191 36;  /* bright amber (text on dark) */
+  --c-accent-50:  38 30 12;    /* (bg) subtle amber-tinted panel */
+  --c-accent-DEFAULT: 245 158 11;
+
+  /* status — brightened for dark bg; 50/100 are dark tinted panels */
+  --c-pos-700: 34 197 94;  --c-pos-100: 52 211 153;  --c-pos-50: 12 32 24;  --c-pos-DEFAULT: 45 200 118;
+  --c-neg-700: 248 113 113; --c-neg-100: 252 165 165; --c-neg-50: 40 18 20;  --c-neg-DEFAULT: 244 96 96;
+  --c-warn-700: 251 191 36; --c-warn-100: 253 224 132; --c-warn-50: 38 30 12; --c-warn-DEFAULT: 245 176 40;
+
+  /* exploration module accent = violet */
+  --c-explore-700: 139 92 246; --c-explore-600: 124 58 237; --c-explore-500: 167 139 250;
+  --c-explore-100: 196 181 253; --c-explore-50: 30 25 52; --c-explore-DEFAULT: 139 92 246;
+
+  /* motion */
+  --dur-fast: 130ms;
+  --dur-med: 220ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}

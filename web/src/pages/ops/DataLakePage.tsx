@@ -30,7 +30,7 @@ function permChip(permission: string): string {
     case "red":
       return "bg-neg-50 text-neg-700 ring-1 ring-inset ring-neg/20";
     default:
-      return "bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200";
+      return "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line";
   }
 }
 function permDot(permission: string): string {
@@ -155,7 +155,7 @@ export function DataLakePage() {
                         key={s.source}
                         className="flex items-center gap-3 border-b border-line px-4 py-2 last:border-b-0"
                       >
-                        <span className="w-28 shrink-0 truncate text-xs font-medium text-slate-700">
+                        <span className="w-28 shrink-0 truncate text-xs font-medium text-slate-300">
                           {s.source}
                         </span>
                         <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-canvas">
@@ -243,7 +243,7 @@ export function DataLakePage() {
                 <button
                   type="button"
                   onClick={applySearch}
-                  className="rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-canvas"
+                  className="rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-slate-400 transition hover:bg-canvas"
                 >
                   Search
                 </button>
@@ -273,7 +273,7 @@ export function DataLakePage() {
                   className={cn(
                     "rounded-md px-2 py-1 text-2xs font-medium transition",
                     source === ""
-                      ? "bg-brand-900 text-white"
+                      ? "bg-surface text-white"
                       : "border border-line bg-surface text-slate-500 hover:bg-canvas",
                   )}
                 >
@@ -328,7 +328,7 @@ export function DataLakePage() {
                         className="border-b border-line text-xs last:border-b-0 hover:bg-canvas/60"
                       >
                         <td className="px-4 py-2">
-                          <Badge className="bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200">
+                          <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
                             {d.source}
                           </Badge>
                         </td>
@@ -365,7 +365,7 @@ export function DataLakePage() {
                         <td className="tnum px-2 py-2 text-right text-slate-500">
                           {d.chars != null ? fmtInt(d.chars) : "—"}
                         </td>
-                        <td className="tnum px-2 py-2 text-right text-slate-700">
+                        <td className="tnum px-2 py-2 text-right text-slate-300">
                           {fmtInt(d.chunks)}
                         </td>
                         <td className="px-2 py-2 text-center">
@@ -393,7 +393,7 @@ export function DataLakePage() {
                   type="button"
                   disabled={!canPrev || docs.loading}
                   onClick={() => setOffset((o) => Math.max(0, o - LIMIT))}
-                  className="rounded-lg border border-line bg-surface px-3 py-1 text-xs font-medium text-slate-600 transition hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-lg border border-line bg-surface px-3 py-1 text-xs font-medium text-slate-400 transition hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Prev
                 </button>
@@ -401,7 +401,7 @@ export function DataLakePage() {
                   type="button"
                   disabled={!canNext || docs.loading}
                   onClick={() => setOffset((o) => o + LIMIT)}
-                  className="rounded-lg border border-line bg-surface px-3 py-1 text-xs font-medium text-slate-600 transition hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-lg border border-line bg-surface px-3 py-1 text-xs font-medium text-slate-400 transition hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Next
                 </button>

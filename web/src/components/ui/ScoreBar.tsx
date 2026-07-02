@@ -26,7 +26,7 @@ export function ScoreBar({
   const fill = heat(value, scheme, 0.9).backgroundColor;
   return (
     <div
-      className={cn("w-full overflow-hidden rounded-full bg-slate-100", className)}
+      className={cn("w-full overflow-hidden rounded-full bg-surface-2", className)}
       style={{ height }}
     >
       <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: fill }} />

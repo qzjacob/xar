@@ -12,7 +12,7 @@ function categoryChip(category: string): string {
     "bg-pos-50 text-pos-700 ring-1 ring-inset ring-pos/20",
     "bg-warn-50 text-warn-700 ring-1 ring-inset ring-warn/20",
     "bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-200/60",
-    "bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200",
+    "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line",
   ];
   let h = 0;
   for (let i = 0; i < category.length; i++) h = (h * 31 + category.charCodeAt(i)) >>> 0;
@@ -140,7 +140,7 @@ function InboundRow({ g }: { g: InboundGroup }) {
         {g.endpoints.map((ep) => (
           <span
             key={ep}
-            className="inline-flex items-center rounded-md bg-slate-50 px-1.5 py-0.5 font-mono text-2xs text-slate-600 ring-1 ring-inset ring-slate-200"
+            className="inline-flex items-center rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-slate-400 ring-1 ring-inset ring-line"
           >
             {ep}
           </span>

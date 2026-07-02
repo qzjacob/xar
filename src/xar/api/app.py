@@ -5,8 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -481,6 +481,89 @@ if _STATIC.exists():
 # compiled SPA assets (hashed JS/CSS under /assets)
 if (_WEBDIST / "assets").exists():
     app.mount("/assets", StaticFiles(directory=str(_WEBDIST / "assets")), name="assets")
+
+# Andy (conversational analyst) — session CRUD + streaming chat (SSE).
+@app.post("/api/andy/sessions")
+def andy_create_session(body: dict | None = None):
+    from . import andy
+    return andy.create_session((body or {}).get("title"))
+
+
+@app.get("/api/andy/sessions")
+def andy_list_sessions():
+    from . import andy
+    return andy.list_sessions()
+
+
+@app.get("/api/andy/sessions/{sid}/messages")
+def andy_get_messages(sid: str):
+    from . import andy
+    return andy.get_messages(sid)
+
+
+@app.delete("/api/andy/sessions/{sid}")
+def andy_delete_session(sid: str):
+    from . import andy
+    return andy.delete_session(sid)
+
+
+@app.post("/api/andy/sessions/{sid}/chat")
+def andy_chat(sid: str, body: dict):
+    from . import andy
+    return andy.chat_stream(sid, (body or {}).get("message", ""))
+
+
+# Genny Data Room — upload / browse / download report documents per theme·segment.
+@app.post("/api/genny/dataroom/upload")
+async def dataroom_upload(background: BackgroundTasks, file: UploadFile = File(...),
+                          theme: str = Form(...), segment: str | None = Form(None),
+                          company_id: str | None = Form(None), doc_type: str = Form("report"),
+                          title: str | None = Form(None)):
+    from . import dataroom
+    data = await file.read()
+    try:
+        res = dataroom.ingest_upload(
+            data=data, filename=file.filename or "upload", content_type=file.content_type or "",
+            theme=theme, segment=segment, company_id=company_id, doc_type=doc_type, title=title)
+    except ValueError as e:
+        raise HTTPException(status_code=415, detail=str(e))
+    from ..parsing import parse
+    background.add_task(parse.parse_document, res["id"])   # chunk + embed THIS doc
+    return res
+
+
+@app.get("/api/genny/dataroom/docs")
+def dataroom_docs(theme: str | None = None, segment: str | None = None,
+                  company_id: str | None = None, q: str | None = None):
+    from . import dataroom
+    return dataroom.list_docs(theme=theme, segment=segment, company_id=company_id, q=q)
+
+
+@app.get("/api/genny/dataroom/docs/{doc_id}/download")
+def dataroom_download(doc_id: str):
+    from . import dataroom
+    got = dataroom.get_download(doc_id)
+    if got is None:
+        raise HTTPException(status_code=404, detail="document or artifact not found")
+    data, content_type, filename = got
+    return Response(content=data, media_type=content_type,
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@app.delete("/api/genny/dataroom/docs/{doc_id}")
+def dataroom_delete(doc_id: str):
+    from . import dataroom
+    return {"deleted": dataroom.delete_doc(doc_id)}
+
+
+# Fenny (structured-notes / options desk) — vendored sub-app mounted under /api/fenny.
+# MUST be registered before the SPA catch-all below, or its routes never match. Wrapped
+# so a broken/absent fcn dependency can't stop the rest of XAR from booting.
+try:
+    from .fenny_mount import get_fenny_app
+    app.mount("/api/fenny", get_fenny_app())
+except Exception as e:  # noqa: BLE001
+    log.warning("fenny module not mounted: %s", e)
 
 
 @app.get("/{full_path:path}", response_class=HTMLResponse, include_in_schema=False)

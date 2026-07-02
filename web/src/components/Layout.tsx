@@ -44,8 +44,8 @@ export function Layout() {
           currentPath={loc.pathname}
           onNavigate={(route) => nav(route)}
           selectedSegmentId={selectedSegmentId}
-          onSelectSegment={(id) => nav(id ? `/segment/${id}` : "/")}
-          onCompany={(id) => nav(`/company/${id}`)}
+          onSelectSegment={(id) => nav(id ? `/genny/segment/${id}` : "/genny")}
+          onCompany={(id) => nav(`/genny/company/${id}`)}
         />
       }
       topbar={
@@ -64,7 +64,7 @@ export function Layout() {
         <DecisionRail
           decision={decision}
           segments={segments}
-          onSelectSegment={(id) => id && nav(`/segment/${id}`)}
+          onSelectSegment={(id) => id && nav(`/genny/segment/${id}`)}
         />
       }
     >

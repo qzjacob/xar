@@ -47,8 +47,8 @@ function CountBadge({ count }: { count: number }) {
       className={cn(
         "tnum tabular-nums",
         count > 0
-          ? "bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200"
-          : "bg-slate-50 text-slate-300 ring-1 ring-inset ring-slate-100",
+          ? "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line"
+          : "bg-surface-2 text-slate-300 ring-1 ring-inset ring-line",
       )}
     >
       {count.toLocaleString()}
@@ -271,7 +271,7 @@ function FinMetricsCard({ rows }: { rows: OntologyMetric[] }) {
                     className={
                       m.isRatio
                         ? "bg-accent-50 text-accent-700 ring-1 ring-inset ring-accent/20"
-                        : "bg-slate-100 text-slate-500 ring-1 ring-inset ring-slate-200"
+                        : "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line"
                     }
                   >
                     {m.isRatio ? "ratio" : "level"}
@@ -287,7 +287,7 @@ function FinMetricsCard({ rows }: { rows: OntologyMetric[] }) {
                           className={
                             has
                               ? PROVIDER_CHIP[p]
-                              : "bg-slate-50 text-slate-300 ring-1 ring-inset ring-slate-100"
+                              : "bg-surface-2 text-slate-300 ring-1 ring-inset ring-line"
                           }
                         >
                           {p}
@@ -297,7 +297,7 @@ function FinMetricsCard({ rows }: { rows: OntologyMetric[] }) {
                   </div>
                 </td>
                 <td className="px-4 py-2 text-right">
-                  <span className="tnum text-xs font-semibold text-slate-600">
+                  <span className="tnum text-xs font-semibold text-slate-400">
                     {m.count.toLocaleString()}
                   </span>
                 </td>
@@ -331,7 +331,7 @@ function SignalMapCard({ map }: { map: Record<string, string> }) {
       <div className="grid grid-cols-1 gap-px bg-line md:grid-cols-2">
         {entries.map(([k, v]) => (
           <div key={k} className="flex items-center gap-2 bg-surface px-4 py-2.5">
-            <span className="truncate font-mono text-2xs font-medium text-slate-600" title={k}>
+            <span className="truncate font-mono text-2xs font-medium text-slate-400" title={k}>
               {k}
             </span>
             <ArrowRight size={13} className="shrink-0 text-slate-300" />

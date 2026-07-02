@@ -74,7 +74,7 @@ export function SegmentPage() {
           </div>
           <Link
             to="/"
-            className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-line bg-canvas px-3 py-1.5 text-sm font-medium text-brand-900 transition hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-line bg-canvas px-3 py-1.5 text-sm font-medium text-brand-900 transition hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
           >
             <ArrowLeft size={15} strokeWidth={2} /> Back to dashboard
           </Link>
@@ -161,7 +161,7 @@ export function SegmentPage() {
               {segment.markets.map((m) => (
                 <Badge
                   key={m}
-                  className="bg-slate-100 text-slate-500 ring-1 ring-inset ring-slate-200"
+                  className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line"
                 >
                   {m}
                 </Badge>
@@ -173,7 +173,7 @@ export function SegmentPage() {
               </p>
             )}
             {segment.note && (
-              <p className="max-w-2xl text-sm leading-snug text-slate-600">{segment.note}</p>
+              <p className="max-w-2xl text-sm leading-snug text-slate-400">{segment.note}</p>
             )}
           </div>
 
@@ -244,7 +244,7 @@ export function SegmentPage() {
         segments={segments}
         selectedSegmentId={null}
         market={market}
-        onCompany={(cid) => navigate(`/company/${cid}`)}
+        onCompany={(cid) => navigate(`/genny/company/${cid}`)}
       />
 
       {/* signals */}
@@ -252,7 +252,7 @@ export function SegmentPage() {
         signals={signals}
         segments={segments}
         selectedSegmentId={null}
-        onCompany={(cid) => navigate(`/company/${cid}`)}
+        onCompany={(cid) => navigate(`/genny/company/${cid}`)}
       />
     </div>
   );

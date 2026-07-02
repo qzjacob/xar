@@ -63,7 +63,7 @@ export function CompanyWatchlist({
                 {marketLabel(market)}
               </Badge>
             )}
-            <Badge className="bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200">
+            <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
               <Star size={11} strokeWidth={2} className="text-accent" />
               {watchedCount}/{rows.length}
             </Badge>
@@ -141,7 +141,7 @@ export function CompanyWatchlist({
                       {c.ticker}
                     </div>
                     <div className="flex items-baseline gap-1.5 leading-tight">
-                      <span className="truncate text-xs text-slate-600">
+                      <span className="truncate text-xs text-slate-400">
                         {c.name}
                       </span>
                       {c.nameCn && (
@@ -155,7 +155,7 @@ export function CompanyWatchlist({
                   {/* segment */}
                   <td className="py-2 pr-3 align-middle">
                     <Badge
-                      className="bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200"
+                      className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line"
                       title={segName(c.segmentId)}
                     >
                       <span className="max-w-[7.5rem] truncate">
@@ -166,7 +166,7 @@ export function CompanyWatchlist({
 
                   {/* market */}
                   <td className="py-2 pr-3 text-center align-middle">
-                    <Badge className="bg-slate-100 text-slate-500 ring-1 ring-inset ring-slate-200">
+                    <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
                       {marketLabel(c.market)}
                     </Badge>
                   </td>
@@ -192,7 +192,7 @@ export function CompanyWatchlist({
                   </td>
 
                   {/* gross margin */}
-                  <td className="tnum py-2 pr-3 text-right align-middle text-slate-600">
+                  <td className="tnum py-2 pr-3 text-right align-middle text-slate-400">
                     {c.grossMargin.toFixed(0)}%
                   </td>
 
@@ -218,7 +218,7 @@ export function CompanyWatchlist({
                           key={n}
                           className={cn(
                             "h-1.5 w-1.5 rounded-full",
-                            n <= c.conviction ? "bg-accent" : "bg-slate-200",
+                            n <= c.conviction ? "bg-accent" : "bg-line",
                           )}
                         />
                       ))}
@@ -231,7 +231,7 @@ export function CompanyWatchlist({
                       {c.signals.slice(0, 3).map((t) => (
                         <Badge
                           key={t}
-                          className="bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200"
+                          className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line"
                           title={catalystLabel(t).en}
                         >
                           {abbrevCatalyst(catalystLabel(t).en)}

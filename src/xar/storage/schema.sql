@@ -466,3 +466,48 @@ CREATE TABLE IF NOT EXISTS ingest_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_ingest_runs_kind    ON ingest_runs(kind);
 CREATE INDEX IF NOT EXISTS idx_ingest_runs_started ON ingest_runs(started_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- Genny Data Room: uploaded reports are ordinary `documents` rows (source='upload')
+-- tagged to a theme/segment so a per-sector room can filter them. Additive, same
+-- pattern as the kg_events theme/segment columns.
+-- ---------------------------------------------------------------------------
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS theme   TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS segment TEXT;
+CREATE INDEX IF NOT EXISTS idx_documents_theme_segment ON documents(theme, segment);
+
+-- ---------------------------------------------------------------------------
+-- Andy: persistent tool-calling chat sessions (ChatGPT-style). One session has an
+-- ordered message log; assistant rows may carry tool_calls, tool rows carry a result.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    id         TEXT PRIMARY KEY,
+    title      TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id           BIGSERIAL PRIMARY KEY,
+    session_id   TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    role         TEXT NOT NULL,           -- user | assistant | tool
+    content      TEXT,
+    tool_calls   JSONB,                   -- assistant-side function calls (role=assistant)
+    tool_call_id TEXT,                    -- which call this result answers (role=tool)
+    name         TEXT,                    -- tool name (role=tool)
+    usage        JSONB,                   -- token usage for the LLM turn that produced this
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, id);
+
+-- ---------------------------------------------------------------------------
+-- Fenny: options-desk position blotter (replaces the vendored ~/.fcn/blotter.json
+-- file store — see src/xar/fenny/blotter_pg.py). Strategy + valuation kept as JSONB.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS fenny_blotter (
+    id        TEXT PRIMARY KEY,
+    ts        TIMESTAMPTZ NOT NULL,
+    strategy  JSONB NOT NULL,
+    valuation JSONB NOT NULL,
+    notes     TEXT NOT NULL DEFAULT '',
+    status    TEXT NOT NULL DEFAULT 'open'   -- open | closed | rolled
+);

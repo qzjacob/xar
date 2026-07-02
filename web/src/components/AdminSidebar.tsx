@@ -38,7 +38,7 @@ export function AdminSidebar({
     route === "/ops" ? currentPath === "/ops" : currentPath.startsWith(route);
 
   return (
-    <div className="flex w-60 shrink-0 flex-col bg-brand-900 text-brand-100">
+    <div className="flex w-60 shrink-0 flex-col bg-surface text-brand-100">
       <div className="shrink-0 px-4 pb-4 pt-5">
         <button
           type="button"
@@ -80,7 +80,7 @@ export function AdminSidebar({
                   "flex w-full items-center gap-2.5 rounded-md border-l-2 py-1.5 pl-2 pr-2 text-left text-xs font-medium transition-colors focus-visible:ring-white/50",
                   active
                     ? "border-warn bg-warn/15 text-white"
-                    : "border-transparent text-brand-100/80 hover:bg-white/5 hover:text-white",
+                    : "border-transparent text-brand-100/80 hover:bg-surface/5 hover:text-white",
                 )}
               >
                 <Icon
@@ -99,7 +99,7 @@ export function AdminSidebar({
         <button
           type="button"
           onClick={onBack}
-          className="flex w-full items-center gap-2 rounded-md py-2 pl-2 pr-2 text-left text-xs font-medium text-brand-100/80 transition-colors hover:bg-white/5 hover:text-white focus-visible:ring-white/50"
+          className="flex w-full items-center gap-2 rounded-md py-2 pl-2 pr-2 text-left text-xs font-medium text-brand-100/80 transition-colors hover:bg-surface/5 hover:text-white focus-visible:ring-white/50"
         >
           <ArrowLeft size={15} strokeWidth={2} className="shrink-0 text-brand-200/70" />
           <span>Research Terminal</span>

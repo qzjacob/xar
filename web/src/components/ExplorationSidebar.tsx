@@ -39,7 +39,7 @@ export function ExplorationSidebar({
   const onOverview = currentPath === "/explore" || currentPath === "/explore/";
 
   return (
-    <div className="flex w-60 shrink-0 flex-col bg-brand-900 text-brand-100">
+    <div className="flex w-60 shrink-0 flex-col bg-surface text-brand-100">
       <div className="shrink-0 px-4 pb-4 pt-5">
         <button
           type="button"
@@ -70,7 +70,7 @@ export function ExplorationSidebar({
             "mb-1 flex w-full items-center gap-2.5 rounded-md border-l-2 py-1.5 pl-2 pr-2 text-left text-xs font-medium transition-colors focus-visible:ring-white/50",
             onOverview
               ? "border-explore bg-explore/15 text-white"
-              : "border-transparent text-brand-100/80 hover:bg-white/5 hover:text-white",
+              : "border-transparent text-brand-100/80 hover:bg-surface/5 hover:text-white",
           )}
         >
           <Compass size={15} strokeWidth={2} className={cn("shrink-0", onOverview ? "text-explore-100" : "text-brand-200/70")} />
@@ -94,13 +94,13 @@ export function ExplorationSidebar({
                   "flex w-full items-center gap-2.5 rounded-md border-l-2 py-1.5 pl-2 pr-2 text-left text-xs font-medium transition-colors focus-visible:ring-white/50",
                   active
                     ? "border-explore bg-explore/15 text-white"
-                    : "border-transparent text-brand-100/80 hover:bg-white/5 hover:text-white",
+                    : "border-transparent text-brand-100/80 hover:bg-surface/5 hover:text-white",
                 )}
               >
                 <Icon size={15} strokeWidth={2} className={cn("shrink-0", active ? "text-explore-100" : "text-brand-200/70")} />
                 <span className="flex-1 truncate">{s.name}</span>
                 {s.frontCount > 0 && (
-                  <span className="tnum rounded bg-white/10 px-1 py-0.5 text-2xs text-brand-100/70">
+                  <span className="tnum rounded bg-surface/10 px-1 py-0.5 text-2xs text-brand-100/70">
                     {s.frontCount}
                   </span>
                 )}
@@ -114,7 +114,7 @@ export function ExplorationSidebar({
         <button
           type="button"
           onClick={onBack}
-          className="flex w-full items-center gap-2 rounded-md py-2 pl-2 pr-2 text-left text-xs font-medium text-brand-100/80 transition-colors hover:bg-white/5 hover:text-white focus-visible:ring-white/50"
+          className="flex w-full items-center gap-2 rounded-md py-2 pl-2 pr-2 text-left text-xs font-medium text-brand-100/80 transition-colors hover:bg-surface/5 hover:text-white focus-visible:ring-white/50"
         >
           <ArrowLeft size={15} strokeWidth={2} className="shrink-0 text-brand-200/70" />
           <span>Research Terminal</span>

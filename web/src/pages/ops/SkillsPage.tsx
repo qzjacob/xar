@@ -49,9 +49,9 @@ function tierBadge(tier?: string): ReactNode {
     );
   if (t === "fast")
     return (
-      <Badge className="bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200">fast</Badge>
+      <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">fast</Badge>
     );
-  return <Badge className="bg-slate-50 text-slate-400 ring-1 ring-inset ring-slate-200">—</Badge>;
+  return <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">—</Badge>;
 }
 
 /** Capability id → icon. */
@@ -194,7 +194,7 @@ function SkillCard({ skill }: { skill: Skill }) {
           {terms.map((t, i) => (
             <span
               key={i}
-              className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] leading-none text-slate-500"
+              className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[10px] leading-none text-slate-500"
             >
               {t}
             </span>

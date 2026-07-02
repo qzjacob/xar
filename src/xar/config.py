@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     edgar_identity: str = "xar-research research@example.com"
     finnhub_api_key: str = Field(default="", validation_alias="FINNHUB_API_KEY")
     fmp_api_key: str = Field(default="", validation_alias="FMP_API_KEY")
+    # Massive (Polygon-compatible) — Fenny's primary live IV-surface / correlation source.
+    massive_api_key: str = Field(default="", validation_alias="MASSIVE_API_KEY")
     polygon_api_key: str = Field(default="", validation_alias="POLYGON_API_KEY")
     tushare_token: str = Field(default="", validation_alias="TUSHARE_TOKEN")
     # X / Twitter. TwitterAPI.io (third-party) uses an X-API-Key; official X API v2

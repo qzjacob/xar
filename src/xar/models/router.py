@@ -39,6 +39,7 @@ class TaskClass(str, Enum):
     EVAL = "eval"                 # one-off, fast
     ADHOC_FAST = "adhoc_fast"     # default for tier="fast"
     ADHOC_STRONG = "adhoc_strong"  # default for tier="strong"
+    CHAT = "chat"                 # Andy: interactive tool-calling chat (strong, token)
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,9 @@ POLICIES: dict[TaskClass, RoutePolicy] = {
     TaskClass.EVAL:         RoutePolicy(Capability.FAST, "any", "normal"),
     TaskClass.ADHOC_FAST:   RoutePolicy(Capability.FAST, "any", "normal"),
     TaskClass.ADHOC_STRONG: RoutePolicy(Capability.STRONG, "any", "normal"),
+    # interactive chat → strongest TOKEN model (latency + reliable function-calling);
+    # deliberately NOT the subscription bulk pool, which is tuned for nightly volume.
+    TaskClass.CHAT:         RoutePolicy(Capability.STRONG, Billing.TOKEN.value, "normal"),
 }
 
 

@@ -50,7 +50,7 @@ export function AltDataPage() {
             disabled={running}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition focus-visible:ring-2 focus-visible:ring-accent/40",
-              running ? "bg-slate-100 text-slate-400" : "bg-brand-900 text-white hover:bg-brand-800",
+              running ? "bg-surface-2 text-slate-400" : "bg-surface text-white hover:bg-surface-2",
             )}
           >
             <Play size={13} strokeWidth={2.5} /> {running ? "Processing…" : "Process pending"}
@@ -98,7 +98,7 @@ export function AltDataPage() {
           titleCn="高信噪比专家观点"
           icon={<Sparkles size={15} strokeWidth={2} />}
           right={
-            <Badge className="bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200">
+            <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
               {insights.length}
             </Badge>
           }
@@ -122,7 +122,7 @@ export function AltDataPage() {
                     {it.company && (
                       <span className="tnum text-xs font-semibold text-brand-900">{it.company}</span>
                     )}
-                    <Badge className="bg-slate-100 text-slate-500 ring-1 ring-inset ring-slate-200">
+                    <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
                       {SOURCE_LABEL[it.source] ?? it.source}
                     </Badge>
                     {it.techRoute && (

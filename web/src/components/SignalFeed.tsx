@@ -47,7 +47,7 @@ export function SignalFeed({
         titleCn="关键信号"
         icon={<Radio size={15} strokeWidth={2} />}
         right={
-          <Badge className="bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200">
+          <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
             {visible.length}
           </Badge>
         }
@@ -135,7 +135,7 @@ function SignalRow({
             {catalystLabel(sig.type).en}
           </Badge>
           <Badge
-            className="bg-slate-100 text-slate-500 ring-1 ring-inset ring-slate-200"
+            className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line"
             title={`Source · ${SOURCE_LABEL[sig.source]}`}
           >
             {SOURCE_LABEL[sig.source]}

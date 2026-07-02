@@ -71,7 +71,7 @@ export function RegimeSummaryCard({ regime, segments }: { regime: Regime; segmen
           <div className="mt-2.5 flex flex-col gap-1.5">
             {pulse.map((s) => (
               <div key={s.id} className="flex items-center gap-2">
-                <span className="w-24 shrink-0 truncate text-xs text-slate-600">{s.name}</span>
+                <span className="w-24 shrink-0 truncate text-xs text-slate-400">{s.name}</span>
                 <ScoreBar value={s.momentum} scheme="divergent" className="flex-1" />
                 <span
                   className="tnum w-8 shrink-0 text-right text-2xs font-semibold"

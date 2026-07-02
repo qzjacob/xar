@@ -1,0 +1,235 @@
+"""Underlying Finder — rank a universe of single names by indicative FCN coupon.
+
+The desk question this answers: *"fix the protection barrier and tenor, then which
+underlyings pay the richest coupon?"* For a single-name, European-KI (at-maturity),
+fixed-coupon, no-autocall FCN the value is closed-form
+(:func:`fcn.analytics.closed_form.single_name_european_note`) and the PV is **affine
+in the coupon**, so the fair coupon is one division per name — microseconds. Ranking
+hundreds of names is therefore bottlenecked by **fetching one option chain per name**,
+which :func:`fcn.marketdata.cache.fetch_concurrent` parallelises and
+:data:`fcn.marketdata.cache.MARKET_CACHE` memoises for a few minutes.
+
+Honest scope (mirrors the at-maturity default of the Quotation Desk):
+  * Closed-form screen = European/at-maturity KI, fixed coupon, **no autocall**,
+    single underlying. Richer structures (Phoenix/Snowball/autocall/participation)
+    are priced by Monte Carlo in the Desk — open a ranked name there to go deeper.
+  * Per-name ``sigma`` is sampled at the **barrier** (skew-aware), not ATM.
+  * Dividends/borrow default to 0 unless the provider supplies them.
+  * Coverage is capped at the most liquid ``max_candidates`` by market cap and the
+    result reports ``universe_size`` / ``considered`` / ``ranked_count`` / ``skipped``
+    so truncation is never silent.
+"""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
+
+import numpy as np
+
+from fcn.analytics.closed_form import (
+    prob_below_barrier_european,
+    single_name_european_note,
+)
+from fcn.marketdata.cache import MARKET_CACHE, fetch_concurrent
+
+_FREQ_PER_YEAR = {"monthly": 12, "quarterly": 4, "semiannual": 2, "annual": 1}
+_RANK_KEYS = {  # rank key -> (result field, descending?)
+    "coupon": ("coupon", True),
+    "prob_capital_at_risk": ("prob_capital_at_risk", False),  # safest first
+    "iv_at_barrier": ("iv_at_barrier", True),
+    "marketCap": ("marketCap", True),
+}
+
+
+@dataclass(frozen=True)
+class RankStructure:
+    """The fixed note structure every candidate is screened against."""
+
+    product: str = "fcn"  # only the closed-form FCN screen is supported here
+    tenor_months: int = 6
+    frequency: str = "quarterly"  # coupon / observation frequency
+    protection_pct: float = 0.70  # KI / protection barrier as a fraction of start
+    strike_pct: float = 1.0  # conversion strike as a fraction of start
+    reoffer_pct: float = 1.0  # issue price / value as a fraction of par
+    div_yield: float = 0.0  # default per-name dividend yield (provider may override)
+    borrow: float = 0.0
+
+
+def _coupon_schedule(tenor_years: float, frequency: str) -> tuple[list[float], list[float]]:
+    ppy = _FREQ_PER_YEAR.get(frequency, 4)
+    n = max(1, int(round(ppy * tenor_years)))
+    tau = 1.0 / ppy
+    times = [min((i + 1) * tau, tenor_years) for i in range(n)]
+    return times, [tau] * n
+
+
+def _barrier_vol(provider, ticker: str, t: float, log_moneyness: float) -> float | None:
+    """Skew-aware vol at the barrier: Massive's single-expiry fast path when present,
+    else sample the provider's full surface (Manual/parametric)."""
+    point_vol = getattr(provider, "point_vol", None)
+    if callable(point_vol):
+        return point_vol(ticker, t, log_moneyness)
+    surface = provider.vol_surface(ticker)
+    if surface is None:
+        return None
+    return float(surface.implied_vol(np.array([log_moneyness]), t)[0])
+
+
+def _price_one(provider, ticker: str, structure: RankStructure) -> dict | None:
+    """Solve the indicative fair coupon for one name. Returns ``None`` (skip) when no
+    usable live surface exists for the name."""
+    spot = provider.spot(ticker)
+    if not spot or spot <= 0:
+        return None
+    t = structure.tenor_months / 12.0
+    x_barrier = math.log(structure.protection_pct)  # barrier log-moneyness vs spot
+    sigma = _barrier_vol(provider, ticker, t, x_barrier)
+    if sigma is None or sigma <= 0:
+        return None
+
+    q = provider.div_yield(ticker) or structure.div_yield
+    borrow = provider.borrow(ticker) or structure.borrow
+    rate = provider.risk_free_rate()
+    funding = provider.funding_rate()
+    times, taus = _coupon_schedule(t, structure.frequency)
+
+    value = single_name_european_note(
+        spot=spot, initial_fixing=spot,
+        ki_fraction=structure.protection_pct, strike_fraction=structure.strike_pct,
+        sigma=sigma, r=rate, q=q, borrow=borrow, funding=funding,
+        coupon_rate=1.0, coupon_times=times, coupon_taus=taus, maturity=t, notional=100.0,
+    )
+    if value.pv_coupons <= 0:
+        return None
+    coupon = (structure.reoffer_pct * 100.0 - value.pv_redemption) / value.pv_coupons
+    p_loss = prob_below_barrier_european(
+        spot, structure.protection_pct * spot, sigma, t, rate, q, borrow
+    )
+    return {
+        "ticker": ticker,
+        "spot": round(float(spot), 4),
+        "coupon": float(coupon),
+        "iv_at_barrier": round(float(sigma), 4),
+        "prob_capital_at_risk": round(float(p_loss), 4),
+        "buffer_pct": round(1.0 - structure.protection_pct, 4),
+    }
+
+
+def _normalise_universe(universe) -> list[dict]:
+    """Accept either ticker strings or screener dicts; return metadata dicts."""
+    out = []
+    for u in universe:
+        if isinstance(u, str):
+            out.append({"ticker": u, "name": u, "marketCap": 0.0, "sector": "—", "isEtf": False})
+        else:
+            out.append(dict(u))
+    return out
+
+
+def rank_underlyings(
+    provider,
+    structure: RankStructure,
+    *,
+    universe: list | None = None,
+    top_n: int = 10,
+    rank_by: str = "coupon",
+    filters: dict | None = None,
+    max_candidates: int = 200,
+    max_workers: int = 8,
+    use_cache: bool = True,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> dict:
+    """Rank ``universe`` against ``structure`` by ``rank_by`` (default coupon desc).
+
+    ``provider`` supplies spot + (barrier) vol + rate/funding/div/borrow. ``universe``
+    is a list of screener dicts (``{ticker,name,marketCap,sector,isEtf}``) or bare
+    tickers; if ``None`` and the provider exposes ``screen_universe`` it is called.
+    """
+    if universe is None:
+        screen = getattr(provider, "screen_universe", None)
+        universe = screen() if callable(screen) else []
+    meta = _normalise_universe(universe)
+    universe_size = len(meta)
+    # Cap to the most liquid names (screener is already market-cap sorted; re-sort defensively).
+    meta.sort(key=lambda d: d.get("marketCap", 0.0), reverse=True)
+    considered = meta[: max(1, max_candidates)] if max_candidates else meta
+
+    # Cache key intentionally omits provider identity so live requests share results
+    # across calls; manual/tests pass use_cache=False to avoid cross-run contamination.
+    sig = (structure, round(provider.risk_free_rate(), 6), round(provider.funding_rate(), 6))
+
+    def price(meta_row: dict):
+        ticker = meta_row["ticker"]
+        if use_cache:
+            return MARKET_CACHE.get_or_compute(
+                ("rank", ticker, sig), lambda: _price_one(provider, ticker, structure)
+            )
+        return _price_one(provider, ticker, structure)
+
+    results = fetch_concurrent(considered, price, max_workers=max_workers, on_progress=on_progress)
+
+    by_ticker = {m["ticker"]: m for m in considered}
+    ranked: list[dict] = []
+    skipped: list[dict] = []
+    for meta_row, priced, error in results:
+        ticker = meta_row["ticker"]
+        if error is not None:
+            skipped.append({"ticker": ticker, "reason": str(error)[:160]})
+            continue
+        if priced is None:
+            skipped.append({"ticker": ticker, "reason": "no live option surface"})
+            continue
+        m = by_ticker.get(ticker, meta_row)
+        ranked.append({
+            **priced,
+            "name": m.get("name", ticker),
+            "sector": m.get("sector", "—"),
+            "isEtf": bool(m.get("isEtf", False)),
+            "marketCap": float(m.get("marketCap", 0.0)),
+        })
+
+    ranked = _apply_filters(ranked, filters or {})
+    field, descending = _RANK_KEYS.get(rank_by, _RANK_KEYS["coupon"])
+    ranked.sort(key=lambda r: r.get(field, 0.0), reverse=descending)
+    ranked = ranked[: max(1, top_n)]
+    for i, row in enumerate(ranked, start=1):
+        row["rank"] = i
+
+    return {
+        "structure": asdict(structure),
+        "ranked": ranked,
+        "universe_size": universe_size,
+        "considered": len(considered),
+        "ranked_count": len(ranked),
+        "skipped": skipped,
+        "rank_by": rank_by if rank_by in _RANK_KEYS else "coupon",
+        "top_n": top_n,
+        "liquidity_note": (
+            "Underlying size uses market cap as a liquidity proxy; secondary-market "
+            "and option-hedge liquidity are not modeled in this screen. Use the "
+            "Options Desk for per-contract tradability/slippage."
+        ),
+    }
+
+
+def _apply_filters(rows: list[dict], filters: dict) -> list[dict]:
+    min_coupon = filters.get("min_coupon")
+    max_prob_loss = filters.get("max_prob_loss")
+    sector = filters.get("sector")
+    kind = filters.get("kind")  # "stock" | "etf" | "all"/None
+    out = []
+    for r in rows:
+        if min_coupon is not None and r["coupon"] < min_coupon:
+            continue
+        if max_prob_loss is not None and r["prob_capital_at_risk"] > max_prob_loss:
+            continue
+        if sector and r.get("sector") != sector:
+            continue
+        if kind == "stock" and r.get("isEtf"):
+            continue
+        if kind == "etf" and not r.get("isEtf"):
+            continue
+        out.append(r)
+    return out

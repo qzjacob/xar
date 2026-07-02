@@ -1,0 +1,1825 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fenny · Structured Notes Quotation Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"
+        integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"
+        integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1"></script>
+<script crossorigin src="https://unpkg.com/htm@3.1.1/dist/htm.umd.js"
+        integrity="sha384-toVdrLSMaw7Y55MowcKqkmFL/Ek6Sky62NOk0b5sDDZBu2wcoPyyQUt9unDVjXhL"></script>
+<script crossorigin src="https://cdn.plot.ly/plotly-2.30.0.min.js"
+        integrity="sha384-H7GB7Kme/VbPI/0S4LNq7OixFNVRgRGE8kyqTntBuiXle1KBm8KWLQh/Ah6bXCYW"></script>
+<style>
+  :root{
+    --bg:#F4F6F9; --surface:#FFFFFF; --surface-2:#FAFBFD; --raise:#FFFFFF;
+    --navy:#0F1E36; --navy-2:#16294A;
+    --ink:#16202E; --ink-2:#3A4658; --mut:#6B7787; --faint:#78828F;
+    --line:#E6EAF0; --line-2:#D8DEE7;
+    --accent:#1E50C8; --accent-2:#1842A8; --accent-soft:#EAF0FD; --accent-line:#C9D8F7;
+    --gold:#A9852F;
+    --pos:#1C9667; --pos-soft:#E7F4EE; --neg:#CF3F38; --neg-soft:#FBECEB; --warn:#B9821C; --warn-soft:#FBF3E4;
+    --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sh-sm:0 1px 2px rgba(16,30,54,.06),0 1px 1px rgba(16,30,54,.04);
+    --sh-md:0 4px 16px rgba(16,30,54,.08),0 1px 3px rgba(16,30,54,.05);
+    --r:10px; --r-sm:7px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13.5px;line-height:1.45;
+       -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-feature-settings:"cv05","ss01";}
+  .tnum{font-variant-numeric:tabular-nums}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  a{color:var(--accent);text-decoration:none}
+
+  header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,var(--navy),var(--navy-2));
+         color:#EAF0FB;border-bottom:1px solid rgba(255,255,255,.06)}
+  .hbar{display:flex;align-items:center;justify-content:space-between;height:54px;padding:0 22px;max-width:1480px;margin:0 auto}
+  .brand{display:flex;align-items:center;gap:13px}
+  .mark{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#3A6BE0,#1E50C8);
+        display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff;
+        box-shadow:inset 0 1px 0 rgba(255,255,255,.25)}
+  .brand .nm{font-size:16px;font-weight:600;letter-spacing:.02em}
+  .brand .sep{width:1px;height:18px;background:rgba(255,255,255,.16)}
+  .brand .crumb{font-size:12px;color:#9DB0CE;letter-spacing:.01em}
+  .brand .crumb b{color:#D6E2F6;font-weight:500}
+  .hr{display:flex;align-items:center;gap:18px}
+  .hstat{font-size:11.5px;color:#9DB0CE;display:flex;align-items:center;gap:7px}
+  .hstat b{color:#E7EEFB;font-weight:500}
+  .live{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;letter-spacing:.04em;
+        padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12)}
+  .live .d{width:6px;height:6px;border-radius:50%;background:var(--pos);box-shadow:0 0 0 0 rgba(40,190,130,.6);animation:pulse 2.6s infinite}
+  .live.manual .d{background:#8FA0BC;animation:none}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(40,190,130,.5)}70%{box-shadow:0 0 0 6px rgba(40,190,130,0)}100%{box-shadow:0 0 0 0 rgba(40,190,130,0)}}
+  .who{display:flex;align-items:center;gap:9px}
+  .ava{width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.12);color:#DCE7F8;
+       display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;border:1px solid rgba(255,255,255,.14)}
+  .who .nm2{font-size:12px;color:#D6E2F6}.who .ro{font-size:10.5px;color:#8298B8}
+
+  .page{max-width:1480px;margin:0 auto;padding:20px 22px 40px;display:grid;grid-template-columns:404px minmax(0,1fr);gap:20px;align-items:start}
+  @media(max-width:1080px){.page{grid-template-columns:1fr}}
+  .col-build{position:sticky;top:75px}
+  @media(max-width:1080px){.col-build{position:static}}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh-sm);margin-bottom:16px;overflow:hidden}
+  .card-h{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--line)}
+  .card-h .t{font-size:12.5px;font-weight:600;color:var(--ink);letter-spacing:.005em;display:flex;align-items:center;gap:8px}
+  .card-h .step{width:19px;height:19px;border-radius:50%;background:var(--accent-soft);color:var(--accent);
+                font-size:10.5px;font-weight:600;display:flex;align-items:center;justify-content:center}
+  .card-b{padding:15px 16px}
+  .sub{font-size:11px;color:var(--mut)}
+
+  label{display:block;font-size:11px;font-weight:500;color:var(--ink-2);margin:0 0 5px}
+  .hint{font-size:10.5px;color:var(--faint);font-weight:400}
+  input,select,textarea{width:100%;padding:8px 10px;background:var(--surface);border:1px solid var(--line-2);
+        border-radius:var(--r-sm);color:var(--ink);font-size:13px;font-family:var(--sans);transition:border-color .12s,box-shadow .12s}
+  input.mono,td.mono{font-family:var(--mono)}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  input:disabled{background:var(--surface-2);color:var(--mut);cursor:not-allowed}
+  .fld{margin-bottom:12px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .inwrap{position:relative}
+  .inwrap .suf{position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--faint);pointer-events:none}
+  .inwrap input{padding-right:34px}
+  .solved{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:var(--r-sm);
+          background:var(--accent-soft);border:1px dashed var(--accent-line);color:var(--accent-2);font-size:12px;font-weight:500}
+  .solved .mono{color:var(--accent-2)}
+
+  .seg{display:flex;background:var(--surface-2);border:1px solid var(--line-2);border-radius:var(--r-sm);padding:3px;gap:3px}
+  .seg button{flex:1;border:none;background:transparent;color:var(--mut);font-size:12px;font-weight:500;font-family:var(--sans);
+              padding:6px 8px;border-radius:5px;cursor:pointer;transition:all .12s;white-space:nowrap}
+  .seg button.on{background:var(--surface);color:var(--accent);box-shadow:var(--sh-sm);font-weight:600}
+  .seg button:disabled{opacity:.4;cursor:not-allowed}
+
+  .pills{display:flex;flex-wrap:wrap;gap:7px}
+  .pill{font-size:12px;font-weight:500;padding:7px 12px;border-radius:999px;border:1px solid var(--line-2);
+        background:var(--surface);color:var(--ink-2);cursor:pointer;transition:all .12s}
+  .pill:hover{border-color:var(--accent-line);color:var(--accent)}
+  .pill.on{background:var(--navy);border-color:var(--navy);color:#fff;box-shadow:var(--sh-sm)}
+  .pill .zh{color:var(--faint);font-size:10.5px;margin-left:4px}
+  .pill.on .zh{color:#9DB6E4}
+
+  .uhead,.urow{display:grid;grid-template-columns:1fr 34px;gap:8px;align-items:center}
+  .uhead{font-size:10px;color:var(--faint);font-weight:500;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;padding:0 2px}
+  .uhead span:nth-child(2),.uhead span:nth-child(3){text-align:right}
+  .urow{margin-bottom:7px}
+  .urow input{padding:7px 9px}
+  .urow input:nth-child(2),.urow input:nth-child(3){text-align:right;font-family:var(--mono)}
+  .iconbtn{width:34px;height:34px;border:1px solid var(--line-2);background:var(--surface);border-radius:var(--r-sm);
+           color:var(--mut);cursor:pointer;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center}
+  .iconbtn:hover{border-color:var(--neg);color:var(--neg)}
+  .addrow{display:flex;align-items:center;gap:10px;margin-top:4px}
+  .linkbtn{background:none;border:none;color:var(--accent);font-size:12px;font-weight:500;font-family:var(--sans);
+           cursor:pointer;padding:4px 0;display:inline-flex;align-items:center;gap:5px}
+  .linkbtn:hover{text-decoration:underline}.linkbtn:disabled{color:var(--faint);cursor:wait;text-decoration:none}
+
+  details{border-top:1px solid var(--line);margin:0 -16px -15px;padding:0}
+  details>summary{list-style:none;cursor:pointer;padding:12px 16px;font-size:11.5px;font-weight:500;color:var(--mut);
+                  display:flex;align-items:center;justify-content:space-between}
+  details>summary::-webkit-details-marker{display:none}
+  details>summary .chev{transition:transform .15s;color:var(--faint)}
+  details[open]>summary .chev{transform:rotate(90deg)}
+  details>summary:hover{color:var(--ink)}
+  .det-b{padding:2px 16px 16px}
+  .det-note{font-size:10.5px;color:var(--faint);background:var(--surface-2);border:1px solid var(--line);
+            border-radius:var(--r-sm);padding:7px 9px;margin-bottom:12px;line-height:1.5}
+
+  .btn{width:100%;padding:12px;border:1px solid transparent;border-radius:var(--r-sm);font-size:13.5px;font-weight:600;
+       font-family:var(--sans);cursor:pointer;letter-spacing:.01em;transition:all .12s;display:flex;align-items:center;justify-content:center;gap:8px}
+  .btn.primary{background:var(--accent);color:#fff;box-shadow:0 1px 2px rgba(30,80,200,.3)}
+  .btn.primary:hover{background:var(--accent-2)}
+  .btn.primary:disabled{background:#9DB4E6;cursor:wait;box-shadow:none}
+  .btn.ghost{background:var(--surface);color:var(--ink);border-color:var(--line-2)}
+  .btn.ghost:hover{border-color:var(--accent);color:var(--accent)}
+  .btn.ghost:disabled{opacity:.5;cursor:wait}
+  .spin{width:14px;height:14px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .err{background:var(--neg-soft);border:1px solid #F1C7C4;color:#9A2D27;padding:10px 12px;border-radius:var(--r-sm);font-size:12px;margin-top:12px}
+  .info{background:var(--accent-soft);border:1px solid var(--accent-line);color:var(--accent-2);padding:9px 11px;border-radius:var(--r-sm);font-size:11.5px;line-height:1.45;margin-top:10px}
+
+  .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:64px 30px;color:var(--mut)}
+  .empty .ic{width:54px;height:54px;border-radius:14px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;margin-bottom:16px}
+  .empty h3{margin:0 0 8px;font-size:16px;font-weight:600;color:var(--ink)}
+  .empty p{margin:0;max-width:380px;font-size:13px;line-height:1.6}
+
+  .terms-h{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:18px 20px;
+           background:linear-gradient(180deg,#FBFCFE,#F6F8FC);border-bottom:1px solid var(--line)}
+  .terms-h .lhs{min-width:0}
+  .badge{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+         color:var(--accent-2);background:var(--accent-soft);border:1px solid var(--accent-line);padding:3px 9px;border-radius:999px}
+  .badge .d{width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block}
+  .ctx{font-size:11.5px;color:var(--mut);margin-top:9px}
+  .ctx b{color:var(--ink-2);font-weight:500}
+  .head-val{text-align:right;flex:none}
+  .head-lbl{font-size:11px;color:var(--mut);font-weight:500;text-transform:uppercase;letter-spacing:.04em}
+  .head-num{font-size:46px;font-weight:600;line-height:1.02;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums;margin-top:2px}
+  .head-num .u{font-size:17px;font-weight:500;color:var(--mut);margin-left:5px;letter-spacing:0}
+  .head-se{font-size:11px;color:var(--faint);margin-top:4px}
+  .head-risk{font-size:11.5px;color:var(--mut);font-weight:500;margin-top:7px}
+
+  .summary{padding:16px 20px;font-size:13px;line-height:1.62;color:var(--ink-2);border-bottom:1px solid var(--line);background:var(--surface)}
+  .summary b{color:var(--ink);font-weight:600}
+  .protbar{display:flex;gap:9px;align-items:flex-start;padding:12px 20px;font-size:12.5px;font-weight:500;border-bottom:1px solid var(--line)}
+  .protbar .i{flex:none;font-size:13px;line-height:1.45}
+  .protbar.risk{background:var(--neg-soft);color:#9A2D27}
+  .protbar.warn{background:var(--warn-soft);color:#8A5E12}
+  .protbar.ok{background:var(--pos-soft);color:#0F7A52}
+  .knotes{padding:14px 20px;border-bottom:1px solid var(--line)}
+  .knotes:last-child{border-bottom:none}
+  .knotes .h{font-size:10.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:8px}
+  .knotes ul{margin:0;padding:0;list-style:none}
+  .knotes li{position:relative;padding:3px 0 3px 18px;font-size:12px;color:var(--ink-2);line-height:1.5}
+  .knotes li:before{content:"";position:absolute;left:3px;top:9px;width:5px;height:5px;border-radius:50%;background:var(--accent-line)}
+  .kdates{font-size:11.5px;color:var(--mut);padding:12px 20px 14px}
+  .kdates b{color:var(--ink-2);font-weight:500}
+
+  .kgrid{display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--line);border-right:1px solid var(--line)}
+  .kt{padding:12px 16px;border-left:1px solid var(--line);border-top:1px solid var(--line)}
+  .kt:nth-child(3n+1){border-left:none}
+  .kt:nth-child(-n+3){border-top:none}
+  .kt .l{font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;font-weight:500}
+  .kt .v{font-size:14px;font-weight:600;color:var(--ink);margin-top:3px;font-variant-numeric:tabular-nums;line-height:1.3}
+  .kt .v .x{font-size:11px;font-weight:400;color:var(--mut)}
+
+  .illus{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
+  @media(max-width:560px){.illus{grid-template-columns:1fr}}
+  .ibox{border:1px solid var(--line);border-radius:var(--r-sm);padding:13px 14px;background:var(--surface-2)}
+  .ibox.up{border-color:#CDE9DC;background:var(--pos-soft)}
+  .ibox.dn{border-color:#F1D2CF;background:var(--neg-soft)}
+  .ibox .l{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);display:flex;align-items:center;gap:6px}
+  .ibox.up .l{color:#0F7A52}.ibox.dn .l{color:#9A2D27}
+  .ibox .big{font-size:20px;font-weight:600;margin:5px 0 2px;font-variant-numeric:tabular-nums;color:var(--ink)}
+  .ibox .d{font-size:11.5px;color:var(--ink-2);line-height:1.5}
+  .ibox .d b{color:var(--ink)}
+
+  .pic{display:grid;grid-template-columns:240px minmax(0,1fr);gap:18px;padding:16px 20px;align-items:start}
+  @media(max-width:560px){.pic{grid-template-columns:1fr}}
+  .capt{font-size:10.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;font-weight:500;margin-bottom:8px}
+  .chips{display:flex;flex-wrap:wrap;gap:10px;padding:0 20px 18px}
+  .ochip{flex:1;min-width:120px;border:1px solid var(--line);border-radius:var(--r-sm);padding:11px 13px;background:var(--surface-2)}
+  .ochip .l{font-size:11px;color:var(--mut);font-weight:500}
+  .ochip .v{font-size:21px;font-weight:600;margin-top:3px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+  .ochip .x{font-size:10px;color:var(--faint);margin-top:1px}
+
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{padding:8px 12px;text-align:right;border-bottom:1px solid var(--line)}
+  th{font-size:10px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;background:var(--surface-2)}
+  td{font-variant-numeric:tabular-nums;color:var(--ink-2)}
+  th:first-child,td:first-child{text-align:left}
+  tbody tr:last-child td{border-bottom:none}
+  .tcap{padding:13px 20px 4px;font-size:12.5px;font-weight:600;color:var(--ink)}
+  .tcap .sub{font-weight:400;margin-left:6px}
+
+  .internal-h{display:flex;align-items:center;gap:8px}
+  .tag-int{font-size:9px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--gold);
+           background:var(--warn-soft);border:1px solid #ECD9AE;padding:2px 6px;border-radius:4px}
+
+  .foot{padding:16px 20px;border-top:1px solid var(--line);background:var(--surface-2)}
+  .remark-wrap{position:relative}
+  .remark-wrap textarea{min-height:58px;resize:vertical;font-size:12.5px}
+  .cc{position:absolute;right:10px;bottom:8px;font-size:10.5px;color:var(--faint);font-family:var(--mono)}
+  .foot-row{display:flex;gap:10px;margin-top:12px}
+  .foot-row .btn{width:auto;flex:1}
+  .disc{font-size:10.5px;color:var(--faint);line-height:1.55;padding:12px 20px 16px;border-top:1px solid var(--line)}
+
+  /* keyboard focus + missing states */
+  .pill:focus-visible,.seg button:focus-visible,.iconbtn:focus-visible,.linkbtn:focus-visible,.btn:focus-visible{
+    outline:none;box-shadow:0 0 0 3px var(--accent-soft)}
+  .seg button:hover:not(.on):not(:disabled){color:var(--ink)}
+  .iconbtn:disabled{opacity:.4;cursor:not-allowed;border-color:var(--line-2);color:var(--mut)}
+  .iconbtn:disabled:hover{border-color:var(--line-2);color:var(--mut)}
+
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px;border:2px solid var(--bg)}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  @media(max-width:720px){.pic{grid-template-columns:1fr}}
+  @media(max-width:560px){
+    .terms-h{flex-direction:column;gap:10px}
+    .head-val{text-align:left}
+    .head-num{font-size:34px}.head-num .u{font-size:14px}
+    .kgrid{grid-template-columns:repeat(2,1fr)}
+    .kt:nth-child(3n+1){border-left:1px solid var(--line)}
+    .kt:nth-child(2n+1){border-left:none}
+    .kt:nth-child(-n+2){border-top:none}.kt:nth-child(3){border-top:1px solid var(--line)}
+    .ochip{flex:1 1 100%}
+  }
+
+  /* ---- top nav (shared across modules) ---- */
+  .nav{display:flex;align-items:center;gap:4px;margin-left:8px}
+  .nav button{appearance:none;background:transparent;border:0;color:#9DB0CE;font-family:var(--sans);
+    font-size:12.5px;font-weight:500;letter-spacing:.01em;padding:7px 12px;border-radius:7px;cursor:pointer;
+    display:flex;align-items:baseline;gap:6px;transition:background .12s,color .12s}
+  .nav button:hover{color:#E7EEFB;background:rgba(255,255,255,.06)}
+  .nav button.on{color:#fff;background:rgba(255,255,255,.12)}
+  .nav button .zh{font-size:10.5px;color:#7E92B4}
+  .nav button.on .zh{color:#B9CBE9}
+
+  /* ---- shared module wrap ---- */
+  .wrap{max-width:1480px;margin:0 auto;padding:20px 22px 44px}
+  .vhead{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:16px;gap:16px;flex-wrap:wrap}
+  .vhead h1{font-size:19px;font-weight:600;letter-spacing:-.01em;margin:0 0 3px}
+  .vhead p{margin:0;color:var(--mut);font-size:12.5px;max-width:720px}
+
+  /* ---- market read ---- */
+  .mtiles{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px}
+  .mtile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:13px 15px;box-shadow:var(--sh-sm)}
+  .mtile .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut)}
+  .mtile .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:23px;font-weight:500;color:var(--ink);margin-top:5px}
+  .mtile .s{font-size:11px;color:var(--faint);margin-top:2px}
+  .read-grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:16px;align-items:start}
+  .suit-row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}
+  .suit-row:last-child{border-bottom:0}
+  .suit-row .fam{width:82px;font-weight:600;font-size:13px}
+  .suit-row .track{flex:1;height:8px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line);overflow:hidden}
+  .suit-row .fill{height:100%;border-radius:999px}
+  .suit-row .sc{width:104px;text-align:right;font-family:var(--mono);font-size:12px;display:flex;align-items:center;justify-content:flex-end;gap:7px}
+  .suit-tag{font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;padding:2px 7px;border-radius:999px}
+  .tag-fav{color:var(--pos);background:var(--pos-soft)} .tag-neu{color:var(--warn);background:var(--warn-soft)} .tag-unf{color:var(--neg);background:var(--neg-soft)}
+  .drv{font-size:11.5px;color:var(--mut);margin:4px 0 8px;padding-left:0;list-style:none}
+  .drv li{margin:2px 0;padding-left:14px;position:relative}
+  .drv li:before{content:"›";position:absolute;left:2px;color:var(--accent)}
+  .narr{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;box-shadow:var(--sh-sm);line-height:1.62;font-size:13.5px;margin-top:16px}
+  .narr .src{font-size:10.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+
+  /* ---- finder ---- */
+  .find-grid{display:grid;grid-template-columns:330px minmax(0,1fr);gap:20px;align-items:start}
+  .rank-table{width:100%;border-collapse:collapse;font-size:12.5px}
+  .rank-table th{text-align:right;font-weight:500;color:var(--mut);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;padding:8px 10px;border-bottom:1px solid var(--line-2)}
+  .rank-table th:nth-child(-n+3){text-align:left}
+  .rank-table td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums;color:var(--ink-2)}
+  .rank-table td:nth-child(-n+3){text-align:left}
+  .rank-table tr:hover td{background:var(--accent-soft)}
+  .rank-table .rk{font-family:var(--mono);color:var(--mut)}
+  .rank-table .tk{font-weight:600;color:var(--ink)}
+  .rank-table .cpn{font-family:var(--mono);font-weight:600;color:var(--accent);font-size:13px}
+  .rank-table .open{color:var(--accent);cursor:pointer;font-size:11px;font-weight:500;white-space:nowrap}
+  .rank-table .open:hover{text-decoration:underline}
+  .etf-chip{font-size:9px;font-weight:600;color:var(--gold);background:#F6EFDD;border-radius:4px;padding:1px 5px;margin-left:6px;letter-spacing:.03em}
+  .cov{font-size:11.5px;color:var(--mut);margin:12px 2px 0}
+  .banner{background:var(--warn-soft);border:1px solid #EAD9AE;color:#7A5B16;border-radius:var(--r-sm);padding:10px 13px;font-size:12px;margin-bottom:14px;line-height:1.5}
+  .banner.err{background:var(--neg-soft);border-color:#F0C9C6;color:#8E2D27}
+  .emptybox{background:var(--surface);border:1px dashed var(--line-2);border-radius:var(--r);padding:40px 24px;text-align:center;color:var(--mut);font-size:13px}
+  @media(max-width:1080px){.mtiles{grid-template-columns:repeat(3,1fr)}.read-grid{grid-template-columns:1fr}.find-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const html = htm.bind(React.createElement);
+const {useState, useEffect, useRef} = React;
+const API = "/api/v1";
+
+async function post(path, body){
+  const r = await fetch(API+path, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+  if(!r.ok){ let m; try{m=(await r.json()).detail;}catch(e){m=await r.text();} throw new Error((m||"request failed").toString().slice(0,300)); }
+  return r.json();
+}
+async function detail(r){ try{return (await r.json()).detail;}catch(e){ try{return await r.text();}catch(_){return null;} } }
+// Poll an async job to completion, calling onUpdate(job) on every tick (for stage/partial UI).
+async function pollJob(jobId, onUpdate){
+  for(let i=0;i<600;i++){
+    const r=await fetch(API+"/jobs/"+jobId);
+    if(!r.ok) throw new Error(r.status===404?"job expired — please run again":"job lookup failed ("+r.status+")");
+    const j=await r.json();
+    if(!j||typeof j.status!=="string") throw new Error("unexpected job response");
+    if(onUpdate) onUpdate(j);
+    if(j.status==="done") return j;
+    if(j.status==="error") throw new Error(j.error||"job failed");
+    await new Promise(z=>setTimeout(z,700));
+    if(i===599) throw new Error("job timed out — please retry");
+  }
+}
+// Illustrative parametric vols for the Finder's offline "Demo" mode only — NOT the
+// live coverage source (production uses the Finnhub-sourced universe + live Massive surfaces).
+const DEMO_UNIVERSE=[
+  {ticker:"NVDA",name:"NVIDIA",sector:"Technology",atm:0.50},
+  {ticker:"TSLA",name:"Tesla",sector:"Consumer Disc.",atm:0.55},
+  {ticker:"META",name:"Meta Platforms",sector:"Communication",atm:0.40},
+  {ticker:"AMD",name:"Adv. Micro Devices",sector:"Technology",atm:0.48},
+  {ticker:"AMZN",name:"Amazon",sector:"Consumer Disc.",atm:0.34},
+  {ticker:"GOOGL",name:"Alphabet",sector:"Communication",atm:0.30},
+  {ticker:"AAPL",name:"Apple",sector:"Technology",atm:0.28},
+  {ticker:"MSFT",name:"Microsoft",sector:"Technology",atm:0.26},
+  {ticker:"QQQ",name:"Invesco QQQ Trust",sector:"ETF",atm:0.22},
+  {ticker:"SPY",name:"SPDR S&P 500",sector:"ETF",atm:0.15},
+];
+const pct  = (x,d=1)=> (x==null||isNaN(x))?"–":(x*100).toFixed(d)+"%";
+const pct0 = x => (x==null||isNaN(x))?"–":(x*100).toFixed(0)+"%";
+const fmt  = (x,d=2)=> (x==null||isNaN(x))?"–":Number(x).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
+const fmt0 = x => (x==null||isNaN(x))?"–":Number(x).toLocaleString(undefined,{maximumFractionDigits:0});
+const CCY = {USD:"$",EUR:"€",HKD:"HK$",GBP:"£",SGD:"S$",CHF:"CHF ",JPY:"¥",AUD:"A$",CNH:"¥"};
+const money = (x,ccy)=> (CCY[ccy]||"")+fmt0(x);
+
+const iso = d => d.toISOString().slice(0,10);
+function addMonths(base, m){ const d=new Date(base.getTime()); const day=d.getDate();
+  d.setMonth(d.getMonth()+m); if(d.getDate()<day) d.setDate(0); return d; }
+const longDate = s => { try{return new Date(s+"T00:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});}catch(e){return s;} };
+const TENORS = [3,6,9,12,18,24,36];
+const FREQ = {monthly:{m:1,n:12,word:"month"},quarterly:{m:3,n:4,word:"quarter"},semiannual:{m:6,n:2,word:"half-year"}};
+
+const PRODUCTS = [
+  {id:"fcn",      name:"Fixed Coupon",  zh:"固息",      part:false},
+  {id:"stepdown", name:"Step-down FCN", zh:"递减",      part:false},
+  {id:"phoenix",  name:"Phoenix",       zh:"凤凰",      part:false},
+  {id:"snowball", name:"Snowball",      zh:"雪球",      part:false},
+  {id:"sharkfin", name:"Shark Fin",     zh:"鲨鱼鳍",    part:true},
+  {id:"booster",  name:"Booster",       zh:"气囊",      part:true},
+];
+const isPartId = id => id==="sharkfin"||id==="booster";
+
+// plain-language indicative summary in NOTE terms (no option jargon)
+function summarize(c){
+  const t = c.tickers.join(" / ");
+  const N = money(c.notional, c.currency);
+  const art = /^(8|11|18)/.test(String(c.tenorM)) ? "An" : "A";
+  const monitor = c.kiStyle==="american"?"on any trading day":"only at maturity";
+  if(c.id==="sharkfin")
+    return html`${art} <b>${c.tenorM}-month</b> capital-protected note linked to the worst performer of <b>${t}</b>. You get back <b>100% of capital</b> at maturity, plus <b>${fmt(c.participation,2)}×</b> of any rise in the worst performer${c.cap?html`, up to a maximum gain of <b>${pct0(c.cap-1)}</b>`:""}. If the worst performer ever rises to <b>${pct0(c.ko)}</b> of its start, the note ends early at par${c.coupon_floor?html` plus a <b>${pct0(c.coupon_floor)}</b> rebate`:""}.`;
+  if(c.id==="booster")
+    return html`${art} <b>${c.tenorM}-month</b> note linked to the worst performer of <b>${t}</b>. Above the starting level you earn <b>${fmt(c.participation,2)}×</b> the rise${c.cap?html` (up to <b>${pct0(c.cap-1)}</b>)`:""}. Your capital is protected for the first <b>${pct0(c.buffer)}</b> of any fall; only beyond that do you share the decline.`;
+  const cpn = c.solveFor==="coupon" ? "the indicative coupon shown" : html`<b>${fmt(c.coupon,2)}% p.a.</b>`;
+  const payWhen = c.id==="phoenix"
+    ? html` for every <b>${c.freqWord}</b> the worst of <b>${t}</b> closes at or above <b>${pct0(c.couponBarrier)}</b> of its start${c.memory?" (with memory — any missed coupons are caught up later)":""}`
+    : c.id==="snowball" ? html`, accruing each <b>${c.freqWord}</b> the note stays alive` : html` each <b>${c.freqWord}</b>`;
+  return html`${art} <b>${c.tenorM}-month</b> income note linked to the worst performer of <b>${t}</b>, on <b>${N}</b>. It pays ${cpn}${payWhen}. It redeems early at <b>100% of capital</b> if the worst performer closes at or above <b>${pct0(c.ac)}</b> on an observation date${c.stepDown>0?html` (this early-redemption trigger drops <b>${pct0(c.stepDown)}</b> each period, getting easier over time)`:""}. At maturity you get <b>100% of capital back</b> — unless the worst performer has fallen below <b>${pct0(c.ki)}</b> of its start (checked ${monitor}), in which case you receive its actual performance and can lose capital.`;
+}
+
+// ------- Barrier Ladder (light) -------
+function BarrierLadder({ki, strike, ac, hist, pKI, pAC, neutral}){
+  const W=240,H=236,padT=14,padB=18,padL=4,axisX=62;
+  const yMin=0.30, yMax=Math.max(1.45,(ac||1)+0.12);
+  const barArea=W-axisX-8;
+  const ys=v=> padT+(yMax-v)/(yMax-yMin)*(H-padT-padB);
+  const xs=(hist&&hist.x)||[], ps=(hist&&hist.p)||[];
+  const inR=xs.map((x,i)=>({x,p:ps[i]})).filter(o=>o.x>=yMin&&o.x<=yMax);
+  const maxp=Math.max(1e-6,...inR.map(o=>o.p));
+  const bh=inR.length?Math.max(2,(H-padT-padB)/inR.length-0.5):3;
+  const colS="#1E50C8", colW="#B9821C", colN="#CF3F38";
+  const colorFor=v=> neutral?colS:(v<ki?colN:(v<strike?colW:colS));
+  const line=(v,c,lab,right)=>html`
+    <line x1=${axisX} y1=${ys(v)} x2=${W-2} y2=${ys(v)} stroke=${c} stroke-width="1.2" stroke-dasharray="3 2.5"/>
+    <text x=${padL} y=${ys(v)+3.5} fill=${c} font-size="9" font-family="var(--mono)" font-weight="500">${lab}</text>
+    ${right!=null?html`<text x=${W-3} y=${Math.max(11,ys(v)-3.5)} fill=${c} font-size="9" text-anchor="end" font-family="var(--mono)">${right}</text>`:null}`;
+  const coAcK = ac && Math.abs(ac-strike)<0.015;
+  return html`<svg width=${W} height=${H} style=${{display:"block",maxWidth:"100%"}}>
+    ${!neutral?html`<rect x=${axisX} y=${ys(ki)} width=${W-axisX-2} height=${Math.max(0,ys(yMin)-ys(ki))} fill="#CF3F38" opacity="0.05"/>`:null}
+    ${inR.map((o,i)=>html`<rect key=${i} x=${axisX} y=${ys(o.x)-bh/2} width=${Math.max(0.5,o.p/maxp*barArea)} height=${bh} fill=${colorFor(o.x)} opacity="0.5" rx="1"/>`)}
+    <line x1=${axisX} y1=${padT} x2=${axisX} y2=${H-padB} stroke="var(--line-2)"/>
+    ${ac&&!coAcK?line(ac,colS,"Call "+(ac*100).toFixed(0),pAC!=null?(pAC*100).toFixed(0)+"%":null):null}
+    ${coAcK?line(strike,colS,"Call "+(strike*100).toFixed(0),pAC!=null?(pAC*100).toFixed(0)+"%":null)
+           :line(strike,"#3A4658","Start "+(strike*100).toFixed(0),null)}
+    ${!neutral?line(ki,colN,"Protect "+(ki*100).toFixed(0),pKI!=null?(pKI*100).toFixed(0)+"%":null):null}
+  </svg>`;
+}
+
+function Field({label,hint,suffix,children}){
+  return html`<div class="fld">
+    <label>${label}${hint?html` <span class="hint">${hint}</span>`:""}</label>
+    ${suffix?html`<div class="inwrap">${children}<span class="suf">${suffix}</span></div>`:children}
+  </div>`;
+}
+function Seg({value,onChange,opts}){
+  return html`<div class="seg">${opts.map(o=>html`
+    <button key=${o.v} class=${value===o.v?"on":""} disabled=${o.disabled} onClick=${()=>!o.disabled&&onChange(o.v)}>${o.l}</button>`)}</div>`;
+}
+// Percent input: stores/returns a FRACTION, displays a percent, blank-safe.
+// Clearing the field leaves the model value untouched (never silently 0).
+function PctInput({frac, onFrac, step=1}){
+  const toTxt = f => (f==null||f==="")?"":String(+( f*100 ).toFixed(4));
+  const [txt,setTxt]=useState(()=>toTxt(frac));
+  const last=useRef(frac);
+  useEffect(()=>{ if(frac!==last.current){ last.current=frac; setTxt(toTxt(frac)); } },[frac]);
+  return html`<input type="number" step=${step} value=${txt}
+    onInput=${e=>{ const v=e.target.value; setTxt(v);
+      if(v!==""&&!isNaN(+v)){ const f=+v/100; last.current=f; onFrac(f); } }}/>`;
+}
+
+function DeskView(props){
+  const init=(props&&props.init)||{};
+  // ---- who the note is for ----
+  const [investor,setInvestor]=useState("PI");
+  const [custodian,setCustodian]=useState("GSL EAM HK");
+  const [currency,setCurrency]=useState("USD");
+  const [issuer,setIssuer]=useState("");
+  const [issuerRating,setIssuerRating]=useState("A");
+  // ---- note terms ----
+  const [prod,setProd]=useState(init.prod||"phoenix");
+  const [tenorM,setTenorM]=useState(init.tenorM||18);
+  const [notional,setNotional]=useState(1000000);
+  const [freq,setFreq]=useState(init.freq||"quarterly");
+  const [ac,setAc]=useState(1.0);
+  const [stepDown,setStepDown]=useState(0.02);
+  const [ki,setKi]=useState(init.ki!=null?init.ki:0.65);
+  const [kiStyle,setKiStyle]=useState("european");
+  const [couponBarrier,setCouponBarrier]=useState(0.70);
+  const [memory,setMemory]=useState(true);
+  const [settlement,setSettlement]=useState("cash");
+  const [participation,setParticipation]=useState(1.0);
+  const [ko,setKo]=useState(1.30);
+  const [cap,setCap]=useState("");
+  const [buffer,setBuffer]=useState(0.20);
+  const [couponFloor,setCouponFloor]=useState(0.08);
+  const [couponInput,setCouponInput]=useState(12);
+  const [solveFor,setSolveFor]=useState("coupon");
+  // ---- pricing inputs (desk / advanced) ----
+  const [rate,setRate]=useState(0.043);
+  const [rho,setRho]=useState(0.5);
+  const [nPaths,setNPaths]=useState(60000);
+  const [localVol,setLocalVol]=useState(true);
+  const [issuerSpread,setIssuerSpread]=useState(0);
+  const [source,setSource]=useState("live");
+  const [assets,setAssets]=useState(init.assets||[
+    {ticker:"AAPL",spot:297,atm_vol:0.27,skew_slope:-0.5,skew_curv:0.5},
+    {ticker:"NVDA",spot:210,atm_vol:0.44,skew_slope:-0.6,skew_curv:0.8},
+  ]);
+  // ---- run / output ----
+  const [busy,setBusy]=useState(false);
+  const [stage,setStage]=useState(null);
+  const [err,setErr]=useState(null);
+  const [res,setRes]=useState(null);
+  const [remark,setRemark]=useState("");
+  const [notice,setNotice]=useState(null);
+  const [templates,setTemplates]=useState(()=>{try{return JSON.parse(localStorage.getItem("fenny.tpl")||"{}");}catch(e){return {};}});
+  const chartRef=useRef(null);
+
+  const part = isPartId(prod);
+  // participation notes have no coupon: force "price"; restore the user's last coupon-note choice on return.
+  // snowball is continuously monitored (american); other income notes default to "At maturity" (european).
+  const prevSolve = useRef("coupon");
+  const prevKi = useRef("european");
+  useEffect(()=>{
+    setSolveFor(part ? "price" : (prevSolve.current||"coupon"));
+    setKiStyle(prod==="snowball" ? "american" : (prevKi.current||"european"));
+  },[prod]);
+  const onSolve = v => { if(!part) prevSolve.current = v; setSolveFor(v); };
+  const onKi = v => { if(prod!=="snowball") prevKi.current = v; setKiStyle(v); };
+
+  const setAsset=(i,k,v)=>setAssets(a=>a.map((x,j)=>j===i?{...x,[k]:v}:x));
+  const addAsset=()=>setAssets(a=>a.length<3?[...a,{ticker:"",spot:100,atm_vol:0.35,skew_slope:-0.6,skew_curv:0.8}]:a);
+  const rmAsset=i=>setAssets(a=>a.length>1?a.filter((_,j)=>j!==i):a);
+
+  const variantApi = prod==="stepdown" ? "fcn" : prod;
+  const stepUsed   = prod==="stepdown" ? (stepDown===""||isNaN(+stepDown)?0.02:+stepDown) : (prod==="phoenix"?(+stepDown||0):0);
+  // tenor -> dates
+  const strikeISO = iso(new Date());
+  const matISO = iso(addMonths(new Date(), +tenorM));
+
+  const preset=cr=>({variant:variantApi,tickers:assets.map(a=>a.ticker),notional:+notional,currency,
+    trade_date:strikeISO,strike_date:strikeISO,maturity:matISO,coupon_rate:cr,frequency:freq,
+    autocall_barrier:+ac,step_down_per_period:+stepUsed,ki_barrier:+ki,ki_style:kiStyle,settlement,
+    coupon_barrier:+couponBarrier,memory,participation:+participation,ko_barrier:+ko,buffer:+buffer,
+    coupon_floor:+couponFloor,cap:cap===""?null:+cap});
+  const market=(src)=>({asof:strikeISO,rate:+rate,rho:+rho,source:src||source,issuer_spread:+issuerSpread,
+    assets:assets.map(a=>({ticker:a.ticker,spot:+a.spot,atm_vol:+a.atm_vol,skew_slope:+a.skew_slope,skew_curv:+a.skew_curv}))});
+  const mc=()=>({n_paths:+nPaths,method:"pseudo",antithetic:true,local_vol:localVol});
+
+  // run one full quote against a given data source (live or manual)
+  async function attempt(src, mode, cr){
+    const ts = await post("/build_termsheet",preset(cr));
+    const body={termsheet:ts,market:market(src),mc:mc(),include_greeks:true,include_scenario:true};
+    if(mode==="quote") body.coupon_rate=cr;
+    const {job_id}=await post("/jobs/"+mode,body);
+    const ctx={id:prod,tickers:assets.map(a=>a.ticker),currency,notional:+notional,tenorM:+tenorM,
+      freq,freqWord:(FREQ[freq]||{}).word||"period",settlement,source:src,
+      participation:+participation,cap:cap===""?null:+cap,ko:+ko,buffer:+buffer,coupon_floor:+couponFloor,coupon:+couponInput,solveFor,
+      ac:+ac,stepDown:+stepUsed,ki:+ki,kiStyle,couponBarrier:+couponBarrier,memory,
+      investor,custodian,issuer,issuerRating,maturity:matISO,strikeDate:strikeISO};
+    for(let i=0;i<600;i++){   // ~7 min hard cap so a stuck/evicted job can't spin forever
+      const r=await fetch(API+"/jobs/"+job_id);
+      if(!r.ok) throw new Error(r.status===404?"pricing job expired — please run again":"pricing job lookup failed ("+r.status+")");
+      const j=await r.json();
+      if(!j||typeof j.status!=="string") throw new Error("unexpected response from pricing job");
+      setStage(j.stage);
+      if(j.partial&&j.partial.pricing) setRes({mode,ctx,...j.partial});
+      if(j.status==="done") break;
+      if(j.status==="error") throw new Error(j.error||"pricing failed");
+      await new Promise(z=>setTimeout(z,700));
+      if(i===599) throw new Error("pricing timed out — please retry with fewer paths or a shorter maturity");
+    }
+  }
+  async function run(){
+    if(assets.some(a=>!a.ticker.trim())){setErr("Every linked stock needs a ticker.");return;}
+    if(!(+notional>0)){setErr("Notional must be a positive amount.");return;}
+    setBusy(true);setErr(null);setNotice(null);setStage("pricing");
+    const mode = (solveFor==="coupon"&&!part) ? "solve" : "quote";
+    const cr = mode==="quote"&&!part ? (+couponInput/100) : null;
+    try{
+      try{
+        await attempt(source, mode, cr);
+      }catch(e){
+        // live data unavailable for any reason: fall back to parametric inputs so the desk still gets a number
+        if(source==="live"){
+          setStage("pricing");
+          await attempt("manual", mode, cr);
+          setSource("manual");
+          setNotice("Live market data unavailable ("+(""+(e.message||"error")).slice(0,80)+") — showing an indicative quote on parametric inputs. Tune the desk vols under “Pricing inputs”.");
+        } else { throw e; }
+      }
+    }catch(e){setErr(""+e.message);}finally{setBusy(false);setStage(null);}
+  }
+  async function openSheet(){
+    setBusy(true);setErr(null);
+    try{
+      const ts=await post("/build_termsheet",preset(null));
+      const r=await fetch(API+"/report/quotesheet?fmt=html",{method:"POST",
+        headers:{"Content-Type":"application/json"},body:JSON.stringify({termsheet:ts,market:market(),mc:mc()})});
+      if(!r.ok){throw new Error((await detail(r))||"could not generate quote sheet");}
+      const url=URL.createObjectURL(await r.blob());
+      window.open(url,"_blank");
+      setTimeout(()=>URL.revokeObjectURL(url),120000);  // free the blob once the tab has loaded
+    }catch(e){setErr(""+e.message);}finally{setBusy(false);}
+  }
+  function saveTemplate(){
+    const nm=window.prompt("Template name");
+    if(!nm)return;
+    const snap={investor,custodian,issuer,issuerRating,currency,prod,tenorM,notional,freq,ac,stepDown,ki,kiStyle,couponBarrier,memory,
+      settlement,participation,ko,cap,buffer,couponFloor,couponInput,solveFor,rate,rho,nPaths,localVol,issuerSpread,source,assets};
+    const next={...templates,[nm]:snap};setTemplates(next);localStorage.setItem("fenny.tpl",JSON.stringify(next));
+  }
+  function loadTemplate(nm){
+    const s=templates[nm];if(!s)return;const g=(v,d)=>v===undefined?d:v;
+    setInvestor(g(s.investor,"PI"));setCustodian(g(s.custodian,""));setCurrency(g(s.currency,"USD"));
+    setIssuer(g(s.issuer,""));setIssuerRating(g(s.issuerRating,"A"));
+    setProd(g(s.prod,"phoenix"));setTenorM(g(s.tenorM,18));setNotional(g(s.notional,1000000));setFreq(g(s.freq,"quarterly"));
+    setAc(g(s.ac,1));setStepDown(g(s.stepDown,0.02));setKi(g(s.ki,0.65));setKiStyle(g(s.kiStyle,"european"));
+    setCouponBarrier(g(s.couponBarrier,0.7));setMemory(g(s.memory,true));setSettlement(g(s.settlement,"cash"));
+    setParticipation(g(s.participation,1));setKo(g(s.ko,1.3));setCap(g(s.cap,""));setBuffer(g(s.buffer,0.2));setCouponFloor(g(s.couponFloor,0.08));
+    setCouponInput(g(s.couponInput,12));setSolveFor(g(s.solveFor,"coupon"));setRate(g(s.rate,0.043));setRho(g(s.rho,0.5));
+    setNPaths(g(s.nPaths,60000));setLocalVol(g(s.localVol,true));setIssuerSpread(g(s.issuerSpread,0));setSource(g(s.source,"manual"));
+    if(s.assets)setAssets(s.assets);
+  }
+
+  useEffect(()=>{
+    if(res&&res.payoff_diagram&&chartRef.current){
+      const p=res.payoff_diagram, ccy=res.ctx.currency;
+      Plotly.newPlot(chartRef.current,[{x:p.worst_of,y:p.redemption,mode:"lines",
+        line:{color:"#1E50C8",width:2.5,shape:"spline"},fill:"tozeroy",fillcolor:"rgba(30,80,200,0.05)",
+        hovertemplate:"worst performer at %{x:.0%}<br>you receive "+(CCY[ccy]||"")+"%{y:,.0f}<extra></extra>"}],{
+        paper_bgcolor:"rgba(0,0,0,0)",plot_bgcolor:"rgba(0,0,0,0)",
+        font:{color:"#6B7787",family:"Inter, sans-serif",size:10.5},
+        margin:{l:54,r:12,t:6,b:30},height:236,
+        xaxis:{title:{text:"if the worst performer ends at (% of its start)",font:{size:10,color:"#78828F"}},tickformat:".0%",gridcolor:"#EEF1F6",zeroline:false,linecolor:"#D8DEE7"},
+        yaxis:{gridcolor:"#EEF1F6",zeroline:false,linecolor:"#D8DEE7",tickprefix:(CCY[ccy]||""),tickformat:",.2s"},
+        shapes:[
+          {type:"line",x0:p.ki,x1:p.ki,y0:0,y1:1,yref:"paper",line:{color:"#CF3F38",dash:"dot",width:1.3}},
+          {type:"line",x0:p.strike,x1:p.strike,y0:0,y1:1,yref:"paper",line:{color:"#16202E",dash:"dot",width:1}}
+        ]},{displayModeBar:false,responsive:true});
+    }
+  },[res]);
+
+  const P=res&&res.pricing, G=res&&res.greeks, pd=res&&res.payoff_diagram, c=res&&res.ctx;
+  const rPart=res?isPartId(c.id):false;
+  const ladderAc=pd?(pd.ko!=null&&pd.ko!==0?pd.ko:c.ac):1;
+  const headCoupon = res ? (res.mode==="solve"?res.coupon_rate:res.pricing.coupon_rate) : 0;
+  const showCoupon = res && res.mode==="solve" && !rPart;
+  const headVal = res ? (showCoupon? headCoupon*100 : res.pricing.price_pct) : 0;
+  const headUnit = showCoupon? "% p.a." : "% of par";
+  const kiLbl = rPart? (c.id==="sharkfin"?"Chance of ending early":"Chance below buffer") : "Chance of capital loss";
+  const tplNames=Object.keys(templates);
+  const fr = c?FREQ[c.freq]||FREQ.quarterly:FREQ.quarterly;
+
+  // client-friendly key terms (note language)
+  const feeLoad = res ? (res.fees.structuring+res.fees.distribution+res.fees.hedging_reserve) : 0;
+  const issuerCell = c ? (c.issuer
+      ? html`${c.issuer} <span class="x">· ${c.issuerRating}</span>`
+      : html`<span style=${{color:"var(--neg)",fontWeight:500}}>— set issuer —</span>`) : "";
+  const costCell = showCoupon
+      ? html`pay 100% <span class="x">· est. value ${fmt(res&&res.fees.reoffer)}% · ~${fmt(feeLoad)}% embedded costs</span>`
+      : html`est. value ${money(res?res.pricing.price_pct/100*res.pricing.notional:0, c&&c.currency)} <span class="x">· ~${fmt(feeLoad)}% embedded costs</span>`;
+  const keyTerms = c? (rPart? [
+    {l:"Issuer",v:issuerCell},
+    {l:"Term",v:html`${c.tenorM} months <span class="x">· to ${longDate(c.maturity)}</span>`},
+    {l:"Underlying",v:c.tickers.join(" / ")},
+    {l:c.id==="sharkfin"?"Participation":"Upside participation",v:fmt(c.participation,2)+"×"},
+    {l:c.id==="sharkfin"?"Early end (knock-out)":"Downside buffer",v:c.id==="sharkfin"?pct0(c.ko)+" of start":"protected to −"+pct0(c.buffer)},
+    {l:"Maximum gain",v:c.cap?pct0(c.cap-1):"uncapped"},
+    {l:"Capital protection",v:c.id==="sharkfin"?"100% at maturity":"buffered −"+pct0(c.buffer)},
+    {l:"Currency",v:c.currency},
+    {l:"Notional",v:money(c.notional,c.currency)},
+    {l:"Your cost",v:costCell},
+  ] : [
+    {l:"Issuer",v:issuerCell},
+    {l:"Term",v:html`${c.tenorM} months <span class="x">· to ${longDate(c.maturity)}</span>`},
+    {l:"Underlying",v:c.tickers.join(" / ")+" (worst-of)"},
+    {l:"Coupon",v:html`${fmt(headCoupon*100,2)}% p.a. <span class="x">· ${c.freq}</span>`},
+    {l:"Coupon condition",v:c.id==="phoenix"?"worst ≥ "+pct0(c.couponBarrier):(c.id==="snowball"?"accrues while alive":"guaranteed while alive")},
+    {l:"Auto-call (early redemption)",v:html`${pct0(c.ac)} of start${c.stepDown>0?html` <span class="x">· drops ${pct0(c.stepDown)} each ${c.freqWord}, so it gets easier over time</span>`:""}`},
+    {l:"Protection barrier",v:pct0(c.ki)+" of start"},
+    {l:"Downside monitoring",v:c.kiStyle==="american"?"any trading day":"at maturity only"},
+    {l:"If barrier breached",v:c.settlement==="physical"?"delivery of shares":"cash, tracks the worst performer"},
+    {l:"Currency",v:c.currency},
+    {l:"Your cost",v:costCell},
+  ] ) : [];
+  // capital-protection banner + key-risk notes (plain language, honest)
+  const protNote = c ? (c.id==="sharkfin"
+      ? {tone:"ok", t:"Capital protected — 100% of your capital is returned at maturity. The trade-off is no coupon income."}
+      : c.id==="booster"
+        ? {tone:"warn", t:`Partial protection — the first ${pct0(c.buffer)} of any fall is absorbed. Beyond that you share the decline and can lose capital.`}
+        : {tone:"risk", t:`Not capital protected — if the worst performer falls below ${pct0(c.ki)} of its start, you can lose part or all of your capital (up to 100%).`}) : null;
+  const multi = c && c.tickers.length>1;
+  const keyNotes = c ? [
+    multi ? "All linked stocks must perform — your payout follows the worst performer, not the average."
+          : `Your return is linked to ${c.tickers[0]}’s performance.`,
+    `Unsecured claim on the issuer${c.issuer?" ("+c.issuer+")":""} — repayment depends on its solvency, not on the ${multi?"stocks":"stock"} alone.`,
+    `You give up the dividends on the linked ${multi?"stocks":"stock"} in exchange for the coupon.`,
+    "Early exit may be possible at the prevailing secondary-market price, which can be below 100%.",
+    "Indicative only — not tax advice; please consult your own adviser.",
+  ] : [];
+  // observation / coupon dates (client-side, from strike + frequency)
+  const obsDates = c && !rPart ? (function(){ const out=[]; const base=new Date(c.strikeDate+"T00:00:00");
+    for(let k=1;k*fr.m<=c.tenorM;k++) out.push(longDate(iso(addMonths(base,k*fr.m)))); return out; })() : [];
+
+  // income / outcome illustrations
+  const couponPerPeriod = c && !rPart ? c.notional*headCoupon/fr.n : 0;
+  const periodsOverTerm = c? Math.round(c.tenorM/fr.m):0;
+  const maxIncome = couponPerPeriod*periodsOverTerm;
+  const lossEnd = c?Math.max(0.05,c.ki-0.05):0;  // illustrative end level below the barrier
+
+  return html`
+  <div class="page">
+    <!-- ================= BUILD RAIL (note terms) ================= -->
+    <div class="col-build">
+      <div class="card">
+        <div class="card-h"><span class="t"><span class="step">1</span>Who is this note for?</span></div>
+        <div class="card-b">
+          <div class="fld"><label>Investor type</label>
+            <${Seg} value=${investor} onChange=${setInvestor} opts=${[{v:"PI",l:"Professional (PI)"},{v:"NPI",l:"Non-Professional"}]}/></div>
+          <div class="grid2">
+            <${Field} label="Issuer" hint="who you lend to"><input value=${issuer} onInput=${e=>setIssuer(e.target.value)} placeholder="e.g. J.P. Morgan"/><//>
+            <${Field} label="Issuer rating"><select value=${issuerRating} onChange=${e=>setIssuerRating(e.target.value)}>
+              ${["AAA","AA+","AA","AA-","A+","A","A-","BBB+","BBB"].map(x=>html`<option key=${x} value=${x}>${x}</option>`)}</select><//>
+          </div>
+          <div class="grid2">
+            <${Field} label="Custodian"><input value=${custodian} onInput=${e=>setCustodian(e.target.value)} placeholder="e.g. GSL EAM HK"/><//>
+            <${Field} label="Currency"><select value=${currency} onChange=${e=>setCurrency(e.target.value)}>
+              ${["USD","EUR","HKD","GBP","SGD","CHF","JPY","AUD","CNH"].map(x=>html`<option key=${x} value=${x}>${x}</option>`)}</select><//>
+          </div>
+          ${tplNames.length>0&&html`<div class="fld" style=${{marginBottom:0}}><label>Load saved template</label>
+            <select value="" onChange=${e=>{if(e.target.value)loadTemplate(e.target.value);}}>
+              <option value="">Select a template…</option>${tplNames.map(n=>html`<option key=${n} value=${n}>${n}</option>`)}</select></div>`}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><span class="t"><span class="step">2</span>Note type</span></div>
+        <div class="card-b"><div class="pills">${PRODUCTS.map(p=>html`
+          <button key=${p.id} class=${"pill"+(prod===p.id?" on":"")} onClick=${()=>setProd(p.id)}>${p.name}<span class="zh">${p.zh}</span></button>`)}</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><span class="t"><span class="step">3</span>Underlying & terms</span></div>
+        <div class="card-b">
+          <label>Linked stocks <span class="hint">worst-of basket · max 3 · prices taken live</span></label>
+          ${assets.map((a,i)=>html`<div class="urow" key=${i}>
+            <input value=${a.ticker} placeholder="AAPL" onInput=${e=>setAsset(i,"ticker",e.target.value.toUpperCase())}/>
+            <button class="iconbtn" title="Remove stock" disabled=${assets.length<=1} onClick=${()=>rmAsset(i)}>×</button>
+          </div>`)}
+          ${assets.length<3&&html`<button class="linkbtn" onClick=${addAsset}>+ Add stock</button>`}
+          <div class="sub" style=${{margin:"4px 0 14px"}}>Barriers are a % of each stock’s live price on the start date.</div>
+
+          <div class="grid2">
+            <${Field} label="Tenor"><select value=${tenorM} onChange=${e=>setTenorM(e.target.value)}>
+              ${TENORS.map(m=>html`<option key=${m} value=${m}>${m} months${m%12===0?" ("+(m/12)+"y)":""}</option>`)}</select><//>
+            <${Field} label="Notional"><div class="inwrap"><input type="number" value=${notional} onInput=${e=>setNotional(e.target.value)}/><span class="suf">${currency}</span></div><//>
+          </div>
+
+          ${part ? html`
+            <div class="grid2">
+              <${Field} label="Participation" suffix="×"><input type="number" step="0.1" value=${participation} onInput=${e=>setParticipation(e.target.value)}/><//>
+              <${Field} label="Maximum gain (cap)" hint="blank = none" suffix=${cap===""?"":"%"}><input type="number" step="5" placeholder="none" value=${cap===""?"":Math.round((cap-1)*100)} onInput=${e=>setCap(e.target.value===""?"":(1+(+e.target.value)/100))}/><//>
+            </div>
+            ${prod==="sharkfin"
+              ? html`<div class="grid2">
+                  <${Field} label="Early-end level" hint="% of start" suffix="%"><${PctInput} frac=${ko} onFrac=${setKo} step=${5}/><//>
+                  <${Field} label="Upside watched"><${Seg} value=${kiStyle} onChange=${setKiStyle} opts=${[{v:"american",l:"Any day"},{v:"european",l:"Maturity"}]}/><//>
+                </div>
+                <${Field} label="Rebate if early end" hint="coupon paid when knocked out" suffix="%"><${PctInput} frac=${couponFloor} onFrac=${setCouponFloor} step=${1}/><//>`
+              : html`<${Field} label="Downside buffer" hint="you bear losses only beyond this fall" suffix="%"><${PctInput} frac=${buffer} onFrac=${setBuffer} step=${5}/><//>`}
+          ` : html`
+            <${Field} label="Coupon / observation frequency"><select value=${freq} onChange=${e=>setFreq(e.target.value)}>
+              <option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="semiannual">Semi-annual</option></select><//>
+            <div class="grid2">
+              <${Field} label="Auto-call level" hint="% of start" suffix="%"><${PctInput} frac=${ac} onFrac=${setAc} step=${1}/><//>
+              ${(prod==="stepdown"||prod==="phoenix")
+                ? html`<${Field} label="Step-down / period" suffix="%"><${PctInput} frac=${stepDown} onFrac=${setStepDown} step=${0.5}/><//>`
+                : html`<${Field} label="Protection barrier" hint="% of start" suffix="%"><${PctInput} frac=${ki} onFrac=${setKi} step=${5}/><//>`}
+            </div>
+            ${(prod==="stepdown"||prod==="phoenix")&&html`<${Field} label="Protection barrier" hint="capital at risk below this" suffix="%"><${PctInput} frac=${ki} onFrac=${setKi} step=${5}/><//>`}
+            ${prod==="phoenix"&&html`<div class="grid2">
+              <${Field} label="Coupon barrier" hint="% of start" suffix="%"><${PctInput} frac=${couponBarrier} onFrac=${setCouponBarrier} step=${5}/><//>
+              <${Field} label="Memory coupon"><${Seg} value=${memory?"y":"n"} onChange=${v=>setMemory(v==="y")} opts=${[{v:"y",l:"Yes"},{v:"n",l:"No"}]}/><//>
+            </div>`}
+            <div class="grid2">
+              <${Field} label="Downside monitoring"><${Seg} value=${prod==="snowball"?"american":kiStyle} onChange=${prod==="snowball"?(()=>{}):onKi}
+                opts=${[{v:"american",l:"Any day"},{v:"european",l:"At maturity",disabled:prod==="snowball"}]}/><//>
+              <${Field} label="If barrier breached"><${Seg} value=${settlement} onChange=${setSettlement} opts=${[{v:"cash",l:"Cash"},{v:"physical",l:"Shares"}]}/><//>
+            </div>
+            ${(prod!=="snowball"&&kiStyle==="american")&&html`<div class="hint" style=${{display:"block",margin:"-4px 0 10px",color:"var(--warn)",lineHeight:1.5}}>⚠ Continuous monitoring: the coupon barely changes for barriers near 100% — the protection then behaves like a plain put. Switch to “At maturity” for stronger barrier sensitivity.</div>`}
+          `}
+
+          <details>
+            <summary>Pricing inputs (desk) <span class="chev">›</span></summary>
+            <div class="det-b">
+              <div class="det-note">Option-level market & model inputs used to price the note. Clients see note terms only — these don’t appear on the client quote.</div>
+              <div class="grid2">
+                <${Field} label="Data source"><select value=${source} onChange=${e=>setSource(e.target.value)}>
+                  <option value="manual">Manual / parametric</option><option value="live">Live · Massive</option></select><//>
+                <${Field} label="Risk-free rate" suffix="%"><input type="number" step="0.005" value=${rate} onInput=${e=>setRate(e.target.value)}/><//>
+              </div>
+              <div class="uhead" style=${{gridTemplateColumns:"1.4fr 1fr 1fr",marginTop:"2px"}}><span>Stock</span><span>Implied vol</span><span>Skew</span></div>
+              ${assets.map((a,i)=>html`<div class="urow" key=${i} style=${{gridTemplateColumns:"1.4fr 1fr 1fr"}}>
+                <input disabled value=${a.ticker||"–"}/>
+                <input type="number" step="0.01" value=${a.atm_vol} onInput=${e=>setAsset(i,"atm_vol",e.target.value)}/>
+                <input type="number" step="0.1" value=${a.skew_slope} onInput=${e=>setAsset(i,"skew_slope",e.target.value)}/>
+              </div>`)}
+              <div class="grid2" style=${{marginTop:"6px"}}>
+                ${assets.length>1?html`<${Field} label="Correlation ρ"><input type="number" step="0.05" value=${rho} onInput=${e=>setRho(e.target.value)}/><//>`:html`<div></div>`}
+                <${Field} label="Issuer spread" hint="bp" suffix="bp"><input type="number" step="10" value=${Math.round(issuerSpread*10000)} onInput=${e=>setIssuerSpread((+e.target.value)/10000)}/><//>
+              </div>
+              <${Field} label="MC paths"><input type="number" step="10000" value=${nPaths} onInput=${e=>setNPaths(e.target.value)}/><//>
+              <${Field} label="Vol model" hint="Dupire LV vs sticky-moneyness proxy"><${Seg} value=${localVol?"lv":"sticky"} onChange=${v=>setLocalVol(v==="lv")} opts=${[{v:"lv",l:"Local vol"},{v:"sticky",l:"Sticky"}]}/><//>
+              <div class="sub">${localVol?"Dupire local-vol Monte Carlo · institution-grade":"Sticky-moneyness proxy · faster, less accurate on skew dynamics"} · common-random-number Greeks · antithetic.</div>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><span class="t"><span class="step">4</span>Solve for</span></div>
+        <div class="card-b">
+          <${Seg} value=${part?"price":solveFor} onChange=${onSolve} opts=${[
+            {v:"coupon",l:"Fair coupon",disabled:part},{v:"price",l:"Issue price"}]}/>
+          <div style=${{marginTop:"12px"}}>
+            ${part ? html`<div class="solved"><span>Coupon</span><span>n/a · growth note</span></div>`
+              : solveFor==="coupon"
+                ? html`<div class="solved"><span>Coupon (p.a.)</span><span class="mono">→ solved at issue price</span></div>`
+                : html`<${Field} label="Target coupon (p.a.)" suffix="%"><input type="number" step="0.25" value=${couponInput} onInput=${e=>setCouponInput(e.target.value)}/><//>`}
+          </div>
+          <button class="btn primary" style=${{marginTop:"14px"}} disabled=${busy} onClick=${run}>
+            ${busy?html`<span class="spin"></span>${stage||"Pricing…"}`:"Get indicative quote"}</button>
+          ${err&&html`<div class="err">${err}</div>`}
+          ${notice&&html`<div class="info">${notice}</div>`}
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= INDICATIVE TERM SHEET ================= -->
+    <div class="col-out">
+      ${!res ? html`
+        <div class="card"><div class="empty">
+          <div class="ic"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1E50C8" stroke-width="1.8">
+            <path d="M3 13h4l3 7 4-14 3 7h4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <h3>Indicative term sheet will appear here</h3>
+          <p>Choose who the note is for, pick a note type, then set the term and barrier levels (as a % of each stock’s start price). Coupon notes also take a target coupon. Then select <b style=${{color:"var(--ink)"}}>Get indicative quote</b>.</p>
+        </div></div>
+      ` : html`
+        <div class="card">
+          <div class="terms-h">
+            <div class="lhs">
+              <span class="badge"><span class="d"></span>Indicative term sheet</span>
+              <div class="ctx">
+                <b>${c.tenorM}-month ${PRODUCTS.find(p=>p.id===c.id).name}</b> linked to worst-of <b>${c.tickers.join(" / ")}</b><br/>
+                For <b>${c.investor==="PI"?"Professional Investor":"Non-Professional"}</b>${c.custodian?html` · ${c.custodian}`:""}${rPart?"":html` · ${c.settlement==="physical"?"physical settlement":"cash settlement"}`}
+              </div>
+            </div>
+            <div class="head-val">
+              <div class="head-lbl">${showCoupon?"Indicative coupon":"Indicative issue price"}</div>
+              <div class="head-num">${fmt(headVal)}<span class="u">${headUnit}</span></div>
+              <div class="head-se">indicative — final terms set on trade date</div>
+              ${!rPart&&P?html`<div class="head-risk"><span style=${{color:"var(--neg)"}}>${pct0(P.prob_knock_in)} chance of capital loss</span> · ${pct0(P.prob_autocall)} called early</div>`:""}
+            </div>
+          </div>
+
+          <div class="summary">${summarize(c)}</div>
+
+          ${protNote&&html`<div class=${"protbar "+protNote.tone}>
+            <span class="i">${protNote.tone==="ok"?"✓":"⚠"}</span><span>${protNote.t}</span></div>`}
+
+          <div class="kgrid">${keyTerms.map((k,i)=>html`<div class="kt" key=${i}><div class="l">${k.l}</div><div class="v">${k.v}</div></div>`)}</div>
+
+          ${obsDates.length>0&&html`<div class="kdates">
+            <b>${obsDates.length}</b> observation/coupon dates (${c.freq}) — first <b>${obsDates[0]}</b>, last <b>${obsDates[obsDates.length-1]}</b>.</div>`}
+
+          <div class="illus">
+            ${!rPart ? html`
+              <div class="ibox up"><div class="l">▲ Potential income</div>
+                <div class="big">${money(couponPerPeriod,c.currency)}<span style=${{fontSize:"12px",color:"var(--mut)",fontWeight:400}}> / ${fr.word}</span></div>
+                <div class="d">Up to <b>${money(maxIncome,c.currency)}</b> over the full term if every coupon pays (${periodsOverTerm} ${fr.word}s). Coupon is ${c.id==="fcn"||c.id==="stepdown"?"paid while the note is alive":"conditional on the barrier"}.</div></div>
+              <div class="ibox dn"><div class="l">▼ Capital at risk</div>
+                <div class="big">below ${pct0(c.ki)} of start</div>
+                <div class="d">If the worst performer ends at <b>${pct0(lossEnd)}</b> of its start, you’d receive about <b>${money(c.notional*lossEnd,c.currency)}</b> (a <b>${pct0(1-lossEnd)}</b> loss). Above ${pct0(c.ki)} your capital is returned in full.</div></div>
+            ` : c.id==="sharkfin" ? html`
+              <div class="ibox up"><div class="l">▲ Upside</div>
+                <div class="big">${fmt(c.participation,2)}× the rise${c.cap?", max "+pct0(c.cap-1):""}</div>
+                <div class="d">If the worst performer is up <b>${pct0(c.cap?Math.min(0.15,c.cap-1):0.15)}</b> at maturity, you’d receive about <b>${money(c.notional*(1+c.participation*(c.cap?Math.min(0.15,c.cap-1):0.15)),c.currency)}</b>.</div></div>
+              <div class="ibox"><div class="l">● Capital protection</div>
+                <div class="big">100% at maturity</div>
+                <div class="d">Your <b>${money(c.notional,c.currency)}</b> is returned in full at maturity regardless of the stocks. The trade-off is no coupon income.</div></div>
+            ` : html`
+              <div class="ibox up"><div class="l">▲ Upside</div>
+                <div class="big">${fmt(c.participation,2)}× the rise${c.cap?", max "+pct0(c.cap-1):""}</div>
+                <div class="d">If the worst performer is up <b>10%</b>, you’d receive about <b>${money(c.notional*(1+c.participation*0.10),c.currency)}</b>.</div></div>
+              <div class="ibox dn"><div class="l">▼ Downside</div>
+                <div class="big">protected first −${pct0(c.buffer)}</div>
+                <div class="d">A fall of up to <b>${pct0(c.buffer)}</b> returns your capital in full. A <b>30%</b> fall would return about <b>${money(c.notional*(1-Math.max(0,0.30-c.buffer)),c.currency)}</b>.</div></div>
+            `}
+          </div>
+
+          <div class="pic">
+            <div><div class="capt">Where the worst performer may land</div>
+              <${BarrierLadder} ki=${pd.ki} strike=${1.0} ac=${ladderAc} neutral=${rPart}
+                hist=${P.wo_hist} pKI=${P.prob_knock_in} pAC=${rPart?null:P.prob_autocall}/></div>
+            <div><div class="capt">What you get back at maturity (${c.currency})</div><div ref=${chartRef}></div></div>
+          </div>
+          <div class="chips">
+            ${!rPart&&html`<div class="ochip"><div class="l">Chance of early redemption</div>
+              <div class="v" style=${{color:"var(--accent)"}}>${pct(P.prob_autocall,0)}</div><div class="x">note ends early at 100% of capital</div></div>`}
+            <div class="ochip"><div class="l">${kiLbl}</div>
+              <div class="v" style=${{color:"var(--neg)"}}>${pct(P.prob_knock_in,0)}</div><div class="x">${rPart?"":"protection barrier breached"}</div></div>
+            <div class="ochip"><div class="l">Expected holding period</div>
+              <div class="v">${Math.round(P.expected_life*12)}<span style=${{fontSize:"13px",color:"var(--mut)"}}> mo</span></div><div class="x">on average · up to ${c.tenorM} mo</div></div>
+          </div>
+          <div class="knotes"><div class="h">What to keep in mind</div>
+            <ul>${keyNotes.map((n,i)=>html`<li key=${i}>${n}</li>`)}</ul></div>
+        </div>
+
+        ${res.scenario_table&&html`<div class="card">
+          <div class="tcap">If the stocks move<span class="sub">how the note value reacts today (before any coupons)</span></div>
+          <table><thead><tr><th>Stocks move</th>
+            ${res.scenario_table.map((r,i)=>html`<th key=${i}>${r.shock>0?"+":""}${(r.shock*100).toFixed(0)}%</th>`)}</tr></thead>
+            <tbody>
+              <tr><td>Worth today</td>${res.scenario_table.map((r,i)=>html`<td key=${i} class="mono">${money(r.price_pct/100*c.notional,c.currency)}</td>`)}</tr>
+              <tr><td>Chance of capital loss</td>${res.scenario_table.map((r,i)=>html`<td key=${i} class="mono" style=${{color:"var(--neg)"}}>${(r.prob_knock_in*100).toFixed(0)}%</td>`)}</tr>
+            </tbody></table>
+        </div>`}
+
+        <div class="card">
+          <details>
+            <summary><span class="internal-h"><span class="tag-int">Desk only</span>Risk & analytics ${G?html`<span class="sub">Greeks · vega · diagnostics</span>`:html`<span class="sub">computing…</span>`}</span><span class="chev">›</span></summary>
+            <div class="det-b">
+              <div class="det-note">Internal hedging analytics — not part of the client term sheet.</div>
+              ${G?html`
+                <table><thead><tr><th>Stock</th><th>Δ +1%</th><th>Γ</th><th>Vega</th></tr></thead>
+                  <tbody>${res.product.tickers.map((t,i)=>html`<tr key=${i}>
+                    <td>${t}</td><td class="mono">${fmt(G.delta[i])}</td><td class="mono">${fmt(G.gamma[i])}</td>
+                    <td class="mono" style=${{color:"var(--neg)"}}>${fmt(G.vega[i])}</td></tr>`)}</tbody></table>
+                <div class="sub" style=${{margin:"10px 0",fontFamily:"var(--mono)",lineHeight:1.7}}>
+                  Rho ${fmt(G.rho,3)} · Carry ${fmt(G.carry||0,3)} · Corr ${fmt(G.corr_sens)} · θ ${fmt(G.theta,3)} · Skew-vega ${fmt(G.skew_vega||0)}</div>
+                ${G.bucketed_vega&&html`<table><thead><tr><th>Vega by moneyness</th>
+                  ${Object.keys(G.bucketed_vega).map((k,i)=>html`<th key=${i}>${k}</th>`)}</tr></thead>
+                  <tbody><tr><td>Basket</td>${Object.values(G.bucketed_vega).map((v,i)=>html`<td key=${i} class="mono" style=${{color:v<0?"var(--neg)":"var(--pos)"}}>${v.toFixed(1)}</td>`)}</tr></tbody></table>`}
+              `:html`<div class="sub">Greeks compute after the price and will appear here shortly.</div>`}
+              <div class="sub" style=${{marginTop:"12px",fontFamily:"var(--mono)",lineHeight:1.7}}>
+                ${fmt0(P.n_paths)} paths · ${P.method}${(c&&c.source==="live")?" · live Massive surfaces":" · parametric inputs"} · model s.e. ${(P.pv_se/P.notional*100).toFixed(3)}% of par</div>
+            </div>
+          </details>
+
+          <div class="foot">
+            <label>Internal remark <span class="hint">working copy only</span></label>
+            <div class="remark-wrap">
+              <textarea maxlength="200" value=${remark} placeholder="e.g. client prefers tech basket; indicative only — refresh before RFQ"
+                onInput=${e=>setRemark(e.target.value)}></textarea>
+              <span class="cc">${remark.length}/200</span>
+            </div>
+            <div class="foot-row">
+              <button class="btn ghost" disabled=${busy} onClick=${saveTemplate}>Save as template</button>
+              <button class="btn ghost" disabled=${busy} onClick=${openSheet}>Generate client quote sheet ↗</button>
+            </div>
+          </div>
+          <div class="disc">${res.disclaimer}</div>
+        </div>
+      `}
+    </div>
+  </div>`;
+}
+// ===================== Market Read (市场解读) =====================
+const SUIT_ORDER=["FCN","Phoenix","Snowball","SharkFin","Booster"];
+const tagClass = l => l==="favorable"?"tag-fav":(l==="neutral"?"tag-neu":"tag-unf");
+const fillColor = l => l==="favorable"?"var(--pos)":(l==="neutral"?"var(--warn)":"var(--neg)");
+
+function MarketReadView(){
+  const [source,setSource]=useState("live");
+  const [lang,setLang]=useState("en");
+  const [busy,setBusy]=useState(false);
+  const [stage,setStage]=useState(null);
+  const [err,setErr]=useState(null);
+  const [notice,setNotice]=useState(null);
+  const [data,setData]=useState(null);
+  const termRef=useRef(null);
+
+  const manualAssets=()=>[
+    {ticker:"SPY",spot:540,atm_vol:0.15,skew_slope:-0.6,skew_curv:0.8},
+    {ticker:"QQQ",spot:470,atm_vol:0.21,skew_slope:-0.7,skew_curv:0.9},
+  ];
+  async function attempt(src){
+    const body={indices:["SPY","QQQ"],source:src,rate:0.045,lang};
+    if(src==="manual") body.assets=manualAssets();
+    const {job_id}=await post("/jobs/market_read",body);
+    const j=await pollJob(job_id,jj=>setStage(jj.stage));
+    setData(j.partial);
+  }
+  async function run(){
+    setBusy(true);setErr(null);setNotice(null);setStage("reading");
+    try{
+      try{ await attempt(source); }
+      catch(e){
+        if(source==="live"){ await attempt("manual"); setSource("manual");
+          setNotice("Live market data unavailable ("+(""+(e.message||"error")).slice(0,80)+") — showing an illustrative read on parametric index vols."); }
+        else throw e;
+      }
+    }catch(e){setErr(""+e.message);}finally{setBusy(false);setStage(null);}
+  }
+  useEffect(()=>{ run(); },[]);
+
+  useEffect(()=>{
+    if(!data||!data.metrics||!termRef.current||!window.Plotly) return;
+    const idx=data.metrics.per_index||[];
+    const traces=idx.map(m=>({x:[1,3,12],y:[m.atm_1m*100,m.atm_3m*100,m.atm_1y*100],
+      mode:"lines+markers",name:m.ticker,line:{width:2},marker:{size:6}}));
+    Plotly.newPlot(termRef.current,traces,{
+      margin:{l:44,r:14,t:8,b:36},height:240,
+      xaxis:{title:{text:"tenor (months)",font:{size:10}},tickvals:[1,3,12],gridcolor:"#EEF1F6",zeroline:false},
+      yaxis:{title:{text:"ATM vol %",font:{size:10}},gridcolor:"#EEF1F6",zeroline:false},
+      legend:{orientation:"h",y:1.16,x:0},font:{family:"Inter",size:11,color:"#3A4658"},
+      paper_bgcolor:"transparent",plot_bgcolor:"transparent",colorway:["#1E50C8","#A9852F"]
+    },{displayModeBar:false,responsive:true});
+  },[data]);
+
+  const m=data&&data.metrics, suit=data&&data.suitability;
+  return html`<div class="wrap">
+    <div class="vhead">
+      <div>
+        <h1>Market Read <span style=${{color:"var(--mut)",fontWeight:400,fontSize:"14px"}}>市场解读</span></h1>
+        <p>How the index volatility surface (S&P 500 via SPY, Nasdaq-100 via QQQ) maps to structured-note conditions — the vol regime, its drivers, whether it suits issuing notes now, and which note family fits best.</p>
+      </div>
+      <div style=${{display:"flex",gap:"10px",alignItems:"center"}}>
+        <${Seg} value=${lang} onChange=${setLang} opts=${[{v:"en",l:"EN"},{v:"zh",l:"中文"}]}/>
+        <button class="btn primary" disabled=${busy} onClick=${run} style=${{width:"auto",padding:"10px 18px"}}>${busy?(stage||"Reading…"):"Refresh read"}</button>
+      </div>
+    </div>
+    ${notice&&html`<div class="banner">${notice}</div>`}
+    ${err&&html`<div class="banner err">${err}</div>`}
+    ${!m&&!err&&html`<div class="emptybox">${busy?"Reading the market…":"No data yet."}</div>`}
+    ${m&&html`<div>
+      <div class="mtiles">
+        <div class="mtile"><div class="k">Implied vol · 3M</div><div class="v">${pct0(m.vol_level)}</div><div class="s">avg SPY/QQQ ATM</div></div>
+        <div class="mtile"><div class="k">VIX proxy</div><div class="v">${fmt(m.vix_proxy,1)}</div><div class="s">SPY 30D ATM IV</div></div>
+        <div class="mtile"><div class="k">Put skew</div><div class="v">+${(m.skew*100).toFixed(1)}</div><div class="s">vol pts at 90%</div></div>
+        <div class="mtile"><div class="k">Term slope</div><div class="v">${(m.term_slope*100>=0?"+":"")+(m.term_slope*100).toFixed(1)}</div><div class="s">1Y − 1M vol pts</div></div>
+        <div class="mtile"><div class="k">Risk-free</div><div class="v">${pct(m.rate,1)}</div><div class="s">discounting</div></div>
+      </div>
+      <div class="read-grid">
+        <div class="card"><div class="card-h"><span class="t">Vol term structure</span></div>
+          <div class="card-b"><div ref=${termRef}></div></div></div>
+        <div class="card"><div class="card-h"><span class="t">Suitability by note family</span></div>
+          <div class="card-b">
+            ${SUIT_ORDER.filter(f=>suit&&suit[f]).map(f=>{ const v=suit[f]; return html`<div key=${f}>
+              <div class="suit-row">
+                <div class="fam">${f}</div>
+                <div class="track"><div class="fill" style=${{width:v.score+"%",background:fillColor(v.label)}}></div></div>
+                <div class="sc"><span>${v.score}</span><span class=${"suit-tag "+tagClass(v.label)}>${v.label}</span></div>
+              </div>
+              <ul class="drv">${(v.drivers||[]).map((dr,i)=>html`<li key=${i}>${dr}</li>`)}</ul>
+            </div>`; })}
+          </div></div>
+      </div>
+      <div class="narr">
+        <div class="src">Market read · ${data.narrative_source==="llm"?"AI-generated":"deterministic template"}${data.source==="manual"?" · parametric inputs":" · live"}</div>
+        ${data.narrative}
+      </div>
+      <div class="disc" style=${{marginTop:"14px"}}>Indicative only. Indices are ETF proxies; VIX is the SPY 30D ATM IV proxy. Accumulator (AQ) and other unmodelled products are not scored. Final terms are struck on the trade date.</div>
+    </div>`}
+  </div>`;
+}
+
+// ===================== Underlying Finder (标的推荐) =====================
+function FinderView({openInDesk}){
+  const [source,setSource]=useState("live");
+  const [tenorM,setTenorM]=useState(6);
+  const [freq,setFreq]=useState("quarterly");
+  const [protection,setProtection]=useState(0.70);
+  const [reoffer,setReoffer]=useState(0.977);
+  const [topN,setTopN]=useState(10);
+  const [rankBy,setRankBy]=useState("coupon");
+  const [kind,setKind]=useState("all");
+  const [minCoupon,setMinCoupon]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [stage,setStage]=useState(null);
+  const [err,setErr]=useState(null);
+  const [notice,setNotice]=useState(null);
+  const [data,setData]=useState(null);
+
+  const filters=()=>{ const f={}; if(kind!=="all") f.kind=kind; if(minCoupon!==""&&!isNaN(+minCoupon)) f.min_coupon=+minCoupon/100; return f; };
+  async function run(){
+    setBusy(true);setErr(null);setNotice(null);setStage("screening");setData(null);
+    const structure={product:"fcn",tenor_months:+tenorM,frequency:freq,protection_pct:+protection,reoffer_pct:+reoffer};
+    try{
+      let body;
+      if(source==="demo"){
+        body={source:"manual",rate:0.045,top_n:+topN,rank_by:rankBy,filters:filters(),structure,
+          tickers:DEMO_UNIVERSE.map(d=>d.ticker),
+          assets:DEMO_UNIVERSE.map(d=>({ticker:d.ticker,spot:100,atm_vol:d.atm,skew_slope:-0.5,skew_curv:0.5}))};
+      } else {
+        body={source:"live",rate:0.045,top_n:+topN,rank_by:rankBy,filters:filters(),structure,max_candidates:200};
+      }
+      const {job_id}=await post("/jobs/rank",body);
+      const j=await pollJob(job_id,jj=>setStage(jj.stage));
+      let res=j.partial;
+      if(source==="demo"&&res&&res.ranked){
+        const meta=Object.fromEntries(DEMO_UNIVERSE.map(d=>[d.ticker,d]));
+        res={...res,ranked:res.ranked.map(r=>({...r,name:(meta[r.ticker]||{}).name||r.name,sector:(meta[r.ticker]||{}).sector||r.sector,isEtf:((meta[r.ticker]||{}).sector==="ETF")||r.isEtf}))};
+      }
+      setData(res);
+    }catch(e){
+      setErr(""+e.message);
+      if(source==="live") setNotice("The live finder needs the Massive option-IV key (FINNHUB_API_KEY powers the universe). Switch the data source to “Demo” to preview the ranking on illustrative vols.");
+    }finally{setBusy(false);setStage(null);}
+  }
+  const sendToDesk=row=>{ if(!openInDesk) return;
+    openInDesk({prod:"fcn",tenorM:+tenorM,freq,ki:+protection,solveFor:"coupon",
+      assets:[{ticker:row.ticker,spot:100,atm_vol:row.iv_at_barrier||0.3,skew_slope:-0.5,skew_curv:0.5}]});
+  };
+
+  const d=data;
+  return html`<div class="wrap">
+    <div class="vhead">
+      <div>
+        <h1>Underlying Finder <span style=${{color:"var(--mut)",fontWeight:400,fontSize:"14px"}}>标的推荐</span></h1>
+        <p>Fix the note structure, then rank US single names and ETFs (market cap over US$20B) by the indicative coupon they would pay. A fast closed-form FCN screen (European / at-maturity protection, no autocall); open any name in the Quotation Desk for full Monte-Carlo pricing of richer structures.</p>
+      </div>
+    </div>
+    <div class="find-grid">
+      <div class="card"><div class="card-h"><span class="t">Screen settings</span></div>
+        <div class="card-b">
+          <div class="fld"><label>Data source</label>
+            <${Seg} value=${source} onChange=${setSource} opts=${[{v:"live",l:"Live (Massive + Finnhub)"},{v:"demo",l:"Demo"}]}/></div>
+          <div class="fld"><label>Note type</label>
+            <div class="pills">${PRODUCTS.map(p=>html`<button key=${p.id} class=${"pill"+(p.id==="fcn"?" on":"")} disabled=${p.id!=="fcn"} title=${p.id!=="fcn"?"Closed-form screen covers FCN; price this type in the Desk":""} onClick=${()=>p.id==="fcn"&&null}>${p.name}<span class="zh">${p.zh}</span></button>`)}</div>
+          </div>
+          <div class="grid2">
+            <${Field} label="Tenor"><select value=${tenorM} onChange=${e=>setTenorM(e.target.value)}>${TENORS.map(mo=>html`<option key=${mo} value=${mo}>${mo} months</option>`)}</select><//>
+            <${Field} label="Coupon frequency"><select value=${freq} onChange=${e=>setFreq(e.target.value)}>${Object.keys(FREQ).map(k=>html`<option key=${k} value=${k}>${k}</option>`)}</select><//>
+          </div>
+          <div class="grid2">
+            <${Field} label="Protection barrier" hint="% of start"><${PctInput} frac=${protection} onFrac=${setProtection} step=${1}/><//>
+            <${Field} label="Issue price" hint="% of par"><${PctInput} frac=${reoffer} onFrac=${setReoffer} step=${0.1}/><//>
+          </div>
+          <div class="grid2">
+            <${Field} label="Rank by"><select value=${rankBy} onChange=${e=>setRankBy(e.target.value)}>
+              <option value="coupon">Highest coupon</option>
+              <option value="prob_capital_at_risk">Lowest capital risk</option>
+              <option value="iv_at_barrier">Highest vol</option>
+              <option value="marketCap">Largest cap</option></select><//>
+            <${Field} label="Show top"><select value=${topN} onChange=${e=>setTopN(e.target.value)}>${[5,10,15,20].map(n=>html`<option key=${n} value=${n}>Top ${n}</option>`)}</select><//>
+          </div>
+          <div class="grid2">
+            <${Field} label="Universe"><select value=${kind} onChange=${e=>setKind(e.target.value)}>
+              <option value="all">Stocks + ETFs</option><option value="stock">Stocks only</option><option value="etf">ETFs only</option></select><//>
+            <${Field} label="Min coupon" hint="optional" suffix="%"><input type="number" step="1" placeholder="any" value=${minCoupon} onInput=${e=>setMinCoupon(e.target.value)}/><//>
+          </div>
+          <button class="btn primary" disabled=${busy} onClick=${run} style=${{marginTop:"6px"}}>${busy?(stage||"Ranking…"):"Rank underlyings"}</button>
+        </div>
+      </div>
+      <div class="card"><div class="card-h"><span class="t">Ranking${d?html` · ${d.ranked_count} of ${d.considered} priced`:""}</span></div>
+        <div class="card-b">
+          ${notice&&html`<div class="banner">${notice}</div>`}
+          ${err&&html`<div class="banner err">${err}</div>`}
+          ${!d&&!busy&&!err&&html`<div class="emptybox">Set the structure on the left, then click <b>Rank underlyings</b>.</div>`}
+          ${busy&&!d&&html`<div class="emptybox">${stage||"Ranking…"}</div>`}
+          ${d&&d.ranked&&d.ranked.length>0&&html`<table class="rank-table">
+            <thead><tr><th>#</th><th>Underlying</th><th>Name</th><th>Coupon p.a.</th><th>IV @ barrier</th><th>Capital at risk</th><th>Buffer</th><th></th></tr></thead>
+            <tbody>${d.ranked.map(r=>html`<tr key=${r.ticker}>
+              <td class="rk">${r.rank}</td>
+              <td class="tk">${r.ticker}${r.isEtf?html`<span class="etf-chip">ETF</span>`:""}</td>
+              <td style=${{color:"var(--mut)"}}>${r.name||r.sector}</td>
+              <td class="cpn">${pct(r.coupon,2)}</td>
+              <td>${pct0(r.iv_at_barrier)}</td>
+              <td>${pct0(r.prob_capital_at_risk)}</td>
+              <td>${pct0(r.buffer_pct)}</td>
+              <td><span class="open" onClick=${()=>sendToDesk(r)}>Open in Desk →</span></td>
+            </tr>`)}</tbody>
+          </table>`}
+          ${d&&d.ranked&&d.ranked.length===0&&html`<div class="emptybox">No names matched. Loosen the filters or widen the universe.</div>`}
+          ${d&&html`<div class="cov">Ranked ${d.ranked_count} of ${d.considered} priced (universe ${fmt0(d.universe_size)} names${d.skipped&&d.skipped.length?html` · ${d.skipped.length} skipped for missing live surfaces`:""}). ${d.source==="manual"?"Demo · illustrative vols.":"Live · Massive surfaces + Finnhub universe."} Indicative closed-form FCN screen; coupon solved at the issue price shown. Ranking uses market cap as a size/liquidity proxy; secondary-market and option-hedge liquidity are not modeled here — use the Options Desk for per-contract tradability.</div>`}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ===================== Equity Options Desk (个股期权) =====================
+// Single-name options analysis + fundamental-view→strategy advisor + blotter.
+// Reuses the async job runner (post/pollJob) and existing CSS tokens.
+
+const STRATEGY_FAMILIES = [
+  {name:"long_call", family:"directional", desc:"Long call — leveraged long delta"},
+  {name:"long_put", family:"directional", desc:"Long put — leveraged short delta"},
+  {name:"bull_call_spread", family:"directional", desc:"Debit spread; capped upside"},
+  {name:"bull_put_spread", family:"directional", desc:"Credit spread; bullish income"},
+  {name:"bear_call_spread", family:"directional", desc:"Credit spread; bearish income"},
+  {name:"bear_put_spread", family:"directional", desc:"Debit spread; capped downside"},
+  {name:"long_straddle", family:"volatility", desc:"Long ATM call+put; long gamma/vega"},
+  {name:"long_strangle", family:"volatility", desc:"Long OTM call+put; cheaper straddle"},
+  {name:"short_straddle", family:"volatility", desc:"Short ATM call+put; income, undefined risk"},
+  {name:"short_strangle", family:"volatility", desc:"Short OTM call+put; income, undefined risk"},
+  {name:"iron_condor", family:"volatility", desc:"Range-bound income; defined risk"},
+  {name:"calendar_spread", family:"volatility", desc:"Term-structure play; long far, short near"},
+  {name:"covered_call", family:"income", desc:"Long stock + short OTM call"},
+  {name:"cash_secured_put", family:"income", desc:"Short OTM put; income or assignment"},
+  {name:"protective_put", family:"hedging", desc:"Long stock + long put; insured downside"},
+  {name:"collar", family:"hedging", desc:"Long stock + put − call; zero-cost cap"},
+  {name:"risk_reversal", family:"hedging", desc:"Long call funded by short put"},
+  {name:"long_leaps_call", family:"leaps", desc:"Long-dated call; stock substitute"},
+];
+
+// ---- shared helpers ----
+const optPct = (x,d=1) => (x==null||isNaN(x))?"–":((x*100).toFixed(d)+"%");
+const optPts = (x,d=1) => (x==null||isNaN(x))?"–":(x>=0?"+":"")+((x*100).toFixed(d)+" pts");
+const optUsd = x => (x==null)?"∞":(x<0?"-$"+(-x).toFixed(0):"$"+x.toFixed(0));
+const optN0 = x => (x==null||isNaN(x))?"–":Number(x).toFixed(0);
+
+async function optPost(path, body){
+  const {job_id} = await post(path, body);
+  return pollJob(job_id);
+}
+async function blotterGet(path){
+  const r = await fetch(API+path);
+  if(!r.ok) throw new Error("blotter request failed ("+r.status+")");
+  return r.json();
+}
+async function blotterDelete(id){
+  const r = await fetch(API+"/blotter/"+id, {method:"DELETE"});
+  if(!r.ok) throw new Error("delete failed");
+  return r.json();
+}
+async function blotterAdd(strategy, valuation, notes, market){
+  // Send the market context so the server recomputes the valuation snapshot
+  // from the spec (valuation is only a fallback if recompute fails).
+  return post("/blotter", {...(market||{}), strategy, valuation, notes:notes||""});
+}
+
+// ---- Analyzer sub-view ----
+function OptionsAnalyzer({ticker, setTicker, marketBg, onSourceFallback, visible}){
+  const [busy,setBusy]=useState(false);
+  const [stage,setStage]=useState(null);
+  const [err,setErr]=useState(null);
+  const [notice,setNotice]=useState(null);
+  const [data,setData]=useState(null);
+  const termRef=useRef(null), skewRef=useRef(null);
+
+  async function attempt(src){
+    const j=await optPost("/jobs/options_analyze",{...marketBg, source:src, ticker});
+    setData(j.partial);
+  }
+  async function run(){
+    if(!ticker) return;
+    setBusy(true);setErr(null);setNotice(null);setStage("analysing…");
+    try{
+      try{ await attempt(marketBg.source); }
+      catch(e){
+        if(marketBg.source==="live"){
+          await attempt("manual");
+          setNotice("Live market data unavailable ("+(""+(e.message||"error")).slice(0,100)+") — showing an illustrative read on parametric vols. Switch the source dropdown to Manual to persist this.");
+          if(onSourceFallback) onSourceFallback();
+        } else throw e;
+      }
+    }catch(e){setErr(""+e.message);}finally{setBusy(false);setStage(null);}
+  }
+
+  useEffect(()=>{
+    if(!visible||!data||!data.analytics||!termRef.current||!window.Plotly) return;
+    const atm=data.analytics.atm_term||[];
+    Plotly.newPlot(termRef.current,[{
+      x:atm.map(p=>p[0]*12), y:atm.map(p=>p[1]*100),
+      mode:"lines+markers", line:{width:2,color:"#1E50C8"}, marker:{size:6},
+    }],{
+      margin:{l:44,r:14,t:8,b:36},height:220,
+      xaxis:{title:{text:"tenor (months)",font:{size:10}},gridcolor:"#EEF1F6"},
+      yaxis:{title:{text:"ATM vol %",font:{size:10}},gridcolor:"#EEF1F6"},
+      font:{family:"Inter",size:11,color:"#3A4658"},
+      paper_bgcolor:"transparent",plot_bgcolor:"transparent",
+    },{displayModeBar:false,responsive:true});
+    const el=termRef.current;
+    return ()=>{ if(el&&window.Plotly) Plotly.purge(el); };
+  },[data,visible]);
+
+  useEffect(()=>{
+    if(!visible||!data||!data.analytics||!skewRef.current||!window.Plotly) return;
+    const w=data.analytics.wing_marks||{};
+    const labels=["10Δ put","25Δ put","ATM","25Δ call","10Δ call"];
+    const vals=[w["10Δ_put"],w["25Δ_put"],w["ATM"],w["25Δ_call"],w["10Δ_call"]].map(v=>v==null?null:v*100);
+    Plotly.newPlot(skewRef.current,[{
+      x:labels, y:vals, type:"bar", marker:{color:["#CF3F38","#E4796E","#1E50C8","#7AA5E8","#A8C5F0"]},
+    }],{
+      margin:{l:44,r:14,t:8,b:36},height:220,
+      yaxis:{title:{text:"IV %",font:{size:10}},gridcolor:"#EEF1F6"},
+      font:{family:"Inter",size:11,color:"#3A4658"},
+      paper_bgcolor:"transparent",plot_bgcolor:"transparent",
+    },{displayModeBar:false,responsive:true});
+    const el=skewRef.current;
+    return ()=>{ if(el&&window.Plotly) Plotly.purge(el); };
+  },[data,visible]);
+
+  const a = data&&data.analytics;
+  return html`
+    <div class="vhead" style=${{marginBottom:"14px"}}>
+      <div>
+        <h2 style=${{margin:0}}>Vol Surface Analyzer <span style=${{color:"var(--mut)",fontWeight:400,fontSize:"13px"}}>波动率曲面分析</span></h2>
+        <p style=${{margin:"4px 0 0",color:"var(--mut)",fontSize:"12px"}}>Live IV surface, term structure, skew, RR/BF, IV–RV gap, vol regime.</p>
+      </div>
+      <button class="btn primary" disabled=${busy||!ticker} onClick=${run} style=${{width:"auto",padding:"9px 18px"}}>${busy?(stage||"Analysing…"):"Analyze"}</button>
+    </div>
+    ${err&&html`<div class="banner err">${err}</div>`}
+    ${notice&&html`<div class="banner">${notice}</div>`}
+    ${a?html`
+      <div class="mtiles">
+        <div class="mtile"><div class="k">IV · 1M ATM</div><div class="v">${optPct(a.iv_1m_atm)}</div><div class="s">surface ATM</div></div>
+        <div class="mtile"><div class="k">Vol regime</div><div class="v" style=${{textTransform:"capitalize",fontSize:"20px"}}>${a.vol_regime}</div><div class="s">${a.vol_1y_percentile==null?"":a.vol_1y_percentile.toFixed(0)+" percentile"}</div></div>
+        <div class="mtile"><div class="k">Term structure</div><div class="v" style=${{textTransform:"capitalize",fontSize:"20px"}}>${a.term_structure}</div><div class="s">${optPts(a.term_slope_1y_1m)} (1Y−1M)</div></div>
+        <div class="mtile"><div class="k">Put skew</div><div class="v">+${(a.skew_90_3m*100).toFixed(1)}</div><div class="s">vol pts at 90%</div></div>
+        <div class="mtile"><div class="k">RR · 25Δ</div><div class="v">${optPts(a.risk_reversal_25d_3m)}</div><div class="s">call − put</div></div>
+        <div class="mtile"><div class="k">IV − RV</div><div class="v">${a.iv_rv_gap==null?"–":optPts(a.iv_rv_gap)}</div><div class="s">21d realized</div></div>
+        ${data.liquidity&&html`<div class="mtile"><div class="k">Option liquidity</div><div class="v">${optN0(data.liquidity.median_score)}<span style=${{fontSize:"12px",color:"var(--mut)"}}>/100</span></div><div class="s">${data.liquidity.pct_tradable==null?"":data.liquidity.pct_tradable+"% tradable · "+(data.liquidity.source==="quoted"?"live quotes":"modeled")}</div></div>`}
+      </div>
+      ${data.liquidity&&data.liquidity.source==="modeled"&&html`<div class="disc" style=${{marginTop:"8px"}}>Liquidity is <b>modeled</b> from moneyness/maturity (manual mode) — switch to Live for real bid/ask, open interest and volume.</div>`}
+      <div class="read-grid" style=${{marginTop:"14px"}}>
+        <div class="card"><div class="card-h"><span class="t">ATM term structure</span></div>
+          <div class="card-b"><div ref=${termRef}></div></div></div>
+        <div class="card"><div class="card-h"><span class="t">3M skew by delta</span></div>
+          <div class="card-b"><div ref=${skewRef}></div></div></div>
+      </div>
+      <div class="card" style=${{marginTop:"14px"}}>
+        <div class="card-h"><span class="t">Realized vol</span></div>
+        <div class="card-b">
+          <div style=${{display:"flex",gap:"24px",fontSize:"13px"}}>
+            <span>21d: <b class="mono">${a.realized_21d==null?"–":optPct(a.realized_21d)}</b></span>
+            <span>63d: <b class="mono">${a.realized_63d==null?"–":optPct(a.realized_63d)}</b></span>
+            <span>1Y percentile: <b class="mono">${a.vol_1y_percentile==null?"–":a.vol_1y_percentile.toFixed(0)}</b></span>
+          </div>
+        </div>
+      </div>
+      ${(()=>{
+        const live=data.source==="live", as=data.analytics_source;
+        const degraded=live&&as==="parametric";
+        const lbl=!live?"parametric inputs (manual mode)"
+          :as==="parametric"?"a synthetic parametric surface (live chain too sparse)"
+          :as==="live-history"?"the live Massive option chain + realized-vol history"
+          :"the live Massive option chain";
+        return html`<div class="disc" style=${{marginTop:"14px"}}>${degraded?html`<b style=${{color:"var(--neg)"}}>Live chain too sparse — fell back to synthetic parametric vols (not live marks).</b> `:""}Indicative only. Surface from ${lbl}. Probabilities are risk-neutral BS estimates.</div>`;
+      })()}
+    `:html`<div class="emptybox">${busy?(stage||"Analysing…"):"Enter a ticker and click Analyze."}</div>`}
+  `;
+}
+
+// ---- Advisor sub-view ----
+function OptionsAdvisor({ticker, setTicker, marketBg, onAddToBlotter, onSourceFallback, visible}){
+  const [direction,setDirection]=useState("bullish");
+  const [horizon,setHorizon]=useState("months");
+  const [conviction,setConviction]=useState(4);
+  const [volView,setVolView]=useState("stable");
+  const [holding,setHolding]=useState(0);
+  const [riskBudget,setRiskBudget]=useState(5.0);
+  const [lang,setLang]=useState("zh");
+  const [busy,setBusy]=useState(false);
+  const [stage,setStage]=useState(null);
+  const [err,setErr]=useState(null);
+  const [notice,setNotice]=useState(null);
+  const [data,setData]=useState(null);
+
+  async function attempt(src){
+    const j=await optPost("/jobs/options_advise",{
+      ...marketBg, source:src, ticker, direction, horizon, conviction:Number(conviction),
+      vol_view:volView, holding_shares:Number(holding), risk_budget_pct:Number(riskBudget), language:lang,
+    });
+    setData(j.partial);
+  }
+  async function run(){
+    if(!ticker) return;
+    setBusy(true);setErr(null);setNotice(null);setStage("advising…");
+    try{
+      try{ await attempt(marketBg.source); }
+      catch(e){
+        if(marketBg.source==="live"){
+          await attempt("manual");
+          setNotice("Live data unavailable — advising on parametric inputs.");
+          if(onSourceFallback) onSourceFallback();
+        } else throw e;
+      }
+    }catch(e){setErr(""+e.message);}finally{setBusy(false);setStage(null);}
+  }
+
+  return html`
+    <div class="vhead" style=${{marginBottom:"14px"}}>
+      <div>
+        <h2 style=${{margin:0}}>View Advisor <span style=${{color:"var(--mut)",fontWeight:400,fontSize:"13px"}}>基本面观点 → 策略推荐</span></h2>
+        <p style=${{margin:"4px 0 0",color:"var(--mut)",fontSize:"12px"}}>Map a fundamental view to a ranked short-list of fully-valued option strategies with LLM rationale.</p>
+      </div>
+      <div style=${{display:"flex",gap:"8px",alignItems:"center"}}>
+        <${Seg} value=${lang} onChange=${setLang} opts=${[{v:"zh",l:"中文"},{v:"en",l:"EN"}]}/>
+        <button class="btn primary" disabled=${busy||!ticker} onClick=${run} style=${{width:"auto",padding:"9px 18px"}}>${busy?(stage||"Advising…"):"Advise"}</button>
+      </div>
+    </div>
+    ${err&&html`<div class="banner err">${err}</div>`}
+    ${notice&&html`<div class="banner">${notice}</div>`}
+    <div class="card" style=${{marginBottom:"14px"}}>
+      <div class="card-b">
+        <div style=${{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:"12px"}}>
+          <div>
+            <label>Direction</label>
+            <select value=${direction} onChange=${e=>setDirection(e.target.value)}>
+              <option value="bullish">Bullish 看涨</option>
+              <option value="bearish">Bearish 看跌</option>
+              <option value="neutral">Neutral 中性</option>
+            </select>
+          </div>
+          <div>
+            <label>Horizon</label>
+            <select value=${horizon} onChange=${e=>setHorizon(e.target.value)}>
+              <option value="weeks">Weeks (30-60d)</option>
+              <option value="months">Months (90-180d)</option>
+              <option value="years">Years (365-730d)</option>
+            </select>
+          </div>
+          <div>
+            <label>Conviction (${conviction}/5)</label>
+            <input type="range" min="1" max="5" step="1" value=${conviction} onInput=${e=>setConviction(Number(e.target.value))}/>
+          </div>
+          <div>
+            <label>Vol view</label>
+            <select value=${volView} onChange=${e=>setVolView(e.target.value)}>
+              <option value="stable">Stable</option>
+              <option value="rising">Rising</option>
+              <option value="falling">Falling</option>
+              <option value="spiked">Spiked</option>
+              <option value="depressed">Depressed</option>
+            </select>
+          </div>
+          <div>
+            <label>Holding (shares)</label>
+            <input type="number" min="0" step="100" value=${holding} onInput=${e=>setHolding(e.target.value)}/>
+          </div>
+          <div>
+            <label>Risk budget %</label>
+            <input type="number" min="0.5" max="100" step="0.5" value=${riskBudget} onInput=${e=>setRiskBudget(e.target.value)}/>
+          </div>
+        </div>
+      </div>
+    </div>
+    ${data?html`
+      <div class="narr" style=${{marginBottom:"14px"}}>
+        <div class="src">Advisor · ${data.narrative_source==="llm"?"AI-generated":"deterministic template"} · ranked liquidity-adjusted (after slippage)</div>
+        ${data.narrative}
+      </div>
+      <div style=${{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(360px,1fr))",gap:"14px"}}>
+        ${(data.candidates||[]).map((c,i)=>html`
+          <div key=${i} class="card">
+            <div class="card-h">
+              <span class="t"><span class="step">${i+1}</span> ${c.name} <span style=${{color:"var(--mut)",fontWeight:400,fontSize:"11px"}}>fit ${c.fit_score}/100</span></span>
+              <span style=${{display:"flex",gap:"6px",alignItems:"center"}}>
+                ${c.valuation.liquidity&&c.valuation.liquidity.tradable===false&&html`<span class="suit-tag tag-unf" title="thinly traded">thin</span>`}
+                <span class="tag-neu suit-tag" style=${{textTransform:"capitalize"}}>${c.family}</span>
+              </span>
+            </div>
+            <div class="card-b">
+              <div style=${{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 14px",fontSize:"12px",marginBottom:"10px"}}>
+                <span>Net ${c.valuation.net_debit>=0?"debit":"credit"}: <b class="mono">${optUsd(Math.abs(c.valuation.net_debit))}</b></span>
+                <span>P(profit): <b class="mono">${(c.valuation.prob_profit*100).toFixed(0)}%</b></span>
+                <span>Max profit: <b class="mono">${c.valuation.max_profit==null?"∞":optUsd(c.valuation.max_profit)}</b></span>
+                <span>Max loss: <b class="mono">${c.valuation.max_loss==null?"∞":optUsd(c.valuation.max_loss)}</b></span>
+                <span>Δ: <b class="mono">${c.valuation.greeks.delta.toFixed(0)}</b></span>
+                <span>ν: <b class="mono">${c.valuation.greeks.vega.toFixed(0)}</b></span>
+                <span>Liquidity: <b class="mono">${c.valuation.liquidity?optN0(c.valuation.liquidity.score):"–"}/100</b></span>
+                <span>Slippage: <b class="mono">${optUsd(c.valuation.slippage)}</b></span>
+              </div>
+              ${c.rationale&&html`<p style=${{fontSize:"12px",color:"var(--ink-2)",margin:"6px 0 10px"}}>${c.rationale}</p>`}
+              <button class="btn" style=${{width:"auto",padding:"6px 14px",fontSize:"12px"}} onClick=${()=>onAddToBlotter(c.strategy, c.valuation, "From Advisor: "+c.name)}>Add to Blotter</button>
+            </div>
+          </div>
+        `)}
+      </div>
+      ${data.warnings&&data.warnings.length>0&&html`<div class="banner" style=${{marginTop:"14px"}}>${data.warnings.join(" · ")}</div>`}
+    `:html`<div class="emptybox">${busy?(stage||"Advising…"):"Configure your view and click Advise."}</div>`}
+  `;
+}
+
+// ---- Strategy Builder sub-view ----
+function StrategyBuilder({ticker, setTicker, marketBg, onAddToBlotter, visible}){
+  const [stratName,setStratName]=useState("long_call");
+  const [spot,setSpot]=useState(marketBg.spot||100);
+  const [strikePct,setStrikePct]=useState(1.0);
+  const [tenorDays,setTenorDays]=useState(180);
+  const [qty,setQty]=useState(1);
+  const [busy,setBusy]=useState(false);
+  const [err,setErr]=useState(null);
+  const [val,setVal]=useState(null);
+  const payoffRef=useRef(null);
+  // Spot is seeded from the desk's market spot on mount and then user-owned —
+  // we deliberately do NOT re-sync on every desk-spot change, so a Builder spot
+  // typed to stress a strike isn't clobbered mid-edit.
+
+  async function build(){
+    if(!ticker) return;
+    setBusy(true);setErr(null);
+    try{
+      const today=new Date();
+      const exp=new Date(today.getTime()+Number(tenorDays)*86400000).toISOString().slice(0,10);
+      const K=Number(spot)*Number(strikePct);
+      const strategy=_composeStrategy(stratName, ticker, Number(spot), exp, K, Number(qty));
+      if(!strategy){ throw new Error("unsupported strategy: "+stratName); }
+      try{
+        const j=await optPost("/jobs/strategy_build",{...marketBg, ticker, strategy});
+        setVal(j.partial);
+      }catch(e){
+        if(marketBg.source==="live"){
+          const j=await optPost("/jobs/strategy_build",{...marketBg, source:"manual", ticker, strategy});
+          setVal(j.partial);
+        } else throw e;
+      }
+    }catch(e){setErr(""+e.message);}finally{setBusy(false);}
+  }
+
+  useEffect(()=>{
+    if(!visible||!val||!val.payoff_at_expiry||!val.payoff_at_expiry.length||!payoffRef.current||!window.Plotly) return;
+    const x=val.payoff_at_expiry.map(p=>p[0]), y=val.payoff_at_expiry.map(p=>p[1]);
+    const traces=[{x, y, mode:"lines", line:{width:2,color:"#1E50C8"}, name:"P&L"}];
+    // Breakevens as full-height vertical reference lines (yref:'paper' spans the
+    // whole chart) + a zero P&L baseline, instead of degenerate zero-length lines.
+    const shapes=[{type:"line",xref:"paper",x0:0,x1:1,y0:0,y1:0,line:{color:"#94A3B8",width:1}}];
+    (val.breakevens||[]).forEach(b=>shapes.push(
+      {type:"line",x0:b,x1:b,yref:"paper",y0:0,y1:1,line:{color:"#A9852F",dash:"dot",width:1}}));
+    Plotly.newPlot(payoffRef.current, traces, {
+      margin:{l:50,r:14,t:8,b:36},height:260,
+      xaxis:{title:{text:"spot at expiry",font:{size:10}},gridcolor:"#EEF1F6"},
+      yaxis:{title:{text:"P&L ($)",font:{size:10}},gridcolor:"#EEF1F6"},
+      font:{family:"Inter",size:11,color:"#3A4658"},
+      paper_bgcolor:"transparent",plot_bgcolor:"transparent",
+      shapes,
+    },{displayModeBar:false,responsive:true});
+    const el=payoffRef.current;
+    return ()=>{ if(el&&window.Plotly) Plotly.purge(el); };
+  },[val,visible]);
+
+  return html`
+    <div class="vhead" style=${{marginBottom:"14px"}}>
+      <div>
+        <h2 style=${{margin:0}}>Strategy Builder <span style=${{color:"var(--mut)",fontWeight:400,fontSize:"13px"}}>策略构建器</span></h2>
+        <p style=${{margin:"4px 0 0",color:"var(--mut)",fontSize:"12px"}}>Pick a structure, set its parameters, and value it against the live chain. Strikes are moneyness × spot.</p>
+      </div>
+      <button class="btn primary" disabled=${busy||!ticker} onClick=${build} style=${{width:"auto",padding:"9px 18px"}}>${busy?"Building…":"Build & value"}</button>
+    </div>
+    ${err&&html`<div class="banner err">${err}</div>`}
+    <div class="card" style=${{marginBottom:"14px"}}>
+      <div class="card-b">
+        <div style=${{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",gap:"12px"}}>
+          <div>
+            <label>Strategy</label>
+            <select value=${stratName} onChange=${e=>setStratName(e.target.value)}>
+              ${STRATEGY_FAMILIES.map(f=>html`<option key=${f.name} value=${f.name}>${f.name} — ${f.desc}</option>`)}
+            </select>
+          </div>
+          <div>
+            <label>Spot</label>
+            <input type="number" min="1" step="0.5" value=${spot} onInput=${e=>setSpot(e.target.value)}/>
+          </div>
+          <div>
+            <label>Strike %</label>
+            <input type="number" min="0.5" max="1.5" step="0.01" value=${strikePct} onInput=${e=>setStrikePct(e.target.value)}/>
+          </div>
+          <div>
+            <label>Tenor (days)</label>
+            <input type="number" min="7" max="730" step="7" value=${tenorDays} onInput=${e=>setTenorDays(e.target.value)}/>
+          </div>
+          <div>
+            <label>Qty (contracts)</label>
+            <input type="number" min="1" max="100" step="1" value=${qty} onInput=${e=>setQty(e.target.value)}/>
+          </div>
+        </div>
+      </div>
+    </div>
+    ${val?html`
+      ${val.optimization&&val.optimization.recommended==="optimized"&&val.optimization.optimized.liquidity&&val.optimization.requested.liquidity&&html`<div class="banner" style=${{marginBottom:"12px",display:"flex",alignItems:"center",gap:"12px",flexWrap:"wrap"}}>
+        <span>💡 更易成交方案 / more fillable variant: ${(val.optimization.optimized.remaps||[]).map(r=>`${r.kind} ${Number(r.from_strike).toFixed(2)}→${Number(r.to_strike).toFixed(2)}`).join(", ")} · 滑点 ↓${optUsd(val.optimization.slippage_saved)} · 流动性 ${optN0(val.optimization.optimized.liquidity.score)}/100 vs ${optN0(val.optimization.requested.liquidity.score)}/100（你输入的行权价成交较稀薄）。</span>
+        ${val.optimization.optimized.strategy&&html`<button class="btn" style=${{width:"auto",padding:"5px 12px",fontSize:"12px",whiteSpace:"nowrap"}} onClick=${()=>onAddToBlotter(val.optimization.optimized.strategy, val.optimization.optimized.valuation, "Builder · liquidity-optimized")}>采用并入簿 Adopt</button>`}
+      </div>`}
+      <div class="read-grid">
+        <div class="card"><div class="card-h"><span class="t">Payoff at expiry</span></div>
+          <div class="card-b"><div ref=${payoffRef}></div></div></div>
+        <div class="card"><div class="card-h"><span class="t">Valuation</span></div>
+          <div class="card-b">
+            <div style=${{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 14px",fontSize:"13px",marginBottom:"12px"}}>
+              <span>Net ${val.net_debit>=0?"debit":"credit"}: <b class="mono">${optUsd(Math.abs(val.net_debit))}</b></span>
+              <span>P(profit): <b class="mono">${(val.prob_profit*100).toFixed(0)}%</b></span>
+              <span>Max profit: <b class="mono">${val.max_profit==null?"∞":optUsd(val.max_profit)}</b></span>
+              <span>Max loss: <b class="mono">${val.max_loss==null?"∞":optUsd(val.max_loss)}</b></span>
+              <span>Margin est: <b class="mono">${val.margin_estimate==null?"n/a":optUsd(val.margin_estimate)}</b></span>
+              <span>DTE: <b class="mono">${val.days_to_expiry}d</b></span>
+              <span>Slippage: <b class="mono">${optUsd(val.slippage)}</b></span>
+              <span>Liquidity: <b class="mono" style=${{color:(val.liquidity&&val.liquidity.tradable===false)?"var(--neg)":"inherit"}}>${val.liquidity?optN0(val.liquidity.score):"–"}/100${val.liquidity&&val.liquidity.tradable===false?" · thin":""}</b></span>
+            </div>
+            <div style=${{fontSize:"11px",color:"var(--mut)",textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:"4px"}}>Greeks</div>
+            <div style=${{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"4px 8px",fontSize:"12px"}}>
+              <span>Δ <b class="mono">${val.greeks.delta.toFixed(1)}</b></span>
+              <span>Γ <b class="mono">${val.greeks.gamma.toFixed(3)}</b></span>
+              <span>ν <b class="mono">${val.greeks.vega.toFixed(1)}</b></span>
+              <span>θ/d <b class="mono">${val.greeks.theta.toFixed(2)}</b></span>
+              <span>ρ <b class="mono">${val.greeks.rho.toFixed(1)}</b></span>
+              <span>vanna <b class="mono">${val.greeks.vanna.toFixed(2)}</b></span>
+              <span>vomma <b class="mono">${val.greeks.vomma.toFixed(1)}</b></span>
+            </div>
+            <button class="btn" style=${{width:"auto",padding:"6px 14px",fontSize:"12px",marginTop:"10px"}} onClick=${()=>{
+              // Re-compose strategy from current params (matches what was valued)
+              const today=new Date();
+              const exp=new Date(today.getTime()+Number(tenorDays)*86400000).toISOString().slice(0,10);
+              const K=Number(spot)*Number(strikePct);
+              const s=_composeStrategy(stratName, ticker, Number(spot), exp, K, Number(qty));
+              onAddToBlotter(s, val, "Builder: "+stratName);
+            }}>Add to Blotter</button>
+          </div></div>
+      </div>
+    `:html`<div class="emptybox">${busy?"Building…":"Pick a strategy and click Build."}</div>`}
+  `;
+}
+
+// Compose a StrategySpec payload for the builder. Supports the commonest
+// one- and two-leg structures; multi-wing (iron condor, etc.) use ATM±offsets.
+function _composeStrategy(name, ticker, spot, expiry, strike, qty){
+  const call=(k,q)=>({kind:"call",expiry,strike:k,quantity:q});
+  const put=(k,q)=>({kind:"put",expiry,strike:k,quantity:q});
+  const base={name, ticker, spot, option_legs:[]};
+  const setFam=(fam,tag)=>{base.family=fam;base.view_tag=tag;};
+  switch(name){
+    case "long_call": setFam("directional","bullish"); base.option_legs=[call(strike,qty)]; break;
+    case "long_put": setFam("directional","bearish"); base.option_legs=[put(strike,qty)]; break;
+    case "long_leaps_call": setFam("leaps","bullish"); base.option_legs=[call(strike,qty)]; break;
+    case "bull_call_spread": setFam("directional","bullish"); base.option_legs=[call(strike,qty),call(strike*1.1,-qty)]; break;
+    case "bull_put_spread": setFam("directional","bullish"); base.option_legs=[put(strike,-qty),put(strike*0.9,qty)]; break;
+    case "bear_call_spread": setFam("directional","bearish"); base.option_legs=[call(strike,-qty),call(strike*1.1,qty)]; break;
+    case "bear_put_spread": setFam("directional","bearish"); base.option_legs=[put(strike,qty),put(strike*0.9,-qty)]; break;
+    case "long_straddle": setFam("volatility","vol_up"); base.option_legs=[call(strike,qty),put(strike,qty)]; break;
+    case "long_strangle": setFam("volatility","vol_up"); base.option_legs=[call(strike*1.05,qty),put(strike*0.95,qty)]; break;
+    case "short_straddle": setFam("volatility","vol_down"); base.option_legs=[call(strike,-qty),put(strike,-qty)]; break;
+    case "short_strangle": setFam("volatility","vol_down"); base.option_legs=[call(strike*1.05,-qty),put(strike*0.95,-qty)]; break;
+    case "iron_condor": setFam("volatility","vol_down"); base.option_legs=[put(strike*0.85,qty),put(strike*0.95,-qty),call(strike*1.05,-qty),call(strike*1.15,qty)]; break;
+    case "calendar_spread": setFam("volatility","vol_up"); {
+      const far=new Date(new Date(expiry).getTime()+365*86400000).toISOString().slice(0,10);
+      base.option_legs=[{...call(strike,-qty),expiry}, {...call(strike,qty),expiry:far}]; break;
+    }
+    case "covered_call": setFam("income","neutral"); base.option_legs=[call(strike*1.05,-qty)]; base.stock_leg={quantity:100*qty,entry_price:spot}; break;
+    case "cash_secured_put": setFam("income","bullish"); base.option_legs=[put(strike*0.95,-qty)]; break;
+    case "protective_put": setFam("hedging","bullish"); base.option_legs=[put(strike*0.95,qty)]; base.stock_leg={quantity:100*qty,entry_price:spot}; break;
+    case "collar": setFam("hedging","bullish"); base.option_legs=[put(strike*0.95,qty),call(strike*1.05,-qty)]; base.stock_leg={quantity:100*qty,entry_price:spot}; break;
+    case "risk_reversal": setFam("hedging","bullish"); base.option_legs=[call(strike*1.05,qty),put(strike*0.95,-qty)]; break;
+    default: return null;
+  }
+  return base;
+}
+
+// ---- Blotter sub-view ----
+function OptionsBlotter({refreshKey}){
+  const [entries,setEntries]=useState([]);
+  const [agg,setAgg]=useState(null);
+  const [err,setErr]=useState(null);
+
+  const refresh=async()=>{
+    try{
+      const [list,g]=await Promise.all([blotterGet("/blotter"), blotterGet("/blotter/greeks")]);
+      setEntries(list.entries||[]);
+      setAgg(g);
+    }catch(e){setErr(""+e.message);}
+  };
+  useEffect(()=>{ refresh(); },[refreshKey]);
+
+  async function remove(id){
+    try{ await blotterDelete(id); await refresh(); }catch(e){setErr(""+e.message);}
+  }
+  async function markClosed(id){
+    try{ await fetch(API+"/blotter/"+id,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:"closed"})}); await refresh(); }catch(e){setErr(""+e.message);}
+  }
+
+  return html`
+    <div class="vhead" style=${{marginBottom:"14px"}}>
+      <div>
+        <h2 style=${{margin:0}}>Blotter <span style=${{color:"var(--mut)",fontWeight:400,fontSize:"13px"}}>头寸簿</span></h2>
+        <p style=${{margin:"4px 0 0",color:"var(--mut)",fontSize:"12px"}}>Persisted to ~/.fcn/blotter.json. Snapshot Greeks from entry; aggregate across open positions.</p>
+      </div>
+      <button class="btn" onClick=${refresh} style=${{width:"auto",padding:"8px 14px",fontSize:"12px"}}>Refresh</button>
+    </div>
+    ${err&&html`<div class="banner err">${err}</div>`}
+    ${agg&&html`
+      <div class="mtiles" style=${{marginBottom:"14px"}}>
+        <div class="mtile"><div class="k">Open positions</div><div class="v">${agg.n_positions}</div><div class="s">across ${(Object.keys(agg.by_underlying||{})).length} underlyings</div></div>
+        <div class="mtile"><div class="k">Net Δ</div><div class="v">${agg.delta.toFixed(0)}</div><div class="s">shares-equivalent</div></div>
+        <div class="mtile"><div class="k">Net ν</div><div class="v">${agg.vega.toFixed(0)}</div><div class="s">per 1.00 vol</div></div>
+        <div class="mtile"><div class="k">θ / day</div><div class="v">${agg.theta.toFixed(1)}</div><div class="s">dollars/day</div></div>
+        <div class="mtile"><div class="k">Notional</div><div class="v">$${(agg.notional_exposure||0).toFixed(0)}</div><div class="s">abs premium</div></div>
+        <div class="mtile"><div class="k">Current P&L</div><div class="v" style=${{color:agg.current_pnl==null?"var(--mut)":(agg.current_pnl>=0?"var(--pos)":"var(--neg)")}}>${agg.current_pnl==null?"n/a":optUsd(agg.current_pnl)}</div><div class="s">live reval needed</div></div>
+      </div>
+    `}
+    ${entries.length===0?html`<div class="emptybox">No blotter entries yet. Add one from the Advisor or Builder.</div>`:
+      html`<div class="card">
+        <div class="card-h"><span class="t">Entries</span></div>
+        <div class="card-b" style=${{padding:0}}>
+          <table class="rtable" style=${{width:"100%",borderCollapse:"collapse",fontSize:"12.5px"}}>
+            <thead><tr style=${{borderBottom:"1px solid var(--line)",color:"var(--mut)",textAlign:"left",fontWeight:500}}>
+              <th style=${{padding:"8px 10px"}}>When</th>
+              <th>Ticker</th>
+              <th>Strategy</th>
+              <th>Family</th>
+              <th>Net ${"$/cr"}</th>
+              <th>Δ</th>
+              <th>ν</th>
+              <th>Liq</th>
+              <th>Status</th>
+              <th></th>
+            </tr></thead>
+            <tbody>
+              ${entries.map((e,i)=>html`<tr key=${e.id} style=${{borderBottom:"1px solid var(--line-2)"}}>
+                <td style=${{padding:"8px 10px",color:"var(--mut)"}}>${(e.ts||"").replace("T"," ").slice(0,16)}</td>
+                <td><b>${e.strategy.ticker}</b></td>
+                <td>${e.strategy.name}</td>
+                <td style=${{color:"var(--mut)"}}>${e.strategy.family}</td>
+                <td class="mono">${optN0(e.valuation_snapshot.net_debit)}</td>
+                <td class="mono">${optN0((e.valuation_snapshot.greeks||{}).delta)}</td>
+                <td class="mono">${optN0((e.valuation_snapshot.greeks||{}).vega)}</td>
+                <td class="mono" style=${{color:(e.valuation_snapshot.liquidity&&e.valuation_snapshot.liquidity.tradable===false)?"var(--neg)":"inherit"}}>${e.valuation_snapshot.liquidity?optN0(e.valuation_snapshot.liquidity.score):"–"}</td>
+                <td><span class=${"suit-tag "+(e.status==="open"?"tag-fav":"tag-neu")}>${e.status}</span></td>
+                <td style=${{display:"flex",gap:"6px"}}>
+                  ${e.status==="open"&&html`<button class="btn" style=${{width:"auto",padding:"3px 8px",fontSize:"11px"}} onClick=${()=>markClosed(e.id)}>Close</button>`}
+                  <button class="btn" style=${{width:"auto",padding:"3px 8px",fontSize:"11px",color:"var(--neg)"}} onClick=${()=>remove(e.id)}>Delete</button>
+                </td>
+              </tr>`)}
+            </tbody>
+          </table>
+        </div>
+      </div>`}
+  `;
+}
+
+// ---- Top-level Options Desk shell ----
+function OptionsDeskView(){
+  const [tab,setTab]=useState("analyzer");
+  const [ticker,setTicker]=useState("AAPL");
+  const [source,setSource]=useState("manual");
+  const [spot,setSpot]=useState(180);
+  const [atmVol,setAtmVol]=useState(0.30);
+  const [skewSlope,setSkewSlope]=useState(-0.4);
+  const [skewCurv,setSkewCurv]=useState(0.5);
+  const [refreshKey,setRefreshKey]=useState(0);
+
+  // Shared market-bg object handed to every sub-view.
+  const marketBg={
+    source, spot:Number(spot)||100, atm_vol:Number(atmVol)||0.30,
+    skew_slope:Number(skewSlope)||0, skew_curv:Number(skewCurv)||0.3,
+    rate:0.045, asof:"today",
+  };
+
+  const onAddToBlotter=async(strategy, valuation, notes)=>{
+    try{
+      await blotterAdd(strategy, valuation, notes, marketBg);
+      setTab("blotter");
+      setRefreshKey(k=>k+1);
+    }catch(e){ alert("Failed to add to blotter: "+e.message); }
+  };
+
+  const SUBTABS=[
+    {v:"analyzer", l:"Analyzer 分析"},
+    {v:"advisor", l:"Advisor 投顾"},
+    {v:"builder", l:"Builder 构建"},
+    {v:"blotter", l:"Blotter 头寸"},
+  ];
+
+  return html`<div class="wrap" style=${{maxWidth:"1320px"}}>
+    <div class="vhead" style=${{marginBottom:"14px"}}>
+      <div>
+        <h1 style=${{margin:0}}>Options Desk <span style=${{color:"var(--mut)",fontWeight:400,fontSize:"14px"}}>个股期权工作台</span></h1>
+        <p style=${{margin:"4px 0 0",color:"var(--mut)",fontSize:"12.5px"}}>Single-name equity options analysis, view-driven strategy advice, and a position blotter. Live via Massive; manual fallback for offline.</p>
+      </div>
+    </div>
+
+    <div class="card" style=${{marginBottom:"14px"}}>
+      <div class="card-b" style=${{padding:"12px 16px"}}>
+        <div style=${{display:"flex",gap:"14px",alignItems:"end",flexWrap:"wrap"}}>
+          <div>
+            <label>Ticker</label>
+            <input type="text" value=${ticker} onInput=${e=>setTicker(e.target.value.toUpperCase())} placeholder="AAPL" style=${{width:"100px"}}/>
+          </div>
+          <div>
+            <label>Source</label>
+            <select value=${source} onChange=${e=>setSource(e.target.value)}>
+              <option value="live">Live (Massive)</option>
+              <option value="manual">Manual (parametric)</option>
+            </select>
+          </div>
+          ${source==="manual"&&html`
+            <div>
+              <label>Spot</label>
+              <input type="number" min="1" step="0.5" value=${spot} onInput=${e=>setSpot(e.target.value)} style=${{width:"90px"}}/>
+            </div>
+            <div>
+              <label>ATM vol</label>
+              <input type="number" min="0.05" max="2.0" step="0.01" value=${atmVol} onInput=${e=>setAtmVol(e.target.value)} style=${{width:"80px"}}/>
+            </div>
+            <div>
+              <label>Skew slope</label>
+              <input type="number" step="0.1" value=${skewSlope} onInput=${e=>setSkewSlope(e.target.value)} style=${{width:"80px"}}/>
+            </div>
+            <div>
+              <label>Skew curv</label>
+              <input type="number" step="0.1" min="0" value=${skewCurv} onInput=${e=>setSkewCurv(e.target.value)} style=${{width:"80px"}}/>
+            </div>
+          `}
+          <div style=${{marginLeft:"auto"}}>
+            <${Seg} value=${tab} onChange=${setTab} opts=${SUBTABS}/>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sub-views stay mounted (display toggle) so switching tabs keeps each
+         view's inputs and job results; charts re-render when their tab is shown. -->
+    <div style=${{display:tab==="analyzer"?"block":"none"}}><${OptionsAnalyzer} key=${ticker+source} visible=${tab==="analyzer"} ticker=${ticker} setTicker=${setTicker} marketBg=${marketBg} onSourceFallback=${()=>setSource("manual")}/></div>
+    <div style=${{display:tab==="advisor"?"block":"none"}}><${OptionsAdvisor} key=${ticker+source} visible=${tab==="advisor"} ticker=${ticker} setTicker=${setTicker} marketBg=${marketBg} onAddToBlotter=${onAddToBlotter} onSourceFallback=${()=>setSource("manual")}/></div>
+    <div style=${{display:tab==="builder"?"block":"none"}}><${StrategyBuilder} key=${ticker+source} visible=${tab==="builder"} ticker=${ticker} setTicker=${setTicker} marketBg=${marketBg} onAddToBlotter=${onAddToBlotter}/></div>
+    <div style=${{display:tab==="blotter"?"block":"none"}}><${OptionsBlotter} refreshKey=${refreshKey}/></div>
+  </div>`;
+}
+
+// ===================== Root shell (shared nav) =====================
+function Root(){
+  const [view,setView]=useState("desk");
+  const [deskInit,setDeskInit]=useState(null);
+  const [nonce,setNonce]=useState(0);
+  const openInDesk=initObj=>{ setDeskInit(initObj); setNonce(n=>n+1); setView("desk"); };
+  const TABS=[{v:"desk",l:"Quotation Desk",zh:"报价台"},{v:"read",l:"Market Read",zh:"市场解读"},{v:"finder",l:"Underlying Finder",zh:"标的推荐"},{v:"options",l:"Options Desk",zh:"个股期权"}];
+  return html`
+    <header>
+      <div class="hbar">
+        <div class="brand">
+          <div class="mark">F</div><span class="nm">Fenny</span>
+          <span class="sep"></span>
+          <div class="nav">${TABS.map(t=>html`<button key=${t.v} class=${view===t.v?"on":""} onClick=${()=>setView(t.v)}>${t.l}<span class="zh">${t.zh}</span></button>`)}</div>
+        </div>
+        <div class="hr">
+          <span class="hstat">Pricing date <b>${iso(new Date())}</b></span>
+          <span class="live manual"><span class="d"></span>INDICATIVE</span>
+          <div class="who"><div class="ava">JM</div><div><div class="nm2">J. Ma</div><div class="ro">Structuring</div></div></div>
+        </div>
+      </div>
+    </header>
+    <div style=${{display:view==="desk"?"block":"none"}}><${DeskView} key=${nonce} init=${deskInit}/></div>
+    ${view==="read"?html`<${MarketReadView}/>`:""}
+    ${view==="finder"?html`<${FinderView} openInDesk=${openInDesk}/>`:""}
+    ${view==="options"?html`<${OptionsDeskView}/>`:""}
+  `;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(html`<${Root}/>`);
+</script>
+</body>
+</html>

@@ -1,0 +1,1388 @@
+[
+{
+"ticker": "NVDA",
+"name": "NVIDIA Corp",
+"sector": "Semiconductors",
+"marketCap": 4840967858390.0,
+"isEtf": false
+},
+{
+"ticker": "AAPL",
+"name": "Apple Inc",
+"sector": "Technology",
+"marketCap": 4322489143978.0,
+"isEtf": false
+},
+{
+"ticker": "GOOGL",
+"name": "Alphabet Inc",
+"sector": "Media",
+"marketCap": 4213980452800.0,
+"isEtf": false
+},
+{
+"ticker": "GOOG",
+"name": "Alphabet Inc",
+"sector": "Media",
+"marketCap": 4213980452800.0,
+"isEtf": false
+},
+{
+"ticker": "MSFT",
+"name": "Microsoft Corp",
+"sector": "Technology",
+"marketCap": 2777788795530.0,
+"isEtf": false
+},
+{
+"ticker": "AMZN",
+"name": "Amazon.com Inc",
+"sector": "Retail",
+"marketCap": 2518346803149.0,
+"isEtf": false
+},
+{
+"ticker": "AVGO",
+"name": "Broadcom Inc",
+"sector": "Semiconductors",
+"marketCap": 1808594089220.0,
+"isEtf": false
+},
+{
+"ticker": "TSLA",
+"name": "Tesla Inc",
+"sector": "Automobiles",
+"marketCap": 1433221652324.0,
+"isEtf": false
+},
+{
+"ticker": "META",
+"name": "Meta Platforms Inc",
+"sector": "Media",
+"marketCap": 1427101419733.0,
+"isEtf": false
+},
+{
+"ticker": "MU",
+"name": "Micron Technology Inc",
+"sector": "Semiconductors",
+"marketCap": 1186116803205.0,
+"isEtf": false
+},
+{
+"ticker": "LLY",
+"name": "Eli Lilly and Co",
+"sector": "Pharmaceuticals",
+"marketCap": 1042583020944.0,
+"isEtf": false
+},
+{
+"ticker": "WMT",
+"name": "Walmart Inc",
+"sector": "Retail",
+"marketCap": 963166320000.0,
+"isEtf": false
+},
+{
+"ticker": "JPM",
+"name": "JPMorgan Chase & Co",
+"sector": "Banking",
+"marketCap": 895331993801.0,
+"isEtf": false
+},
+{
+"ticker": "AMD",
+"name": "Advanced Micro Devices Inc",
+"sector": "Semiconductors",
+"marketCap": 847667722103.0,
+"isEtf": false
+},
+{
+"ticker": "INTC",
+"name": "Intel Corp",
+"sector": "Semiconductors",
+"marketCap": 664839291517.0,
+"isEtf": false
+},
+{
+"ticker": "SPY",
+"name": "SPY",
+"sector": "ETF",
+"marketCap": 620000000000.0,
+"isEtf": true
+},
+{
+"ticker": "VOO",
+"name": "VOO",
+"sector": "ETF",
+"marketCap": 600000000000.0,
+"isEtf": true
+},
+{
+"ticker": "XOM",
+"name": "Exxon Mobil Corp",
+"sector": "Energy",
+"marketCap": 588002200000.0,
+"isEtf": false
+},
+{
+"ticker": "JNJ",
+"name": "Johnson & Johnson",
+"sector": "Pharmaceuticals",
+"marketCap": 575517433460.0,
+"isEtf": false
+},
+{
+"ticker": "VTI",
+"name": "VTI",
+"sector": "ETF",
+"marketCap": 480000000000.0,
+"isEtf": true
+},
+{
+"ticker": "CSCO",
+"name": "Cisco Systems Inc",
+"sector": "Communications",
+"marketCap": 477504822975.0,
+"isEtf": false
+},
+{
+"ticker": "ORCL",
+"name": "Oracle Corp",
+"sector": "Technology",
+"marketCap": 475007760458.0,
+"isEtf": false
+},
+{
+"ticker": "AMAT",
+"name": "Applied Materials Inc",
+"sector": "Semiconductors",
+"marketCap": 465164934758.0,
+"isEtf": false
+},
+{
+"ticker": "LRCX",
+"name": "Lam Research Corp",
+"sector": "Semiconductors",
+"marketCap": 464374555800.0,
+"isEtf": false
+},
+{
+"ticker": "CAT",
+"name": "Caterpillar Inc",
+"sector": "Machinery",
+"marketCap": 453377397422.0,
+"isEtf": false
+},
+{
+"ticker": "ARM",
+"name": "Arm Holdings PLC",
+"sector": "Semiconductors",
+"marketCap": 433814081299.0,
+"isEtf": false
+},
+{
+"ticker": "COST",
+"name": "Costco Wholesale Corp",
+"sector": "Retail",
+"marketCap": 424710786206.0,
+"isEtf": false
+},
+{
+"ticker": "ABBV",
+"name": "AbbVie Inc",
+"sector": "Biotechnology",
+"marketCap": 414772278781.0,
+"isEtf": false
+},
+{
+"ticker": "BAC",
+"name": "Bank of America Corp",
+"sector": "Banking",
+"marketCap": 410963538477.0,
+"isEtf": false
+},
+{
+"ticker": "GE",
+"name": "General Electric Co",
+"sector": "Aerospace & Defense",
+"marketCap": 371918435185.0,
+"isEtf": false
+},
+{
+"ticker": "UNH",
+"name": "UnitedHealth Group Inc",
+"sector": "Health Care",
+"marketCap": 369514847162.0,
+"isEtf": false
+},
+{
+"ticker": "MS",
+"name": "Morgan Stanley",
+"sector": "Financial Services",
+"marketCap": 356513702935.0,
+"isEtf": false
+},
+{
+"ticker": "PG",
+"name": "Procter & Gamble Co",
+"sector": "Consumer products",
+"marketCap": 351292445986.0,
+"isEtf": false
+},
+{
+"ticker": "CVX",
+"name": "Chevron Corp",
+"sector": "Energy",
+"marketCap": 350481372140.0,
+"isEtf": false
+},
+{
+"ticker": "KO",
+"name": "Coca-Cola Co",
+"sector": "Beverages",
+"marketCap": 345532357998.0,
+"isEtf": false
+},
+{
+"ticker": "QQQ",
+"name": "QQQ",
+"sector": "ETF",
+"marketCap": 340000000000.0,
+"isEtf": true
+},
+{
+"ticker": "HD",
+"name": "Home Depot Inc",
+"sector": "Retail",
+"marketCap": 323514508225.0,
+"isEtf": false
+},
+{
+"ticker": "GS",
+"name": "Goldman Sachs Group Inc",
+"sector": "Financial Services",
+"marketCap": 322867914692.0,
+"isEtf": false
+},
+{
+"ticker": "KLAC",
+"name": "KLA Corp",
+"sector": "Semiconductors",
+"marketCap": 319371244754.0,
+"isEtf": false
+},
+{
+"ticker": "NFLX",
+"name": "Netflix Inc",
+"sector": "Media",
+"marketCap": 306630323552.0,
+"isEtf": false
+},
+{
+"ticker": "MRK",
+"name": "Merck & Co Inc",
+"sector": "Pharmaceuticals",
+"marketCap": 295391014349.0,
+"isEtf": false
+},
+{
+"ticker": "PLTR",
+"name": "Palantir Technologies Inc",
+"sector": "Technology",
+"marketCap": 279766344134.0,
+"isEtf": false
+},
+{
+"ticker": "PM",
+"name": "Philip Morris International Inc",
+"sector": "Tobacco",
+"marketCap": 278498875798.0,
+"isEtf": false
+},
+{
+"ticker": "DELL",
+"name": "Dell Technologies Inc",
+"sector": "Technology",
+"marketCap": 277321658870.0,
+"isEtf": false
+},
+{
+"ticker": "TXN",
+"name": "Texas Instruments Inc",
+"sector": "Semiconductors",
+"marketCap": 276995854083.0,
+"isEtf": false
+},
+{
+"ticker": "WFC",
+"name": "Wells Fargo & Co",
+"sector": "Banking",
+"marketCap": 260269120000.0,
+"isEtf": false
+},
+{
+"ticker": "RTX",
+"name": "RTX Corp",
+"sector": "Aerospace & Defense",
+"marketCap": 251008312061.0,
+"isEtf": false
+},
+{
+"ticker": "IBM",
+"name": "International Business Machines Corp",
+"sector": "Technology",
+"marketCap": 249013200376.0,
+"isEtf": false
+},
+{
+"ticker": "C",
+"name": "Citigroup Inc",
+"sector": "Banking",
+"marketCap": 248610132903.0,
+"isEtf": false
+},
+{
+"ticker": "MRVL",
+"name": "Marvell Technology Inc",
+"sector": "Semiconductors",
+"marketCap": 244104176978.0,
+"isEtf": false
+},
+{
+"ticker": "PANW",
+"name": "Palo Alto Networks Inc",
+"sector": "Technology",
+"marketCap": 237095719948.0,
+"isEtf": false
+},
+{
+"ticker": "LIN",
+"name": "Linde PLC",
+"sector": "Chemicals",
+"marketCap": 236971239076.0,
+"isEtf": false
+},
+{
+"ticker": "AXP",
+"name": "American Express Co",
+"sector": "Financial Services",
+"marketCap": 230476221795.0,
+"isEtf": false
+},
+{
+"ticker": "QCOM",
+"name": "Qualcomm Inc",
+"sector": "Semiconductors",
+"marketCap": 215153014082.0,
+"isEtf": false
+},
+{
+"ticker": "ANET",
+"name": "Arista Networks Inc",
+"sector": "Communications",
+"marketCap": 204242664819.0,
+"isEtf": false
+},
+{
+"ticker": "TMUS",
+"name": "T-Mobile US Inc",
+"sector": "Telecommunication",
+"marketCap": 199742520970.0,
+"isEtf": false
+},
+{
+"ticker": "ADI",
+"name": "Analog Devices Inc",
+"sector": "Semiconductors",
+"marketCap": 198371071228.0,
+"isEtf": false
+},
+{
+"ticker": "VZ",
+"name": "Verizon Communications Inc",
+"sector": "Telecommunication",
+"marketCap": 195123870000.0,
+"isEtf": false
+},
+{
+"ticker": "PEP",
+"name": "PepsiCo Inc",
+"sector": "Beverages",
+"marketCap": 194149465117.0,
+"isEtf": false
+},
+{
+"ticker": "MCD",
+"name": "McDonald's Corp",
+"sector": "Hotels, Restaurants & Leisure",
+"marketCap": 193016026120.0,
+"isEtf": false
+},
+{
+"ticker": "AMGN",
+"name": "Amgen Inc",
+"sector": "Biotechnology",
+"marketCap": 187284161173.0,
+"isEtf": false
+},
+{
+"ticker": "TJX",
+"name": "TJX Companies Inc",
+"sector": "Retail",
+"marketCap": 181558177254.0,
+"isEtf": false
+},
+{
+"ticker": "NEE",
+"name": "Nextera Energy Inc",
+"sector": "Utilities",
+"marketCap": 180236074237.0,
+"isEtf": false
+},
+{
+"ticker": "DIS",
+"name": "Walt Disney Co",
+"sector": "Media",
+"marketCap": 179781014973.0,
+"isEtf": false
+},
+{
+"ticker": "TMO",
+"name": "Thermo Fisher Scientific Inc",
+"sector": "Life Sciences Tools & Services",
+"marketCap": 174420535904.0,
+"isEtf": false
+},
+{
+"ticker": "CRWD",
+"name": "CrowdStrike Holdings Inc",
+"sector": "Technology",
+"marketCap": 173338277409.0,
+"isEtf": false
+},
+{
+"ticker": "BA",
+"name": "Boeing Co",
+"sector": "Aerospace & Defense",
+"marketCap": 170832994395.0,
+"isEtf": false
+},
+{
+"ticker": "BLK",
+"name": "BlackRock Inc",
+"sector": "Financial Services",
+"marketCap": 165337254814.0,
+"isEtf": false
+},
+{
+"ticker": "SCHW",
+"name": "Charles Schwab Corp",
+"sector": "Financial Services",
+"marketCap": 162035252203.0,
+"isEtf": false
+},
+{
+"ticker": "DE",
+"name": "Deere & Co",
+"sector": "Machinery",
+"marketCap": 159786774789.0,
+"isEtf": false
+},
+{
+"ticker": "UNP",
+"name": "Union Pacific Corp",
+"sector": "Road & Rail",
+"marketCap": 158788600000.0,
+"isEtf": false
+},
+{
+"ticker": "T",
+"name": "AT&T Inc",
+"sector": "Telecommunication",
+"marketCap": 158491612296.0,
+"isEtf": false
+},
+{
+"ticker": "ABT",
+"name": "Abbott Laboratories",
+"sector": "Health Care",
+"marketCap": 157686277861.0,
+"isEtf": false
+},
+{
+"ticker": "ETN",
+"name": "Eaton Corporation PLC",
+"sector": "Electrical Equipment",
+"marketCap": 157370218612.0,
+"isEtf": false
+},
+{
+"ticker": "APP",
+"name": "Applovin Corp",
+"sector": "Technology",
+"marketCap": 156890701188.0,
+"isEtf": false
+},
+{
+"ticker": "GILD",
+"name": "Gilead Sciences, Inc",
+"sector": "Biotechnology",
+"marketCap": 155258309933.0,
+"isEtf": false
+},
+{
+"ticker": "BX",
+"name": "Blackstone Inc",
+"sector": "Financial Services",
+"marketCap": 146667208427.0,
+"isEtf": false
+},
+{
+"ticker": "ISRG",
+"name": "Intuitive Surgical Inc",
+"sector": "Health Care",
+"marketCap": 142791378881.0,
+"isEtf": false
+},
+{
+"ticker": "UBER",
+"name": "Uber Technologies Inc",
+"sector": "Road & Rail",
+"marketCap": 141820182867.0,
+"isEtf": false
+},
+{
+"ticker": "HON",
+"name": "Honeywell International Inc",
+"sector": "Industrial Conglomerates",
+"marketCap": 140905448498.0,
+"isEtf": false
+},
+{
+"ticker": "PFE",
+"name": "Pfizer Inc",
+"sector": "Pharmaceuticals",
+"marketCap": 140890251485.0,
+"isEtf": false
+},
+{
+"ticker": "SHOP",
+"name": "Shopify Inc",
+"sector": "Technology",
+"marketCap": 139731453794.0,
+"isEtf": false
+},
+{
+"ticker": "PLD",
+"name": "Prologis Inc",
+"sector": "Real Estate",
+"marketCap": 138282506354.0,
+"isEtf": false
+},
+{
+"ticker": "COP",
+"name": "ConocoPhillips",
+"sector": "Energy",
+"marketCap": 133975781439.0,
+"isEtf": false
+},
+{
+"ticker": "BKNG",
+"name": "Booking Holdings Inc",
+"sector": "Hotels, Restaurants & Leisure",
+"marketCap": 130907963265.0,
+"isEtf": false
+},
+{
+"ticker": "CVS",
+"name": "CVS Health Corp",
+"sector": "Health Care",
+"marketCap": 129595934290.0,
+"isEtf": false
+},
+{
+"ticker": "CB",
+"name": "Chubb Limited",
+"sector": "Insurance",
+"marketCap": 128812225111.0,
+"isEtf": false
+},
+{
+"ticker": "DHR",
+"name": "Danaher Corp",
+"sector": "Life Sciences Tools & Services",
+"marketCap": 126669711366.0,
+"isEtf": false
+},
+{
+"ticker": "PGR",
+"name": "Progressive Corp",
+"sector": "Insurance",
+"marketCap": 126035526645.0,
+"isEtf": false
+},
+{
+"ticker": "CRM",
+"name": "Salesforce Inc",
+"sector": "Technology",
+"marketCap": 125650975913.0,
+"isEtf": false
+},
+{
+"ticker": "COF",
+"name": "Capital One Financial Corp",
+"sector": "Financial Services",
+"marketCap": 121854809550.0,
+"isEtf": false
+},
+{
+"ticker": "LOW",
+"name": "Lowe's Companies Inc",
+"sector": "Retail",
+"marketCap": 119733389078.0,
+"isEtf": false
+},
+{
+"ticker": "MO",
+"name": "Altria Group Inc",
+"sector": "Tobacco",
+"marketCap": 119580915039.0,
+"isEtf": false
+},
+{
+"ticker": "PH",
+"name": "Parker-Hannifin Corp",
+"sector": "Machinery",
+"marketCap": 119476941013.0,
+"isEtf": false
+},
+{
+"ticker": "SYK",
+"name": "Stryker Corp",
+"sector": "Health Care",
+"marketCap": 118841832923.0,
+"isEtf": false
+},
+{
+"ticker": "SPGI",
+"name": "S&P Global Inc",
+"sector": "Financial Services",
+"marketCap": 118447364259.0,
+"isEtf": false
+},
+{
+"ticker": "LMT",
+"name": "Lockheed Martin Corp",
+"sector": "Aerospace & Defense",
+"marketCap": 116127976845.0,
+"isEtf": false
+},
+{
+"ticker": "SBUX",
+"name": "Starbucks Corp",
+"sector": "Hotels, Restaurants & Leisure",
+"marketCap": 115166681821.0,
+"isEtf": false
+},
+{
+"ticker": "VRTX",
+"name": "Vertex Pharmaceuticals Inc",
+"sector": "Biotechnology",
+"marketCap": 115017000000.0,
+"isEtf": false
+},
+{
+"ticker": "BMY",
+"name": "Bristol-Myers Squibb Co",
+"sector": "Pharmaceuticals",
+"marketCap": 113396220264.0,
+"isEtf": false
+},
+{
+"ticker": "EQIX",
+"name": "Equinix Inc",
+"sector": "Real Estate",
+"marketCap": 110057756112.0,
+"isEtf": false
+},
+{
+"ticker": "GLD",
+"name": "GLD",
+"sector": "ETF",
+"marketCap": 110000000000.0,
+"isEtf": true
+},
+{
+"ticker": "FTNT",
+"name": "Fortinet Inc",
+"sector": "Technology",
+"marketCap": 108431959262.0,
+"isEtf": false
+},
+{
+"ticker": "SO",
+"name": "Southern Co",
+"sector": "Utilities",
+"marketCap": 107014698278.0,
+"isEtf": false
+},
+{
+"ticker": "CDNS",
+"name": "Cadence Design Systems Inc",
+"sector": "Technology",
+"marketCap": 104550818866.0,
+"isEtf": false
+},
+{
+"ticker": "NEM",
+"name": "Newmont Corporation",
+"sector": "Metals & Mining",
+"marketCap": 104449362662.0,
+"isEtf": false
+},
+{
+"ticker": "MDT",
+"name": "Medtronic PLC",
+"sector": "Health Care",
+"marketCap": 103210047208.0,
+"isEtf": false
+},
+{
+"ticker": "MAR",
+"name": "Marriott International Inc",
+"sector": "Hotels, Restaurants & Leisure",
+"marketCap": 102002673062.0,
+"isEtf": false
+},
+{
+"ticker": "NOW",
+"name": "ServiceNow Inc",
+"sector": "Technology",
+"marketCap": 98943690200.0,
+"isEtf": false
+},
+{
+"ticker": "DUK",
+"name": "Duke Energy Corp",
+"sector": "Utilities",
+"marketCap": 97488501085.0,
+"isEtf": false
+},
+{
+"ticker": "PNC",
+"name": "PNC Financial Services Group Inc",
+"sector": "Banking",
+"marketCap": 95841434471.0,
+"isEtf": false
+},
+{
+"ticker": "GD",
+"name": "General Dynamics Corp",
+"sector": "Aerospace & Defense",
+"marketCap": 94742503741.0,
+"isEtf": false
+},
+{
+"ticker": "UPS",
+"name": "United Parcel Service Inc",
+"sector": "Logistics & Transportation",
+"marketCap": 93517690000.0,
+"isEtf": false
+},
+{
+"ticker": "HOOD",
+"name": "Robinhood Markets Inc",
+"sector": "Financial Services",
+"marketCap": 93059772698.0,
+"isEtf": false
+},
+{
+"ticker": "FCX",
+"name": "Freeport-McMoRan Inc",
+"sector": "Metals & Mining",
+"marketCap": 92578850826.0,
+"isEtf": false
+},
+{
+"ticker": "MNST",
+"name": "Monster Beverage Corp",
+"sector": "Beverages",
+"marketCap": 91629577238.0,
+"isEtf": false
+},
+{
+"ticker": "USB",
+"name": "US Bancorp",
+"sector": "Banking",
+"marketCap": 91414930000.0,
+"isEtf": false
+},
+{
+"ticker": "MCK",
+"name": "McKesson Corp",
+"sector": "Health Care",
+"marketCap": 89436856129.0,
+"isEtf": false
+},
+{
+"ticker": "SNPS",
+"name": "Synopsys Inc",
+"sector": "Technology",
+"marketCap": 88367705629.0,
+"isEtf": false
+},
+{
+"ticker": "ADP",
+"name": "Automatic Data Processing Inc",
+"sector": "Professional Services",
+"marketCap": 88141412007.0,
+"isEtf": false
+},
+{
+"ticker": "WM",
+"name": "Waste Management Inc",
+"sector": "Commercial Services & Supplies",
+"marketCap": 87780440000.0,
+"isEtf": false
+},
+{
+"ticker": "WMB",
+"name": "Williams Companies Inc",
+"sector": "Energy",
+"marketCap": 87419920000.0,
+"isEtf": false
+},
+{
+"ticker": "HCA",
+"name": "HCA Healthcare Inc",
+"sector": "Health Care",
+"marketCap": 85834252409.0,
+"isEtf": false
+},
+{
+"ticker": "ELV",
+"name": "Elevance Health Inc",
+"sector": "Health Care",
+"marketCap": 85800853494.0,
+"isEtf": false
+},
+{
+"ticker": "CSX",
+"name": "CSX Corp",
+"sector": "Road & Rail",
+"marketCap": 85771693780.0,
+"isEtf": false
+},
+{
+"ticker": "EFA",
+"name": "EFA",
+"sector": "ETF",
+"marketCap": 85000000000.0,
+"isEtf": true
+},
+{
+"ticker": "MMM",
+"name": "3M Co",
+"sector": "Industrial Conglomerates",
+"marketCap": 84410446110.0,
+"isEtf": false
+},
+{
+"ticker": "KKR",
+"name": "KKR & Co Inc",
+"sector": "Financial Services",
+"marketCap": 83951119792.0,
+"isEtf": false
+},
+{
+"ticker": "ABNB",
+"name": "Airbnb Inc",
+"sector": "Hotels, Restaurants & Leisure",
+"marketCap": 83685576319.0,
+"isEtf": false
+},
+{
+"ticker": "AMT",
+"name": "American Tower Corp",
+"sector": "Real Estate",
+"marketCap": 83571894783.0,
+"isEtf": false
+},
+{
+"ticker": "CMCSA",
+"name": "Comcast Corp",
+"sector": "Telecommunication",
+"marketCap": 81446809933.0,
+"isEtf": false
+},
+{
+"ticker": "EMR",
+"name": "Emerson Electric Co",
+"sector": "Electrical Equipment",
+"marketCap": 80172714089.0,
+"isEtf": false
+},
+{
+"ticker": "IBIT",
+"name": "IBIT",
+"sector": "ETF",
+"marketCap": 80000000000.0,
+"isEtf": true
+},
+{
+"ticker": "NET",
+"name": "Cloudflare Inc",
+"sector": "Technology",
+"marketCap": 79881311365.0,
+"isEtf": false
+},
+{
+"ticker": "SNOW",
+"name": "Snowflake Inc",
+"sector": "Technology",
+"marketCap": 79860106116.0,
+"isEtf": false
+},
+{
+"ticker": "SHW",
+"name": "Sherwin-Williams Co",
+"sector": "Chemicals",
+"marketCap": 79638640202.0,
+"isEtf": false
+},
+{
+"ticker": "DDOG",
+"name": "Datadog Inc (Pre-Reincorporation)",
+"sector": "Technology",
+"marketCap": 78514138846.0,
+"isEtf": false
+},
+{
+"ticker": "ADBE",
+"name": "Adobe Inc",
+"sector": "Technology",
+"marketCap": 78478422543.0,
+"isEtf": false
+},
+{
+"ticker": "MDLZ",
+"name": "Mondelez International Inc",
+"sector": "Food Products",
+"marketCap": 78379653373.0,
+"isEtf": false
+},
+{
+"ticker": "NXPI",
+"name": "NXP Semiconductors NV",
+"sector": "Semiconductors",
+"marketCap": 75726174826.0,
+"isEtf": false
+},
+{
+"ticker": "FDX",
+"name": "FedEx Corp",
+"sector": "Logistics & Transportation",
+"marketCap": 75695605244.0,
+"isEtf": false
+},
+{
+"ticker": "ECL",
+"name": "Ecolab Inc",
+"sector": "Chemicals",
+"marketCap": 75610997722.0,
+"isEtf": false
+},
+{
+"ticker": "ITW",
+"name": "Illinois Tool Works Inc",
+"sector": "Machinery",
+"marketCap": 75273830501.0,
+"isEtf": false
+},
+{
+"ticker": "XLK",
+"name": "XLK",
+"sector": "ETF",
+"marketCap": 75000000000.0,
+"isEtf": true
+},
+{
+"ticker": "CI",
+"name": "Cigna Group",
+"sector": "Health Care",
+"marketCap": 74883830964.0,
+"isEtf": false
+},
+{
+"ticker": "ROST",
+"name": "Ross Stores Inc",
+"sector": "Retail",
+"marketCap": 73474903751.0,
+"isEtf": false
+},
+{
+"ticker": "CL",
+"name": "Colgate-Palmolive Co",
+"sector": "Consumer products",
+"marketCap": 73161309027.0,
+"isEtf": false
+},
+{
+"ticker": "NOC",
+"name": "Northrop Grumman Corp",
+"sector": "Aerospace & Defense",
+"marketCap": 72894411707.0,
+"isEtf": false
+},
+{
+"ticker": "AEP",
+"name": "American Electric Power Company Inc",
+"sector": "Utilities",
+"marketCap": 72768609955.0,
+"isEtf": false
+},
+{
+"ticker": "MPC",
+"name": "Marathon Petroleum Corp",
+"sector": "Energy",
+"marketCap": 72552085588.0,
+"isEtf": false
+},
+{
+"ticker": "ORLY",
+"name": "O'Reilly Automotive Inc",
+"sector": "Retail",
+"marketCap": 72545716467.0,
+"isEtf": false
+},
+{
+"ticker": "VLO",
+"name": "Valero Energy Corp",
+"sector": "Energy",
+"marketCap": 72490200000.0,
+"isEtf": false
+},
+{
+"ticker": "KMI",
+"name": "Kinder Morgan Inc",
+"sector": "Energy",
+"marketCap": 72395827744.0,
+"isEtf": false
+},
+{
+"ticker": "EOG",
+"name": "EOG Resources Inc",
+"sector": "Energy",
+"marketCap": 71851582808.0,
+"isEtf": false
+},
+{
+"ticker": "SLB",
+"name": "SLB NV",
+"sector": "Energy",
+"marketCap": 71448804662.0,
+"isEtf": false
+},
+{
+"ticker": "INTU",
+"name": "Intuit Inc",
+"sector": "Technology",
+"marketCap": 70586216565.0,
+"isEtf": false
+},
+{
+"ticker": "SPG",
+"name": "Simon Property Group Inc",
+"sector": "Real Estate",
+"marketCap": 70284866040.0,
+"isEtf": false
+},
+{
+"ticker": "IWM",
+"name": "IWM",
+"sector": "ETF",
+"marketCap": 70000000000.0,
+"isEtf": true
+},
+{
+"ticker": "PSX",
+"name": "Phillips 66",
+"sector": "Energy",
+"marketCap": 68295274168.0,
+"isEtf": false
+},
+{
+"ticker": "NSC",
+"name": "Norfolk Southern Corp",
+"sector": "Road & Rail",
+"marketCap": 68139574891.0,
+"isEtf": false
+},
+{
+"ticker": "BSX",
+"name": "Boston Scientific Corp",
+"sector": "Health Care",
+"marketCap": 67777795475.0,
+"isEtf": false
+},
+{
+"ticker": "REGN",
+"name": "Regeneron Pharmaceuticals Inc",
+"sector": "Biotechnology",
+"marketCap": 64793663921.0,
+"isEtf": false
+},
+{
+"ticker": "APD",
+"name": "Air Products and Chemicals Inc",
+"sector": "Chemicals",
+"marketCap": 62896158930.0,
+"isEtf": false
+},
+{
+"ticker": "NKE",
+"name": "Nike Inc",
+"sector": "Textiles, Apparel & Luxury Goods",
+"marketCap": 62760000404.0,
+"isEtf": false
+},
+{
+"ticker": "TFC",
+"name": "Truist Financial Corp",
+"sector": "Banking",
+"marketCap": 61882821333.0,
+"isEtf": false
+},
+{
+"ticker": "TGT",
+"name": "Target Corp",
+"sector": "Retail",
+"marketCap": 60911570652.0,
+"isEtf": false
+},
+{
+"ticker": "SRE",
+"name": "Sempra",
+"sector": "Utilities",
+"marketCap": 60329057767.0,
+"isEtf": false
+},
+{
+"ticker": "D",
+"name": "Dominion Energy Inc",
+"sector": "Utilities",
+"marketCap": 60202632271.0,
+"isEtf": false
+},
+{
+"ticker": "TLT",
+"name": "TLT",
+"sector": "ETF",
+"marketCap": 58000000000.0,
+"isEtf": true
+},
+{
+"ticker": "O",
+"name": "Realty Income Corp",
+"sector": "Real Estate",
+"marketCap": 57376264809.0,
+"isEtf": false
+},
+{
+"ticker": "XLF",
+"name": "XLF",
+"sector": "ETF",
+"marketCap": 52000000000.0,
+"isEtf": true
+},
+{
+"ticker": "OXY",
+"name": "Occidental Petroleum Corp",
+"sector": "Energy",
+"marketCap": 51949770621.0,
+"isEtf": false
+},
+{
+"ticker": "AZO",
+"name": "Autozone Inc",
+"sector": "Retail",
+"marketCap": 49734543595.0,
+"isEtf": false
+},
+{
+"ticker": "EXC",
+"name": "Exelon Corp",
+"sector": "Utilities",
+"marketCap": 47701961590.0,
+"isEtf": false
+},
+{
+"ticker": "YUM",
+"name": "Yum! Brands Inc",
+"sector": "Hotels, Restaurants & Leisure",
+"marketCap": 43457190000.0,
+"isEtf": false
+},
+{
+"ticker": "KDP",
+"name": "Keurig Dr Pepper Inc",
+"sector": "Beverages",
+"marketCap": 42000471309.0,
+"isEtf": false
+},
+{
+"ticker": "COIN",
+"name": "Coinbase Global Inc",
+"sector": "Financial Services",
+"marketCap": 41674260980.0,
+"isEtf": false
+},
+{
+"ticker": "CMG",
+"name": "Chipotle Mexican Grill Inc",
+"sector": "Hotels, Restaurants & Leisure",
+"marketCap": 39700618762.0,
+"isEtf": false
+},
+{
+"ticker": "DIA",
+"name": "DIA",
+"sector": "ETF",
+"marketCap": 38000000000.0,
+"isEtf": true
+},
+{
+"ticker": "XLE",
+"name": "XLE",
+"sector": "ETF",
+"marketCap": 38000000000.0,
+"isEtf": true
+},
+{
+"ticker": "XLV",
+"name": "XLV",
+"sector": "ETF",
+"marketCap": 38000000000.0,
+"isEtf": true
+},
+{
+"ticker": "CCI",
+"name": "Crown Castle Inc",
+"sector": "Real Estate",
+"marketCap": 36805995453.0,
+"isEtf": false
+},
+{
+"ticker": "PYPL",
+"name": "PayPal Holdings Inc",
+"sector": "Financial Services",
+"marketCap": 36783800725.0,
+"isEtf": false
+},
+{
+"ticker": "MSTR",
+"name": "Strategy Inc",
+"sector": "Technology",
+"marketCap": 36390480264.0,
+"isEtf": false
+},
+{
+"ticker": "KMB",
+"name": "Kimberly-Clark Corp",
+"sector": "Consumer products",
+"marketCap": 34505198150.0,
+"isEtf": false
+},
+{
+"ticker": "RBLX",
+"name": "Roblox Corp",
+"sector": "Media",
+"marketCap": 33729760567.0,
+"isEtf": false
+},
+{
+"ticker": "ZTS",
+"name": "Zoetis Inc",
+"sector": "Pharmaceuticals",
+"marketCap": 33257370000.0,
+"isEtf": false
+},
+{
+"ticker": "SMH",
+"name": "SMH",
+"sector": "ETF",
+"marketCap": 28000000000.0,
+"isEtf": true
+},
+{
+"ticker": "XLY",
+"name": "XLY",
+"sector": "ETF",
+"marketCap": 22000000000.0,
+"isEtf": true
+},
+{
+"ticker": "XLI",
+"name": "XLI",
+"sector": "ETF",
+"marketCap": 22000000000.0,
+"isEtf": true
+},
+{
+"ticker": "HPQ",
+"name": "HP Inc",
+"sector": "Technology",
+"marketCap": 21646753271.0,
+"isEtf": false
+},
+{
+"ticker": "SMCI",
+"name": "Super Micro Computer Inc",
+"sector": "Technology",
+"marketCap": 21553807332.0,
+"isEtf": false
+},
+{
+"ticker": "EEM",
+"name": "EEM",
+"sector": "ETF",
+"marketCap": 18000000000.0,
+"isEtf": true
+},
+{
+"ticker": "XLP",
+"name": "XLP",
+"sector": "ETF",
+"marketCap": 16000000000.0,
+"isEtf": true
+},
+{
+"ticker": "SLV",
+"name": "SLV",
+"sector": "ETF",
+"marketCap": 16000000000.0,
+"isEtf": true
+},
+{
+"ticker": "HYG",
+"name": "HYG",
+"sector": "ETF",
+"marketCap": 16000000000.0,
+"isEtf": true
+},
+{
+"ticker": "SOXX",
+"name": "SOXX",
+"sector": "ETF",
+"marketCap": 14000000000.0,
+"isEtf": true
+},
+{
+"ticker": "ARKK",
+"name": "ARKK",
+"sector": "ETF",
+"marketCap": 8000000000.0,
+"isEtf": true
+}
+]

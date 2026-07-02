@@ -63,9 +63,11 @@ export function daysUntil(iso: string): number {
 
 // --- color scales ----------------------------------------------------------
 type RGB = [number, number, number];
-const RED: RGB = [220, 38, 38]; // #DC2626
-const AMBER: RGB = [217, 119, 6]; // #D97706
-const GREEN: RGB = [22, 163, 74]; // #16A34A
+// Dark-theme heat endpoints — brightened so both the tinted background AND the text read on
+// the near-black canvas (matches the --c-neg/warn/pos tokens).
+const RED: RGB = [244, 96, 96];
+const AMBER: RGB = [245, 176, 40];
+const GREEN: RGB = [45, 200, 118];
 
 function lerp(a: RGB, b: RGB, t: number): RGB {
   return [
@@ -99,19 +101,17 @@ export function heat(
   else if (scheme === "good-low") t = 1 - value / 100;
   else t = value / 100;
   const [r, g, b] = ramp(t);
-  // text color: lean to the strong end for legibility
+  // text color: lean to the strong end (already bright for dark) for legibility
   const strong = t < 0.42 ? RED : t > 0.58 ? GREEN : AMBER;
   return {
     backgroundColor: `rgba(${r}, ${g}, ${b}, ${alpha})`,
-    color: `rgb(${Math.round(strong[0] * 0.82)}, ${Math.round(strong[1] * 0.82)}, ${Math.round(
-      strong[2] * 0.82,
-    )})`,
+    color: `rgb(${strong[0]}, ${strong[1]}, ${strong[2]})`,
   };
 }
 
 /** Solid token color (hex) for a polarity. */
 export function polarityHex(p: Polarity): string {
-  return p === "positive" ? "#16A34A" : p === "negative" ? "#DC2626" : "#64748b";
+  return p === "positive" ? "#2dc876" : p === "negative" ? "#f46060" : "#94a3b8";
 }
 
 /** Tailwind text class for a polarity / signed number. */
@@ -127,7 +127,7 @@ export function polarityClass(p: Polarity): string {
 export function polarityChip(p: Polarity): string {
   if (p === "positive") return "bg-pos-50 text-pos-700 ring-1 ring-inset ring-pos/20";
   if (p === "negative") return "bg-neg-50 text-neg-700 ring-1 ring-inset ring-neg/20";
-  return "bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200";
+  return "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line";
 }
 
 /** Dot color class for a segment regime. */
@@ -155,7 +155,7 @@ export function regimeChip(r: SegmentRegime): string {
     case "peaking":
       return "bg-warn-50 text-warn-700 ring-1 ring-inset ring-warn/20";
     case "cooling":
-      return "bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-200";
+      return "bg-warn-50 text-warn-100 ring-1 ring-inset ring-warn/20";
     case "trough":
       return "bg-neg-50 text-neg-700 ring-1 ring-inset ring-neg/20";
   }
@@ -164,7 +164,7 @@ export function regimeChip(r: SegmentRegime): string {
 export function severityChip(s: "high" | "medium" | "low"): string {
   if (s === "high") return "bg-neg-50 text-neg-700 ring-1 ring-inset ring-neg/20";
   if (s === "medium") return "bg-warn-50 text-warn-700 ring-1 ring-inset ring-warn/20";
-  return "bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200";
+  return "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line";
 }
 
 /** Market flag short label. */

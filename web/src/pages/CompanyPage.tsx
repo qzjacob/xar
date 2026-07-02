@@ -81,12 +81,12 @@ export function CompanyPage() {
           <div className="text-base font-semibold text-brand-900">Company not found</div>
           <div className="max-w-sm text-sm text-slate-500">
             No coverage record for{" "}
-            <span className="tnum font-medium text-slate-600">{id}</span>. It may have been
+            <span className="tnum font-medium text-slate-400">{id}</span>. It may have been
             de-listed or never tracked in the XAR basket.
           </div>
           <Link
             to="/"
-            className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-line bg-canvas px-3 py-1.5 text-sm font-medium text-brand-900 transition hover:bg-slate-50"
+            className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-line bg-canvas px-3 py-1.5 text-sm font-medium text-brand-900 transition hover:bg-surface-2"
           >
             <ArrowLeft size={14} strokeWidth={2.5} /> Back to dashboard
           </Link>
@@ -123,7 +123,7 @@ export function CompanyPage() {
           <ChevronRight size={12} className="text-slate-300" aria-hidden="true" />
           <button
             type="button"
-            onClick={() => navigate(`/segment/${segment.id}`)}
+            onClick={() => navigate(`/genny/segment/${segment.id}`)}
             className="truncate transition hover:text-brand-900"
           >
             {segment.name}
@@ -137,7 +137,7 @@ export function CompanyPage() {
               <span className="tnum text-3xl font-semibold tracking-tight text-brand-900">
                 {company.ticker}
               </span>
-              <span className="truncate text-lg font-medium text-slate-700">{company.name}</span>
+              <span className="truncate text-lg font-medium text-slate-300">{company.name}</span>
               {company.nameCn && (
                 <span className="truncate text-sm text-slate-400">{company.nameCn}</span>
               )}
@@ -148,7 +148,7 @@ export function CompanyPage() {
               </Badge>
               <button
                 type="button"
-                onClick={() => navigate(`/segment/${segment.id}`)}
+                onClick={() => navigate(`/genny/segment/${segment.id}`)}
                 aria-label={`Open ${segment.name} segment`}
                 className="rounded-md outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
               >
@@ -262,7 +262,7 @@ export function CompanyPage() {
               titleCn="基本面"
               icon={<PieChart size={15} strokeWidth={2} />}
               right={
-                <Badge className="bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200">
+                <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
                   {fundamentals.length}
                 </Badge>
               }
@@ -325,7 +325,7 @@ export function CompanyPage() {
                 cn="技术路线"
                 icon={<GitBranch size={13} strokeWidth={2} />}
                 edges={supplyChain.tech_routes}
-                tone="bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200"
+                tone="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line"
               />
               <EdgeGroup
                 label="Strategic Stakes"
@@ -343,7 +343,7 @@ export function CompanyPage() {
             signals={signals}
             segments={segments}
             selectedSegmentId={null}
-            onCompany={(cid) => navigate(`/company/${cid}`)}
+            onCompany={(cid) => navigate(`/genny/company/${cid}`)}
           />
         </div>
       </div>

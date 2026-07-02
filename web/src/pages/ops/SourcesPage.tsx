@@ -21,7 +21,7 @@ function permissionChip(permission: string): string {
     return "bg-pos-50 text-pos-700 ring-1 ring-inset ring-pos/20";
   if (/(restricted|blocked|denied|red|paid|forbidden)/.test(p))
     return "bg-neg-50 text-neg-700 ring-1 ring-inset ring-neg/20";
-  return "bg-slate-100 text-slate-500 ring-1 ring-inset ring-slate-200";
+  return "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line";
 }
 
 type RunState = "started" | "running";
@@ -238,7 +238,7 @@ function SourceRow({
       </td>
       <td className="px-4 py-2.5 align-top">
         {showCategory ? (
-          <Badge className="bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200">
+          <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
             {source.category}
           </Badge>
         ) : (
@@ -255,7 +255,7 @@ function SourceRow({
           <span className="text-2xs text-slate-300">—</span>
         )}
       </td>
-      <td className="tnum px-4 py-2.5 text-right align-top text-slate-700">
+      <td className="tnum px-4 py-2.5 text-right align-top text-slate-300">
         {source.rows > 0 ? source.rows.toLocaleString() : <span className="text-slate-300">—</span>}
       </td>
       <td className="px-4 py-2.5 align-top text-2xs text-slate-500">

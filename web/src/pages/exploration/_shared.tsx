@@ -22,7 +22,7 @@ export function horizonLabel(h: string): string {
 /** small 0–100 momentum bar (indigo) */
 export function MomentumBar({ value, className }: { value: number; className?: string }) {
   return (
-    <div className={cn("h-1.5 w-full overflow-hidden rounded-full bg-slate-100", className)}>
+    <div className={cn("h-1.5 w-full overflow-hidden rounded-full bg-surface-2", className)}>
       <div
         className="h-full rounded-full bg-explore"
         style={{ width: `${Math.max(2, Math.min(100, value))}%` }}

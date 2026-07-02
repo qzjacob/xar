@@ -121,7 +121,7 @@ export function OpsOverviewPage() {
           titleCn="跑通自检"
           icon={<Gauge size={15} strokeWidth={2} />}
           right={
-            <Badge className="bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200">
+            <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
               {st.checks.length} checks
             </Badge>
           }
@@ -137,7 +137,7 @@ export function OpsOverviewPage() {
                   {checks.map((c) => (
                     <div key={c.id} className="flex items-center gap-2 text-xs">
                       <StatusDot status={c.status} />
-                      <span className="tnum w-40 shrink-0 truncate text-slate-600">{c.id}</span>
+                      <span className="tnum w-40 shrink-0 truncate text-slate-400">{c.id}</span>
                       <Badge className={cn("shrink-0", statusChip(c.status))}>{c.status}</Badge>
                       <span className="min-w-0 truncate text-2xs text-slate-400">{c.detail}</span>
                     </div>

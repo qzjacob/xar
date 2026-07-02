@@ -240,7 +240,7 @@ function SortTh({
         onClick={() => onSort(col)}
         className={cn(
           "ml-auto flex w-full items-center justify-end gap-0.5 text-2xs uppercase tracking-wide transition-colors",
-          active ? "text-accent" : "text-slate-400 hover:text-slate-600",
+          active ? "text-accent" : "text-slate-400 hover:text-slate-400",
         )}
       >
         {label}

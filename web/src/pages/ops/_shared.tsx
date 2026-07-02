@@ -114,7 +114,7 @@ export function statusChip(status: string): string {
     case "started":
       return "bg-accent-50 text-accent-700 ring-1 ring-inset ring-accent/20";
     default:
-      return "bg-slate-100 text-slate-500 ring-1 ring-inset ring-slate-200";
+      return "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line";
   }
 }
 

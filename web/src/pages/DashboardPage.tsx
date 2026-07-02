@@ -32,8 +32,8 @@ export function DashboardPage() {
 
   if (!overview) return null;
   const { regime, segments, decision } = overview;
-  const goSegment = (id: string | null) => id && nav(`/segment/${id}`);
-  const goCompany = (id: string) => nav(`/company/${id}`);
+  const goSegment = (id: string | null) => id && nav(`/genny/segment/${id}`);
+  const goCompany = (id: string) => nav(`/genny/company/${id}`);
 
   return (
     <div className="mx-auto flex max-w-[1200px] flex-col gap-5">
