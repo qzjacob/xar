@@ -663,9 +663,10 @@ def _holdings_block(cid: str) -> list[dict]:
 
 def _calendar_block(cid: str) -> list[dict]:
     try:
-        rows = db.query("SELECT event_type, event_date, title, status FROM event_calendar "
-                        "WHERE company_id=%s AND event_date >= CURRENT_DATE - 7 "
-                        "ORDER BY event_date LIMIT 10", (cid,))
+        rows = db.query("SELECT event_type, scheduled_for AS event_date, title, status "
+                        "FROM event_calendar "
+                        "WHERE company_id=%s AND scheduled_for >= CURRENT_DATE - 7 "
+                        "ORDER BY scheduled_for LIMIT 10", (cid,))
         return [{**dict(r), "event_date": str(r["event_date"])} for r in rows]
     except Exception:  # noqa: BLE001
         return []

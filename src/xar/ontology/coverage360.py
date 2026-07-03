@@ -36,7 +36,7 @@ DIMENSIONS: tuple[Dimension, ...] = (
               "WHERE company_id IS NOT NULL AND invalidated_at IS NULL GROUP BY 1"),
     Dimension("forward", "Forward calendar", "前瞻日历", 0.07, 2,
               "SELECT company_id, count(*) FROM event_calendar "
-              "WHERE company_id IS NOT NULL AND event_date >= CURRENT_DATE GROUP BY 1"),
+              "WHERE company_id IS NOT NULL AND scheduled_for >= CURRENT_DATE GROUP BY 1"),
     Dimension("guidance", "Guidance / forward claims", "指引与前瞻声明", 0.06, 2,
               "SELECT company_id, count(*) FROM kg_events "
               "WHERE time_orientation='forward_looking' AND invalidated_at IS NULL GROUP BY 1"),
