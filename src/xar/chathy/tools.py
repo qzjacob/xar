@@ -81,6 +81,32 @@ def _graph(fn_name: str):
     return call
 
 
+def _get_thesis(company_id: str, refresh: bool = False) -> dict:
+    from ..research import thesis as th
+    if refresh:
+        out = th.build(company_id)
+        if out["status"] not in ("built", "skipped"):
+            return out
+    row = th.latest(company_id)
+    if row is None:
+        return {"company_id": company_id, "thesis": None,
+                "note": "无论点版本;可先调用 refresh=true 生成(需数秒),或该公司接地事实不足。"}
+    content = row["content"]
+    return {"company_id": company_id, "version": row["version"], "as_of": str(row["as_of"]),
+            "stance": row["stance"], "conviction": row["conviction"],
+            "quality": row["quality"], "changed_because": row["changed_because"],
+            "content": content, "health": th.health(company_id)}
+
+
+def _coverage_360(company_id: str | None = None) -> dict | list:
+    from ..ontology import coverage360
+    if company_id:
+        cov = coverage360.coverage_for(company_id)
+        return {"company_id": company_id, "coverage": cov,
+                "gaps": coverage360.gaps_for(company_id)}
+    return coverage360.summary_by_theme()
+
+
 def _macro_indicators(theme: str | None = None, metric_key: str | None = None,
                       as_of: str | None = None) -> dict:
     from ..api import andy_links
@@ -169,6 +195,22 @@ TOOLS: list[ToolSpec] = [
              _obj({"theme": _THEME, "segment": {"type": "string"},
                    "company_id": _CID, "q": {"type": "string", "description": "title contains"}}),
              lambda **kw: __import__("xar.api.dataroom", fromlist=["list_docs"]).list_docs(**kw)),
+    ToolSpec("get_thesis",
+             "The company's first-class INVESTMENT THESIS (typed pillars with evidence anchors, "
+             "bull/bear cases, risks, valuation scenarios, watch items) + machine-checked thesis "
+             "health (new facts confirming/challenging each pillar). The core decision object — "
+             "prefer this over re-deriving a view from raw facts. refresh=true rebuilds it from "
+             "the latest facts (slow, seconds).",
+             _obj({"company_id": _CID, "refresh": {"type": "boolean", "default": False}},
+                  ["company_id"]),
+             _get_thesis),
+    ToolSpec("coverage_360",
+             "360° information-coverage score: per-dimension (16 dims: financials/estimates/"
+             "ownership/catalysts/thesis/...) coverage for one company (with gap list), or the "
+             "per-theme summary when company_id is omitted. Use to state honestly what the "
+             "platform does NOT know.",
+             _obj({"company_id": _CID}),
+             _coverage_360),
     ToolSpec("macro_indicators",
              "XAR Andy macro module (siliconomics 宏观指标库). Modes: theme → the macro panel "
              "cross-linked (勾稽) to one industry chain, with point-in-time readings at as_of "

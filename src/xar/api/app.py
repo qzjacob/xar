@@ -440,6 +440,27 @@ def ops_selftest() -> dict:
     return ops.selftest()
 
 
+@app.get("/api/ops/coverage")
+def ops_coverage() -> dict:
+    """360° coverage: per-theme × per-dimension fill rates (ontology/coverage360)."""
+    from ..ontology import coverage360
+
+    return {"dimensions": [{"key": d.key, "name": d.name, "name_cn": d.name_cn,
+                            "weight": d.weight} for d in coverage360.DIMENSIONS],
+            "themes": coverage360.summary_by_theme()}
+
+
+@app.post("/api/thesis/{cid}/build")
+def thesis_build(cid: str, force: bool = False):
+    """Build/refresh the company's investment thesis (sync; seconds on the bulk pool)."""
+    from ..research import thesis
+
+    out = thesis.build(cid, force=force)
+    if out["status"] == "no_data" and out.get("reason") == "unknown company":
+        raise HTTPException(status_code=404, detail=out["reason"])
+    return out
+
+
 # --- Exploration module (frontier research) -------------------------------
 @app.get("/api/exploration/overview")
 def exploration_overview() -> dict:

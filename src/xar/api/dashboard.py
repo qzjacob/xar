@@ -9,6 +9,7 @@ real rows; documented proxies (e.g. crowding) are computed from real signals.
 """
 from __future__ import annotations
 
+import json
 import math
 import re
 import threading
@@ -16,6 +17,7 @@ import time
 from datetime import datetime, timezone
 
 from ..ingestion.registry import SEGMENTS, THEMES
+from ..logging import get_logger
 from ..ontology import cycle
 from ..retrieval import graphrag
 from ..storage import db, structured
@@ -25,6 +27,7 @@ DEFAULT_THEME = "ai_optical"
 FX = {"US": 1.0, "CN": 0.140, "HK": 0.128, "KR": 0.00073, "JP": 0.0064,
       "EU": 1.08, "TW": 0.031, "SG": 0.74, "SE": 0.095, "GB": 1.27, "NO": 0.092}
 _CJK = re.compile(r"[一-鿿]")
+log = get_logger("xar.dashboard")
 
 
 def _now() -> str:
@@ -607,7 +610,65 @@ def company_detail(cid: str, theme: str | None = None) -> dict | None:
             "cycle": cycle.cycle_of_company(c),
             "kpis": _kpi_block(c, data["funds"].get(cid, {})),
             "prices": prices, "fundamentals": [dict(f) for f in funds], "signals": sigs,
-            "supplyChain": supply_chain, "landscape": graphrag.landscape(cid)}
+            "supplyChain": supply_chain, "landscape": graphrag.landscape(cid),
+            "thesis": _thesis_block(cid), "coverage": _coverage_block(cid),
+            "estimates": _estimates_block(cid), "holdings": _holdings_block(cid),
+            "calendar": _calendar_block(cid)}
+
+
+def _thesis_block(cid: str) -> dict | None:
+    """Latest investment thesis + machine-checked health (None until first build)."""
+    try:
+        from ..research import thesis as th
+
+        row = th.latest(cid)
+        if row is None:
+            return None
+        content = row["content"] if isinstance(row["content"], dict) else json.loads(row["content"])
+        return {"version": row["version"], "as_of": str(row["as_of"]), "stance": row["stance"],
+                "conviction": row["conviction"], "one_liner": row["one_liner"],
+                "quality": row["quality"], "changed_because": row["changed_because"],
+                "content": content, "health": th.health(cid)}
+    except Exception as e:  # noqa: BLE001 — thesis layer must never break the company page
+        log.warning("thesis block %s: %s", cid, e)
+        return None
+
+
+def _coverage_block(cid: str) -> dict | None:
+    try:
+        from ..ontology import coverage360
+
+        return coverage360.coverage_for(cid)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _estimates_block(cid: str) -> list[dict]:
+    try:
+        rows = db.query("SELECT metric, period, value, high, low, n_analysts, as_of "
+                        "FROM estimates WHERE company_id=%s ORDER BY as_of DESC, metric LIMIT 16", (cid,))
+        return [{**dict(r), "as_of": str(r["as_of"])} for r in rows]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _holdings_block(cid: str) -> list[dict]:
+    try:
+        rows = db.query("SELECT holder, shares, value_usd, as_of FROM holdings "
+                        "WHERE company_id=%s ORDER BY as_of DESC, value_usd DESC NULLS LAST LIMIT 12", (cid,))
+        return [{**dict(r), "as_of": str(r["as_of"])} for r in rows]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _calendar_block(cid: str) -> list[dict]:
+    try:
+        rows = db.query("SELECT event_type, event_date, title, status FROM event_calendar "
+                        "WHERE company_id=%s AND event_date >= CURRENT_DATE - 7 "
+                        "ORDER BY event_date LIMIT 10", (cid,))
+        return [{**dict(r), "event_date": str(r["event_date"])} for r in rows]
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def _edge_lite(e: dict, side: str, self_id: str | None = None) -> dict:

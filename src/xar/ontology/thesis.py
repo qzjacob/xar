@@ -53,6 +53,12 @@ class ThesisEvidence(BaseModel):
     ref_id: str = Field(description="the fact id EXACTLY as listed in the dossier")
     quote: str = Field(default="", description="short verbatim quote from that fact (≤160 chars)")
 
+    def model_post_init(self, _ctx) -> None:  # noqa: D105
+        # 容错归一化:模型常把 dossier 里的 "[event:261]" 整体抄进 ref_id;语义不变,剥掉前缀。
+        prefix = f"{self.kind}:"
+        if self.ref_id.startswith(prefix):
+            object.__setattr__(self, "ref_id", self.ref_id[len(prefix):])
+
 
 class ThesisPillar(BaseModel):
     key: str = Field(description="stable slug for this pillar, e.g. 'ai_demand_engine'")
