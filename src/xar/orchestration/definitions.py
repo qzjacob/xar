@@ -16,8 +16,8 @@ Not imported by the core package; loaded directly with Dagster (so the main app 
 never needs the dagster dependency)."""
 from __future__ import annotations
 
-from dagster import (Definitions, RunRequest, StaticPartitionsDefinition,
-                     asset, define_asset_job, schedule)
+from dagster import (DefaultScheduleStatus, Definitions, RunRequest,
+                     StaticPartitionsDefinition, asset, define_asset_job, schedule)
 
 from xar.config import get_settings
 from xar.orchestration.daily import run_daily
@@ -63,7 +63,8 @@ extract_job = define_asset_job("extract_all_job", selection=[extract_all])
 core_job = define_asset_job("core_daily_job", selection=[core_daily])
 
 
-@schedule(job=pull_job, cron_schedule=f"0 {_HOUR} * * *")
+@schedule(job=pull_job, cron_schedule=f"0 {_HOUR} * * *",
+          default_status=DefaultScheduleStatus.RUNNING)
 def pull_schedule(context):
     """Fan out one PULL run per universe shard at the top of the configured hour."""
     ts = context.scheduled_execution_time.strftime("%Y%m%d")
@@ -71,7 +72,8 @@ def pull_schedule(context):
         yield RunRequest(run_key=f"{ts}-pull-{i}", partition_key=f"shard-{i}")
 
 
-@schedule(job=extract_job, cron_schedule=f"30 {_HOUR} * * *")
+@schedule(job=extract_job, cron_schedule=f"30 {_HOUR} * * *",
+          default_status=DefaultScheduleStatus.RUNNING)
 def extract_schedule(context):
     """Run the single global extraction 30 min after the pulls start (one run/day)."""
     ts = context.scheduled_execution_time.strftime("%Y%m%d")

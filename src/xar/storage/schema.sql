@@ -511,3 +511,51 @@ CREATE TABLE IF NOT EXISTS fenny_blotter (
     notes     TEXT NOT NULL DEFAULT '',
     status    TEXT NOT NULL DEFAULT 'open'   -- open | closed | rolled
 );
+
+-- ---------------------------------------------------------------------------
+-- Company 360: first-class investment-thesis object (ontology/thesis.py) +
+-- typed evidence anchors + institutional ownership (13F). Additive, idempotent.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS company_thesis (
+    id            BIGSERIAL PRIMARY KEY,
+    company_id    TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    version       INT  NOT NULL,               -- monotonic per company
+    as_of         DATE NOT NULL,               -- information cutoff the thesis reflects
+    stance        TEXT NOT NULL,               -- bull | neutral | bear
+    conviction    REAL,                        -- 1..5, evidence-disciplined
+    one_liner     TEXT,
+    content       JSONB NOT NULL,              -- full ontology.thesis.CompanyThesis payload
+    quality       JSONB,                       -- evidence_coverage / numeric_grounding / …
+    changed_because TEXT,                      -- refresh diff note vs previous version
+    model         TEXT,                        -- model id that generated it
+    run_id        TEXT,                        -- llm_usage correlation
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(company_id, version)
+);
+CREATE INDEX IF NOT EXISTS idx_thesis_company ON company_thesis(company_id, version DESC);
+
+CREATE TABLE IF NOT EXISTS thesis_evidence (
+    id         BIGSERIAL PRIMARY KEY,
+    thesis_id  BIGINT NOT NULL REFERENCES company_thesis(id) ON DELETE CASCADE,
+    slot       TEXT NOT NULL,                  -- pillar key | 'bull' | 'bear' | 'risk:<type>'
+    kind       TEXT NOT NULL,                  -- event | edge | chunk | insight | fundamental | estimate | registry
+    ref_id     TEXT NOT NULL,                  -- id in the referenced table (typed drill-down)
+    quote      TEXT,
+    note       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_thesis_evidence ON thesis_evidence(thesis_id);
+
+CREATE TABLE IF NOT EXISTS holdings (
+    id          BIGSERIAL PRIMARY KEY,
+    company_id  TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    holder      TEXT NOT NULL,                 -- manager name
+    holder_cik  TEXT,                          -- SEC CIK when known
+    shares      NUMERIC,
+    value_usd   NUMERIC,
+    pct_out     NUMERIC,                       -- % of shares outstanding, if computable
+    as_of       DATE NOT NULL,                 -- report period (13F quarter end)
+    filed_at    DATE,
+    source      TEXT NOT NULL DEFAULT 'edgar_13f',
+    UNIQUE(company_id, holder, as_of)
+);
+CREATE INDEX IF NOT EXISTS idx_holdings_company ON holdings(company_id, as_of DESC);

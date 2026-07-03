@@ -40,6 +40,7 @@ class TaskClass(str, Enum):
     ADHOC_FAST = "adhoc_fast"     # default for tier="fast"
     ADHOC_STRONG = "adhoc_strong"  # default for tier="strong"
     CHAT = "chat"                 # Chathy: interactive tool-calling chat (strong, token)
+    THESIS = "thesis"             # bulk: company-thesis generation (research/thesis.py)
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,9 @@ POLICIES: dict[TaskClass, RoutePolicy] = {
     # interactive chat → strongest TOKEN model (latency + reliable function-calling);
     # deliberately NOT the subscription bulk pool, which is tuned for nightly volume.
     TaskClass.CHAT:         RoutePolicy(Capability.STRONG, Billing.TOKEN.value, "normal"),
+    # 947-name thesis batch → subscription-first bounded cost, same shape as KG_EXTRACT;
+    # flagship names get a separate EDITOR-tier quality pass in research/thesis.py.
+    TaskClass.THESIS:       RoutePolicy(Capability.CHEAP_BULK, Billing.SUBSCRIPTION.value, "bulk"),
 }
 
 
