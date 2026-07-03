@@ -101,7 +101,8 @@ class Settings(BaseSettings):
 
     # --- Daily auto-ingest system (orchestration/daily.py + Dagster sidecar) ---
     # Which sources the daily loop pulls (CSV; each unavailable one is skipped).
-    daily_enabled_sources: str = "edgar,cninfo,finnhub,fmp,twitter,reddit,wechat,aifinmarket,polymarket"
+    daily_enabled_sources: str = ("edgar,cninfo,finnhub,fmp,twitter,reddit,wechat,"
+                              "aifinmarket,polymarket,rss")
     daily_run_hour: int = 6            # nightly schedule hour (cron "0 {hour} * * *")
     daily_universe_shards: int = 8     # full universe split into N nightly shards
     daily_news_lookback_days: int = 7  # default Finnhub/FMP news pull window

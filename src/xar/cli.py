@@ -407,6 +407,76 @@ def andy_status() -> None:
             pass
 
 
+# ── 投资论点(CompanyThesis)────────────────────────────────────────────────────
+thesis_app = typer.Typer(add_completion=False,
+                         help="投资论点:生成/刷新/健康度(research/thesis.py)")
+app.add_typer(thesis_app, name="thesis")
+
+
+@thesis_app.command("build")
+def thesis_build_cmd(
+    company: str = typer.Argument(None, help="company id; omit with --theme/--all for batch"),
+    theme: str = typer.Option(None, help="batch: one theme's roster (coverage-ranked)"),
+    all_companies: bool = typer.Option(False, "--all", help="batch: whole universe"),
+    limit: int = typer.Option(None, help="batch cap"),
+    force: bool = typer.Option(False, help="rebuild even without new facts"),
+    quality: bool = typer.Option(False, help="EDITOR-tier quality pass (token-billed)"),
+) -> None:
+    """生成/刷新论点。单司同步返回;批量按覆盖度从高到低走查(订阅池,幂等)。"""
+    from .research import thesis
+
+    if company:
+        print(json.dumps(thesis.build(company, force=force, quality_tier=quality),
+                         ensure_ascii=False, indent=2, default=str))
+        return
+    if not (theme or all_companies):
+        print("[red]give a company id, --theme, or --all[/red]")
+        raise typer.Exit(1)
+    print(json.dumps(thesis.build_batch(theme=theme, limit=limit, force=force),
+                     ensure_ascii=False, indent=2))
+
+
+@thesis_app.command("show")
+def thesis_show(company: str) -> None:
+    """打印最新论点(支柱/证据锚/风险/健康度)。"""
+    from .research import thesis
+
+    row = thesis.latest(company)
+    if row is None:
+        print("[yellow]no thesis yet[/yellow] — run: xar thesis build " + company)
+        raise typer.Exit(0)
+    c = row["content"]
+    print(f"[bold]{company}[/bold] v{row['version']} {row['stance']} "
+          f"conviction={row['conviction']} as_of={row['as_of']}")
+    print(f"[cyan]{c['one_liner_zh']}[/cyan]\n{c['narrative_zh']}")
+    for pl in c["pillars"]:
+        print(f"  [{pl['kind']}] {pl['title_zh']} w={pl['weight']} score={pl['score']} "
+              f"证据={len(pl['evidence'])}")
+    h = thesis.health(company)
+    if h:
+        print(f"健康度: {h['overall']} " +
+              str([(x['key'], x['status']) for x in h['pillars']]))
+
+
+@thesis_app.command("status")
+def thesis_status() -> None:
+    """论点库总览:版本数/立场分布/最近生成。"""
+    from .storage import db
+
+    t = Table("metric", "value")
+    for r in db.query(
+            "SELECT count(DISTINCT company_id) AS companies, count(*) AS versions, "
+            "max(created_at) AS latest FROM company_thesis"):
+        t.add_row("companies covered", str(r["companies"]))
+        t.add_row("total versions", str(r["versions"]))
+        t.add_row("latest build", str(r["latest"]))
+    for r in db.query("SELECT stance, count(*) FROM ("
+                      "SELECT DISTINCT ON (company_id) company_id, stance FROM company_thesis "
+                      "ORDER BY company_id, version DESC) x GROUP BY stance"):
+        t.add_row(f"stance {r['stance']}", str(r["count"]))
+    print(t)
+
+
 @app.command()
 def serve(host: str = "0.0.0.0", port: int = 8000) -> None:
     """Run the web UI + API."""
