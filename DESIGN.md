@@ -28,8 +28,8 @@
 
 **蓝图之外、新增实现的能力**（详见 §2/§4/§5）：
 
-1. **结构化数据层** —— 七张表（`fundamentals/estimates/analyst_ratings/prices/insider_trades/prediction_markets/social_posts`），多 provider 数据按 `source`+`as_of` 共存。
-2. **多 provider 行情/另类数据套件（共 11 个 provider）** —— Finnhub · FMP · Polygon · Yahoo(yfinance) · Wind · AIFINmarket(万得 MCP-over-HTTP) · Polymarket · X · Reddit · arXiv · Journals，全部 key-gated、缺失自动跳过（`providers.status()` 一览）。
+1. **结构化数据层** —— 八张表（`fundamentals/estimates/analyst_ratings/prices/insider_trades/prediction_markets/social_posts/holdings`，另有前瞻 `event_calendar`），多 provider 数据按 `source`+`as_of` 共存。
+2. **多 provider 行情/另类数据套件（共 12 个 provider）** —— Finnhub · FMP · Polygon · Yahoo(yfinance) · Wind · AIFINmarket(万得 MCP-over-HTTP) · Polymarket · X · Reddit · arXiv · Journals · **RSS（16 条精选行业源，公开无 key）**，key-gated 的缺失自动跳过（`providers.status()` 一览）。
 3. **本体标准锚定 + 规范财务词表** —— 领域本体锚定 FIBO/schema.org；`FinMetric` 规范词表统一各 provider 字段命名。
 4. **结构化→本体信号桥** —— 估计修正/内部人集群/预测市场异动蒸馏为 `kg_events` 催化剂。
 5. **微信公众号接入** —— 经 we-mp-rss 公开 feed 把公众号文章纳入非结构化→本体管线。
@@ -42,6 +42,7 @@
 12. **语义数据库（headline，时间戳化、可回测、本体锚定的语义层）** —— 承载结构化数值表（基本面/估计/价格）**不**承载的内容：催化剂叙事、立场、因果、前瞻预期。设计决策=**加性复用既有三张双时态表**而非另立并行表：`kg_events`（新增列 theme/segment/narrative/time_orientation/resolution/…）+ `kg_edges`（新增 `causally_linked` EdgeType）+ `expert_insights`（新增 as_of/theme/segment/time_orientation），由单一 SQL `VIEW semantic_facts`（UNION）统一点查；抽取（`kg/extract.py`）填 `time_orientation`(forward/backward) + 因果/前瞻 `narrative` + `drivers`（因果实体→`causally_linked` 边）；`graphrag.semantic()` 点查该视图，`agents/nodes.py` 把语义流注入分析师 brief（详见 §5.6）。
 13. **前瞻声明解析生命周期** —— `kg/resolve_claims.py resolve_forward_claims()` 闭合"预期→兑现"环：一条有方向的 `forward_looking` 催化剂在窗口内出现同公司 `backward_looking` 兑现型事件时解析为 **hit/miss**（极性一致=hit、相反=miss；按 `COALESCE(event_date, observed_at)` 定时），否则 **stale**（可复查）；**仅** mutate forward 行，经 `semantic_facts.resolution` 暴露；CLI `xar resolve-claims`（详见 §5.6）。
 14. **每日自动增量链 + Finnhub/FMP 新闻源** —— `orchestration/daily.py run_daily(stages=('pull','extract'))`：按公司分片的逐源增量 PULL（隔离失败）→ 解析/嵌入 → `build_kg` → expert → signals → `resolve_forward_claims`（extract 全局只跑一次，LLM 阶段有预算上限、廉价 DB 阶段照常跑）；`storage/runlog.py` + 新表 `ingest_runs` = run 日志 + 逐源增量游标（`last_success_ts`），幂等可续（内容哈希 + NOT-EXISTS 游标）；CLI `xar daily`。`providers/finnhub.pull_news`(+`pull_general_news`)/`providers/fmp.pull_news` 把公司新闻落 `documents`（source=finnhub/fmp，permission=grey，自用摘要、内容哈希去重），`api/ops.py` 注册 `finnhub_news` 源，`kg/expert.ALT_SOURCES` 纳入 finnhub/fmp（新闻同入 build_kg 与专家层）。
+15. **公司 360 / 投资论点层（2026-07）** —— 类型化 `CompanyThesis`（`ontology/thesis.py`，证据类型化外键 + `validate_thesis` 纪律 + conviction–证据耦合）+ 生成管线（`research/thesis.py`：dossier→build→版本化 `company_thesis`/`thesis_evidence`→零 LLM 健康度）+ **16 维覆盖度**（`ontology/coverage360.py`→`/ops/coverage`）+ **五路数据纵深**（Finnhub 财报日历/篮扫、Yahoo 纵深、EDGAR XBRL+13F、CN 补齐、RSS 框架）+ Company 360 前端；Dagster 调度改默认 RUNNING。详见 §5.9。
 
 ---
 
@@ -99,7 +100,7 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 | 模块 | 路由 | 角色 | 外壳 / 配色 |
 |---|---|---|---|
 | **1. 投研门户（Research Portal ＝ Genny）** | `/genny` · `/genny/segment/:id` · `/genny/company/:id`（旧 `/`·`/segment/:id`·`/company/:id` 302 重定向；`/` 现为 Chathy，见 §2.3） | 投研终端：主题 → 细分 → 公司 → 信号 → 决策。全局 `DataProvider` 上下文供数据 | `Layout`(AppShell) + `Sidebar` + `TopBar` + `DecisionRail`；海军蓝 chrome(`brand`)、蓝色强调(`accent`) |
-| **2. 运营控制台（Operations Console）** | `/ops` + 8 子页：overview · ontology · sources · datalake · altdata · models · connectors · skills | 管理控制面：本体/数据源/数据湖/另类数据/模型/连接器/技能巡检 | `AdminLayout`；琥珀色强调(`warn`)；不挂终端数据上下文 |
+| **2. 运营控制台（Operations Console）** | `/ops` + 9 子页：overview · ontology · **coverage** · sources · datalake · altdata · models · connectors · skills | 管理控制面：本体/**覆盖度热力（947 × 16 维）**/数据源/数据湖/另类数据/模型/连接器/技能巡检 | `AdminLayout`；琥珀色强调(`warn`)；不挂终端数据上下文 |
 | **3. 前沿探索（Exploration）** | `/explore` · `/explore/:sectionId` | **新增第三模块**——人类知识的前沿：6 领域研究前沿、预印本、专家声音 | `ExplorationLayout` + `ExplorationSidebar`；靛蓝"explore"强调(`explore`，token `#6D28D9`) |
 
 设计令牌（`web/tailwind.config.js`）：`brand`(海军蓝) · `accent`(蓝，投研) · `warn`(琥珀，运营) · `explore`(靛蓝，探索) · `pos`/`neg`。
@@ -220,7 +221,7 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 
 ### 4.1 结构化 / 另类 / 前沿数据 provider（As-Built，`providers/`）
 
-> 全部 **key-gated**：缺 Key 即 `available()=False`、`pull()`/`fetch()` 返回空，**不报错**（交钥匙路径零 provider Key 也能跑）。`providers.status()` 统一上报 **11 个 provider** 状态。各结构化 provider 字段归一到 `FinMetric` 规范词表（§5.1），落 `fundamentals/estimates/...` 表，多源按 `source`+`as_of` 共存。
+> 全部 **key-gated**：缺 Key 即 `available()=False`、`pull()`/`fetch()` 返回空，**不报错**（交钥匙路径零 provider Key 也能跑）。`providers.status()` 统一上报 **11 个 key-gated provider** 状态；第 12 个 provider **`rss`** 公开无 key、恒可用（如 polymarket）。各结构化 provider 字段归一到 `FinMetric` 规范词表（§5.1），落 `fundamentals/estimates/...` 表，多源按 `source`+`as_of` 共存。
 
 | 类别 | provider | 取数 | 姿态/说明 |
 |---|---|---|---|
@@ -235,6 +236,7 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 | 社媒情绪 | **Reddit** | 提及观察标的的帖子 + 轻量词典情绪打分 | 灰/自用；公开回退 |
 | 前沿预印本 | **arXiv** | 按领域类目近期预印本（标题+摘要+元数据） | **公开无 Key**（探索模块）；`source=arxiv` |
 | 前沿顶刊 | **Journals** | Quanta/Physics World 等公开 RSS 文章（标题+摘要） | **公开无 Key**（探索模块）；`source=journal` |
+| 行业资讯 RSS | **RSS** | `ingestion/feeds.py` code-as-truth 注册的 **16 条人工核验行业源 × 8 主题**（SemiWiki/DigiTimes/SpaceNews/Robohub/Retail Dive…）→ 主题标注 `documents(source=rss)` | **公开无 Key**；礼貌抓取（crawl-delay/UA），stdlib 解析 RSS/Atom，存标题+摘要+引用链接不转载全文；内容哈希幂等；CLI `xar pull-rss`，每日链默认源含 `rss` |
 
 ### 4.2 微信公众号（As-Built，`ingestion/wechat.py`）
 
@@ -315,11 +317,11 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 - **行业分类骨干**（`ontology/sectors.py`）—— 自建 GICS 式 **11 Sector / 26 Industry**，锚定**公有领域 NAICS** + schema.org（不照抄 GICS 专有码）。公司经 `(theme, seg)` 自动分类（存量 294 司免改），分类落 `companies.meta.{sector,industry}`。
 - **可插拔运营指标包**（`ontology/metric_packs.py`，**护城河中心件**）—— `MetricSpec`（key/label/unit/方向/classifiers）注册表，**168 个规范指标键**覆盖全行业 KPI：软件 `arr/nrr/grr/rpo/crpo/rule_of_40/…`、半导体 `book_to_bill/asp/utilization/hbm_capacity/…`、金融 `nim/cet1/rotce/combined_ratio/…`、能源 `production_boe/lifting_cost/capacity_mw/…`、消费互联网 `mau/dau/arpu/gmv/take_rate/…` 等。**复用长表 `fundamentals`**（KPI = 一个 `metric` 字符串键，无新表）；`kpis_for_company()` 按 industry∪sector∪theme 取用。`FIN_METRICS/RATIO_METRICS` 由 specs 派生（向后兼容）。新行业 = 加一个 pack 列表，零核心改写。
 - **类型泛化**（`nodes/edges/catalysts.py`）—— NodeType +13（`Company/Product/EndMarket/Geography/Person/Facility/Regulator/Index/…`）、EdgeType +13（`customer_of/competes_in/sells_into_endmarket/partners_with/acquires/holds_stake/…`）、CatalystType +15（`mna/guidance_change/regulatory_action/litigation/index_inclusion/…`）。`extract.py` 自动按公司行业注入 **KPI 提示**并把 grounded 数值 KPI 写入 `fundamentals`（复用 `_grounded()` 反幻觉闸）。
-- **前瞻日历**（`event_calendar` 表）—— scheduled 未来事件（财报/发布/投资者日/PDUFA…），与过去式 `kg_events` 分离；FMP loader（`fmp.pull_calendar`）+ `dashboard.calendar()` + `/api/ui/calendar`。
+- **前瞻日历**（`event_calendar` 表）—— scheduled 未来事件（财报/发布/投资者日/PDUFA…），与过去式 `kg_events` 分离；**三源喂入**：FMP（`fmp.pull_calendar`）+ Finnhub（免费层财报日历，`finnhub.pull_calendar[_basket]`）+ Yahoo（分红/拆股/财报日，§5.9）；`dashboard.calendar()` + `/api/ui/calendar`。
 - **行业格局 / 行业格局**（`EndMarket` 节点 + `competes_in` 边）—— 每细分一个 EndMarket 节点；`graphrag.landscape()` 给竞争集；`dashboard.landscape()` 按市值份额算 **HHI 集中度** + `/api/ui/landscape`；显式 `market_share` 事实（落 `fundamentals`）并行呈现。
 - **运营控制台**（`/ops/ontology`）新增 `sectors` + `metricPacks` 视图，呈现全经济面词表。
 
-> 决策/交易层（Thesis→Signal→Position + Palantir 式 actions，接催化剂回测）**已设计、后置实现**（见规划 P5）。
+> 决策/交易层（Thesis→Signal→Position + Palantir 式 actions，接催化剂回测）——**Thesis 层已于 2026-07 交付**（类型化 `CompanyThesis`，见 §5.9）；Signal→Position 动作层仍后置（规划 P5）。
 
 ### 5.5 经济周期本体维度 + 消费周期主题（As-Built，2026-06）
 
@@ -369,6 +371,30 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 - **`kg/store.py bootstrap_seed`**：增强后的 `tech_routes` 落为 `uses_techroute` 边（`license_tag='enriched'`）；`competes_in`(seed) 与 `uses_techroute`(enriched) 现**从 roster 删后重建**（幂等性修复），使修正在 reseed 时干净传播。
 - **结果（live DB，全 947）**：多主题公司 80、技术路线节点 33、`uses_techroute` 边 724（其中 360 enriched）、`competes_in` 1024、`entity_aliases` 3623。
 - **独立双审（36 agents）+ /code-review（xhigh）裁定 GO**：全链完整（0 词表违规、5 项完整性不变量通过）；常识质量约 3% 错误率（LLM 把供应商误判为路线、多主题过度归属），均 P1–P3，已由确定性 `_CORRECTIONS` 修复。勾稽核查（`universe.py`↔DB↔词表）对账无误。
+
+### 5.9 公司 360 与投资论点层（As-Built，2026-07）
+
+**意图**：把"一家公司我们知道什么"与"我们因此怎么想"合成单一 360° 决策对象——论点（Thesis）是**类型化、可溯源、可被机器复核**的对象而非自由文本；覆盖度（coverage360）是**机器可算**的诚实口径。二者互为约束：覆盖薄 → conviction 有上限、`coverage_gaps` 必须承认。
+
+**投资论点对象（`ontology/thesis.py`，Pydantic 模型兼作 LLM 结构化输出 schema）**：
+- **类型化证据外键**：3–6 个支柱（8 类 `PILLAR_KINDS`：demand/moat/supply_chain/technology/financials/valuation/policy/cyclical），每条主张 ≥1 条 `ThesisEvidence(kind, ref_id, quote)` 锚回平台事实——`kind ∈ {event, edge, chunk, insight, fundamental, estimate, registry}`，`ref_id` 必须逐字来自 dossier 事实清单（容错剥 `kind:` 前缀这一常见模型笔误）；每个支柱另带可证伪 `falsifier_zh` 与 `watch_metrics`/`watch_event_types`；对象其余部分：drivers、bull/bear case、变体认知、2–5 条类型化风险（10 类 `RISK_TYPES`）、bull/base/bear 估值情形、what_to_watch、诚实 `coverage_gaps_zh`。
+- **`validate_thesis` 纪律（宁可拒绝不可污染）**：立场/支柱数/权重和≈1/证据 kind 与 ref_id 存在性/watch_event_types ⊂ 催化剂词表/watch_metrics ⊂ 规范 KPI 全部硬校验；**conviction–证据密度耦合**——总证据锚 <5 条时 conviction >3 即违规。
+- **生成管线（`research/thesis.py`）**：`dossier(cid)` 汇编该公司全部接地事实并给稳定 id（`[event:261]`/`[chunk:8f2]`/`[fundamental:cid:revenue]`…，含宏观勾稽语境与 coverage 缺口标注）→ `build(cid)` 经 **`TaskClass.THESIS`**（CHEAP_BULK 订阅池优先，947 司批量成本有界；`--quality` 走 EDITOR 强档）`complete_json` 产出 → `validate_thesis` 不过则带违规清单重试一次、仍不过**拒绝入库** → 通过则**版本化**写 `company_thesis` + 逐条 `thesis_evidence`，附确定性 quality 指标与 `changed_because` 差异注记；已有版本且无新事实即幂等跳过。
+- **论点健康度（零 LLM）**：`health(cid)` 把 `as_of` 之后的新 `semantic_facts` 按支柱 `watch_event_types` × 极性聚合，对照支柱主张方向机器判 **confirming / challenging / mixed / quiet**——新事实到达时论点被自动复核，而非等人重读。
+- **入口**：CLI `xar thesis {build[·--theme|--all],show,status}`（批量按覆盖度从高到低走查）· `POST /api/thesis/{cid}/build` · Chathy 工具 `get_thesis`/`coverage_360` · `dashboard.company_detail` 加性 thesis/coverage/estimates/holdings/calendar 五块（论点层异常绝不拖垮公司页）。
+
+**360° 覆盖度（`ontology/coverage360.py`）**：**16 个维度** code-as-truth（身份/文档/已发生催化剂/前瞻日历/指引/财务快照/**财务时序（含 capex）**/预期/评级/行情/**13F 机构持仓**/内部人/供应链边/社媒/专家洞见/论点），每维 = 探针 SQL + 目标行数 + 权重（合计 1.0）；全库一轮 16 条 GROUP BY 批量算 947 司的 0–1 加权分（非 947×16 点查），缺表/失败降级为该维全 0 不崩调用方。用途：`GET /api/ops/coverage` + `/ops/coverage` 主题×维度热力看板、公司页 CoverageRing、采集优先级、论点 conviction/coverage_gaps 的诚实约束。
+
+**五路数据纵深（并行工作流，喂 360°）**：
+- **Finnhub**：财报日历（免费层）→ `event_calendar`（接入 `pull`）；速率感知（`_paced_get`）的全篮 news/calendar 扫描（美股 356 名）。
+- **Yahoo 纵深**：全球评级/目标价/预期 → `analyst_ratings`/`estimates`；空头持仓+流通盘 → **4 个新 CORE 指标键**（`float_shares`/`short_interest_shares`/`short_ratio`/`short_pct_float`）；分红/拆股/财报日 → `event_calendar`；季度三表 → 带**真实 `period_end`** 的 `fundamentals` 时序（含 capex/FCF——首条真财务时间序列）。
+- **EDGAR 纵深**：`ingestion/xbrl.py` company-facts **8 季度**核心科目（restatement 感知、YTD 差分导出离散季度）；`ingestion/holdings13f.py` **29 家核验 CIK** 的管理人 13F → 新 `holdings` 表。
+- **CN 补齐**：cninfo 研报元数据的**确定性评级解析**（买入/增持等 5 档 + 目标价 → `analyst_ratings`，零 LLM，姿态仍"仅元数据"）；`kg/repair.py` 孤儿 `kg_events` 保守重指（与 `kg/resolve` 同阈值）+ theme/segment 锚回填，幂等。
+- **RSS 框架**：`ingestion/feeds.py` code-as-truth 注册的 **16 条人工核验行业源 × 8 主题** + `providers/rss.py`（stdlib 解析、礼貌抓取、内容哈希幂等）→ 主题标注 `documents(source=rss)`；CLI `xar pull-rss`，`rss` 已入每日链默认源。
+
+**Schema（加性、幂等）**：`company_thesis`（版本化论点：stance/conviction/content/quality）· `thesis_evidence`（逐条类型化证据行，FK→`company_thesis`）· `holdings`（13F 机构持仓）。**Ops 补刀**：Dagster 调度改**默认 RUNNING**（`DefaultScheduleStatus.RUNNING`——此前调度默认 STOPPED，夜间增量从未自动触发过）；夜跑 no-op 的另一根因是边车环境缺 provider key（compose 两容器均 `env_file: .env`，FMP key 已在本地 `.env` 激活）。
+
+**前端（Company 360）**：`CompanyPage` 新增 **ThesisSection**（立场/信念度/支柱带证据 chip + 证伪框 + 健康度灯、多空/风险/估值/watch 时间线/缺口/质量条 + 就地 build/rebuild）、**CoverageRing**（16 维径向环）、**CompanyDataPanels**（预期/持仓/日历面板）；`/ops/coverage` = **CoveragePage** 主题×维度热力（枚举访问 crash-proof，敌意 payload SSR 冒烟 11/11）。
 
 ---
 
@@ -425,7 +451,7 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 | **P1 — 采集 + RAG + 比率** | W1-3 | Dagster 资产化 filing/财报/新闻/产品页/ATS 招聘（全 15 家），含重试/schema 校验/新鲜度监控。RAGFlow 每公司知识库，Docling 主 / PaddleOCR-VL+MinerU 处理扫描中文；引用溯源跑通。FinanceToolkit 同业对齐比率（非日历财年+20-F 期对齐）。首轮催化剂抽取（8-K item 1.01 + cninfo 公告）。**强制 TEDS/数值对账闸上线**。原件归档 MinIO 带溯源 |
 | **P2 — 时序 KG（护城河）+ 深度报告流水线** | W3-5 | Graphiti 用确定性实体规范化（Innolight/中际旭创/Zhongji、COHR/Coherent/II-VI）+ reflection/LLM-as-judge 抽取评测环 + 高风险边人审，把双时态产业链 KG 灌入 Neo4j；供应链遍历 + 有日期催化剂/订单事件作可推翻五元组可查。LangGraph 多 Agent 流水线产出单公司**深度报告 + 跟踪摘要**，含多空辩论、风险、主编合成、引用溯源、快照版本化、批判证据闸、人审 `interrupt()` 节点。强制非建议免责声明 |
 | **P3 — 评测闸 + UI + 调度 = 首个可用版本** | W5-6 | Phoenix 在留出的**自有 filing 集**上跑离线 RAG/评测 + 证据覆盖度/命中率/幻觉风险作发布闸；Langfuse 成本仪表。React 对话研究 UI（投研门户 + 引用链接报告查看器 + KG 子图 + 催化剂时间轴）。Dagster sensor 在新 filing/催化剂上自动刷新跟踪摘要。**交付 AI 光模块垂直切片端到端（约 15 家）** |
-| **P4 — MVP 后扩展（部分已交付）** | W6+ | **已交付**：从 1 主题扩展到 **8 大主题（5 产业链 + 3 消费周期）/ 947 公司**（`universe_build.py`）；新增**运营控制台**与**前沿探索**两大模块；**语义数据库**（`semantic_facts` + 前瞻声明解析）+ **每日自动增量链**（`run_daily` + Dagster 旁车 `:3001`）+ Finnhub/FMP 新闻源；AIFINmarket(万得) + arXiv/Journals provider；主题感知抽取。**待续**：LightRAG/MS GraphRAG 做全局主题查询；需严格多跳逻辑/数值推理再评 KAG/OpenSPG；需全文研报或规模化纪要再授权 Wind/Choice/iFinD + 纪要厂商；RAGFlow 数据集范围之上加应用级多租户授权；向量超 ~1000 万再迁 Qdrant |
+| **P4 — MVP 后扩展（部分已交付）** | W6+ | **已交付**：从 1 主题扩展到 **8 大主题（5 产业链 + 3 消费周期）/ 947 公司**（`universe_build.py`）；新增**运营控制台**与**前沿探索**两大模块；**语义数据库**（`semantic_facts` + 前瞻声明解析）+ **每日自动增量链**（`run_daily` + Dagster 旁车 `:3001`）+ Finnhub/FMP 新闻源；AIFINmarket(万得) + arXiv/Journals provider；主题感知抽取；**公司 360 / 投资论点层 + 16 维覆盖度 + 五路数据纵深**（§5.9）。**待续**：LightRAG/MS GraphRAG 做全局主题查询；需严格多跳逻辑/数值推理再评 KAG/OpenSPG；需全文研报或规模化纪要再授权 Wind/Choice/iFinD + 纪要厂商；RAGFlow 数据集范围之上加应用级多租户授权；向量超 ~1000 万再迁 Qdrant |
 
 ---
 
@@ -442,13 +468,14 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 ├── .env.example                # 一个 LLM Key 必填（默认 DeepSeek V4）；其余 provider Key 全可选
 ├── src/xar/
 │   ├── config.py               # pydantic-settings（XAR_ 前缀 + provider 别名）；默认 model_fast=deepseek-v4-flash / model_strong=deepseek-v4-pro / model_effort=high
-│   ├── cli.py                  # Typer: init/ingest/ingest-wechat/parse/build-kg/report/pull/providers-status/backtest/eval/status/explore/serve + daily/resolve-claims + andy(init/ingest/identify/evaluate/sync-events/status)
-│   ├── ontology/               # nodes/edges/catalysts + cycle(经济周期维度) + sectors + metric_packs + schema(抽取) + standards(FIBO/schema.org + FinMetric) + macro_links(【新, 2026-07】勾稽：43/43 指标↔主题/环节/技术路线 + 9 OVERCLAIM_LINKS)
-│   ├── storage/                # db(pgvector 池) + schema.sql(含 semantic_facts 视图 / kg_events 语义扩列 / ingest_runs / frontier_fronts / frontier_domain_state) + structured(结构化 upsert) + runlog(run 日志+游标) + objects
-│   ├── ingestion/              # base + registry(8 主题/947 公司/59 细分) + universe(扩展名单，scripts/universe_build.py 生成) + edgar/cninfo/news/jobs/wechat + macro_bridge(【新, 2026-07】宏观印字/判定跃迁→kg_events(macro_print)，dedup_key 幂等)
-│   ├── providers/              # base + finnhub/fmp/polygon/yahoo/wind/aifinmarket + polymarket/twitter/reddit + arxiv/journals + sentiment（11 个 provider）
+│   ├── cli.py                  # Typer: init/ingest/ingest-wechat/parse/build-kg/report/pull/pull-rss/providers-status/backtest/eval/status/explore/serve + daily/resolve-claims + thesis(build/show/status) + andy(init/ingest/identify/evaluate/sync-events/status)
+│   ├── ontology/               # nodes/edges/catalysts + cycle(经济周期维度) + sectors + metric_packs + schema(抽取) + standards(FIBO/schema.org + FinMetric) + macro_links(【新, 2026-07】勾稽：43/43 指标↔主题/环节/技术路线 + 9 OVERCLAIM_LINKS) + thesis(【新, 2026-07】类型化 CompanyThesis + validate_thesis 纪律) + coverage360(【新, 2026-07】16 维覆盖度评分器)
+│   ├── storage/                # db(pgvector 池) + schema.sql(含 semantic_facts 视图 / kg_events 语义扩列 / ingest_runs / frontier_fronts / frontier_domain_state / company_thesis / thesis_evidence / holdings) + structured(结构化 upsert) + runlog(run 日志+游标) + objects
+│   ├── ingestion/              # base + registry(8 主题/947 公司/59 细分) + universe(扩展名单，scripts/universe_build.py 生成) + edgar/cninfo/news/jobs/wechat + macro_bridge(【新, 2026-07】宏观印字/判定跃迁→kg_events(macro_print)，dedup_key 幂等) + xbrl(【新, 2026-07】EDGAR company-facts 8 季度→fundamentals) + holdings13f(【新, 2026-07】29 管理人 13F→holdings) + feeds(【新, 2026-07】16 条精选 RSS 源注册表)
+│   ├── providers/              # base + finnhub/fmp/polygon/yahoo/wind/aifinmarket + polymarket/twitter/reddit + arxiv/journals + rss(【新, 2026-07】精选行业 RSS) + sentiment（12 个 provider）
 │   ├── parsing/                # parse(分块/嵌入/索引) + tie_out(数值对账闸)
-│   ├── kg/                     # store(双时态) + resolve(实体消解) + extract(主题感知 LLM 抽取, _focus_for, 填 narrative/time_orientation/drivers) + resolve_claims(前瞻声明 hit/miss/stale) + expert(专家加工) + signals(结构化→事件)
+│   ├── kg/                     # store(双时态) + resolve(实体消解) + extract(主题感知 LLM 抽取, _focus_for, 填 narrative/time_orientation/drivers) + resolve_claims(前瞻声明 hit/miss/stale) + expert(专家加工) + signals(结构化→事件) + repair(【新, 2026-07】孤儿事件重指+锚回填)
+│   ├── research/               # 【新, 2026-07】thesis(dossier→build→版本化 company_thesis/thesis_evidence + 零 LLM 健康度)
 │   ├── chathy/                   # 【新, 2026-07】tools(工具注册表) + sessions(chat_sessions/messages) + agent(≤8 轮工具循环)——Chathy 流式工具调用分析师
 │   ├── fenny/                  # 【新, 2026-07】blotter_pg(PgBlotterStore→fenny_blotter)——Fenny Postgres blotter
 │   ├── exploration/            # 【新】domains(6 前沿领域) + ingest(arxiv/journals/voices→documents) + synthesis(研究前沿合成→frontier_fronts/_state)
@@ -461,11 +488,11 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 ├── web/                        # 【新】React + TS + Tailwind SPA（FastAPI 托管编译产物）
 │   ├── tailwind.config.js      # 设计令牌 brand(navy)/accent(blue)/warn(amber)/explore(indigo)/pos/neg
 │   └── src/
-│       ├── App.tsx             # 路由：/(Chathy 默认) · /andy/*(懒加载·全局 ?as_of=) · /genny(+/segment/:id·/company/:id·/dataroom；旧顶层路径 302) · /fenny/*(懒加载) · /explore(+/:sectionId) · /ops + 8 子页
+│       ├── App.tsx             # 路由：/(Chathy 默认) · /andy/*(懒加载·全局 ?as_of=) · /genny(+/segment/:id·/company/:id·/dataroom；旧顶层路径 302) · /fenny/*(懒加载) · /explore(+/:sectionId) · /ops + 9 子页(含 coverage)
 │       ├── styles/theme.css    # 【新, 2026-07】深色终端主题 CSS 变量令牌 --c-*（tailwind 以 rgb(var(--c-*)) 消费）
 │       ├── context.tsx         # 投研门户全局 DataProvider
-│       ├── components/         # Layout/AppShell + Sidebar + TopBar + DecisionRail + AdminLayout + ExplorationLayout + ExplorationSidebar + ModuleNav(Chathy|Andy|Genny|Fenny) + chathy/*(ChatMessage/Composer/SessionList/ToolChip) + MacroStrip(Genny 宏观带，反向勾稽 pill) + charts/PlotlyChart(Andy/Fenny 共享懒加载 plotly 分片)
-│       ├── pages/              # chathy/ChathyPage + andy/*(5 页：Overview/Metrics/MetricDetail/Overclaims/Walls，懒加载) + genny/DataRoomPage + fenny/*(4 工作区，懒加载 plotly) + DashboardPage/SegmentPage/CompanyPage + ops/*(8 页) + exploration/*(Overview/Section/_shared)
+│       ├── components/         # Layout/AppShell + Sidebar + TopBar + DecisionRail + AdminLayout + ExplorationLayout + ExplorationSidebar + ModuleNav(Chathy|Andy|Genny|Fenny) + chathy/*(ChatMessage/Composer/SessionList/ToolChip) + MacroStrip(Genny 宏观带，反向勾稽 pill) + charts/PlotlyChart(Andy/Fenny 共享懒加载 plotly 分片) + ThesisSection/CoverageRing/CompanyDataPanels(【新, 2026-07】Company 360)
+│       ├── pages/              # chathy/ChathyPage + andy/*(5 页：Overview/Metrics/MetricDetail/Overclaims/Walls，懒加载) + genny/DataRoomPage + fenny/*(4 工作区，懒加载 plotly) + DashboardPage/SegmentPage/CompanyPage + ops/*(9 页，含 CoveragePage 覆盖度热力) + exploration/*(Overview/Section/_shared)
 │       └── lib/, types-*.ts    # lib/exploration.ts + types-exploration.ts 等
 ├── tests/                      # test_units + test_pipeline(DB-gated, LLM-mocked) + andy/(vendored 28) + test_macro_links + test_macro_bridge
 ├── scripts/check_licenses.py   # 许可洁净
@@ -517,6 +544,7 @@ docker-compose: Postgres(pgvector+AGE) · Neo4j · MinIO · Redis · RAGFlow · 
 - [x] **每日自动增量链**：已实现 `orchestration/daily.py run_daily` + `ingest_runs` 游标 + Dagster 旁车（`pull_shard` 06:00 / `extract_all` 06:30，`:3001`），CLI `xar daily` / `xar resolve-claims`。
 - [x] **Finnhub/FMP 新闻源**：`providers/finnhub.pull_news`/`fmp.pull_news` 落 `documents`，经 `ops` 与 `expert.ALT_SOURCES` 入本体。
 - [x] **前沿探索模块**：已交付第三个顶层模块（6 领域、arXiv+Journals+X、`frontier_fronts`/`_state`、`/api/exploration/*`、`xar explore`），独立审计 PASS。
+- [x] **公司 360 / 投资论点层**：已交付类型化 `CompanyThesis`（validate 纪律 + 版本化入库 + 零 LLM 健康度）+ 16 维 coverage360 + 五路数据纵深（Finnhub 日历/篮扫、Yahoo 纵深、EDGAR XBRL+13F、CN 补齐、RSS 框架）+ `xar thesis`/`xar pull-rss` + Company 360 前端与 `/ops/coverage`（§5.9）。
 - [~] **报告质量评测基线**：已建 `eval/gold.json` + 检索命中率 + 报告 rubric(LLM-judge)；**仍待**扩充人工标注留出集做更强发布闸。
 - [ ] **新数据面 UI 化**：结构化/社媒/信号/预测市场/`providers`/`ingest-wechat` 等端点已就绪并经 API 暴露；React SPA 已覆盖 Chathy / Andy / Genny / Fenny 四大前端模块与 运营控制台 / 前沿探索 两卫星，剩余少量端点的 UI 呈现仍在补齐（见 `UI.md`）。
 - [ ] **公众号信号密度**：命中率取决于订阅哪些号——需筛选垂直号而非泛科技媒体；可经 `WERSS_FEED_MAP` 将垂直号直绑标的。
