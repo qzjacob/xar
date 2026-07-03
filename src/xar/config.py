@@ -51,6 +51,17 @@ class Settings(BaseSettings):
     massive_api_key: str = Field(default="", validation_alias="MASSIVE_API_KEY")
     polygon_api_key: str = Field(default="", validation_alias="POLYGON_API_KEY")
     tushare_token: str = Field(default="", validation_alias="TUSHARE_TOKEN")
+    # Andy (src/slx macro module) — free-registration macro-data keys, bridged into the
+    # vendored connectors by xar.api.andy_mount. All optional: sec_edgar/epoch_ai/fhfa/
+    # lbnl/indeed_hiring_lab/bls/stooq run with zero keys.
+    fred_api_key: str = Field(default="", validation_alias="FRED_API_KEY")
+    bea_api_key: str = Field(default="", validation_alias="BEA_API_KEY")
+    eia_api_key: str = Field(default="", validation_alias="EIA_API_KEY")
+    ember_api_key: str = Field(default="", validation_alias="EMBER_API_KEY")
+    acled_api_key: str = Field(default="", validation_alias="ACLED_API_KEY")
+    acled_email: str = Field(default="", validation_alias="ACLED_EMAIL")
+    ticketmaster_api_key: str = Field(default="", validation_alias="TICKETMASTER_API_KEY")
+    slx_slack_webhook: str = Field(default="", validation_alias="SLX_SLACK_WEBHOOK")
     # X / Twitter. TwitterAPI.io (third-party) uses an X-API-Key; official X API v2
     # uses a bearer token. Set either; TwitterAPI.io is preferred when present.
     twitterapi_key: str = Field(

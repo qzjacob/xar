@@ -31,6 +31,11 @@ def init() -> None:
     db.init_schema()
     seed_companies()
     store.bootstrap_seed()
+    try:  # Andy (slx) macro module: schema + theory/metric/overclaim registry, idempotent
+        _andy_init_impl()
+        print("[green]✓ andy (slx)[/green] schema + registry loaded")
+    except Exception as e:  # noqa: BLE001 — a broken macro module must not block core init
+        print(f"[yellow]andy (slx) init skipped:[/yellow] {e}")
     print("[green]✓ initialized[/green] (schema + companies + seed graph)")
 
 
@@ -233,6 +238,134 @@ def explore(
         print(f"[cyan]{did}[/cyan]: ingested {ing}")
         if synthesize:
             print(f"[green]{did}[/green]: {synthesis.synthesize(did)}")
+
+
+# ── XAR Andy (siliconomics macro module, vendored src/slx) ─────────────────────
+andy_app = typer.Typer(add_completion=False,
+                       help="Andy — 宏观指标模块（siliconomics）：registry / ingest / 判定")
+app.add_typer(andy_app, name="andy")
+
+
+def _bridge_slx_env() -> None:
+    """Bridge XAR settings → the env keys the vendored slx connectors read (CLI path;
+    the API path does the same in xar.api.andy_mount)."""
+    import os
+
+    from .config import get_settings
+
+    s = get_settings()
+    for key, val in (("SLX_DATABASE_URL", s.database_url),
+                     ("SEC_EDGAR_USER_AGENT", s.edgar_identity),
+                     ("FRED_API_KEY", s.fred_api_key), ("BEA_API_KEY", s.bea_api_key),
+                     ("EIA_API_KEY", s.eia_api_key), ("EMBER_API_KEY", s.ember_api_key),
+                     ("ACLED_API_KEY", s.acled_api_key), ("ACLED_EMAIL", s.acled_email),
+                     ("TICKETMASTER_API_KEY", s.ticketmaster_api_key),
+                     ("SLACK_WEBHOOK_URL", s.slx_slack_webhook)):
+        if val:
+            os.environ.setdefault(key, val)
+
+
+def _andy_init_impl() -> None:
+    from slx.db import init_schema
+    from slx.tools.load_registry import main as load_registry
+
+    _bridge_slx_env()
+    init_schema()
+    load_registry()
+
+
+def _parse_as_of(as_of: str | None):
+    from datetime import date
+
+    return date.fromisoformat(as_of) if as_of else date.today()
+
+
+@andy_app.command("init")
+def andy_init() -> None:
+    """Create the `slx` schema and load the theory/metric/overclaim registry (idempotent)."""
+    _andy_init_impl()
+    print("[green]✓ andy initialized[/green] (slx schema + registry)")
+
+
+@andy_app.command("ingest")
+def andy_ingest(
+    seed: bool = typer.Option(True, help="run the deterministic no-network SeedConnector"),
+    connector: str = typer.Option(None, help="run ONE real connector by source_id (e.g. sec_edgar)"),
+    all_real: bool = typer.Option(False, "--all-real", help="run every discovered primary connector (network)"),
+) -> None:
+    """Ingest macro observations. Default = seed only (offline, deterministic);
+    real connectors are opt-in (keyless set: sec_edgar epoch_ai fhfa lbnl indeed_hiring_lab bls stooq)."""
+    from slx.ingestion.discovery import discover_connectors, resolve_connector
+
+    _bridge_slx_env()
+    if seed and not connector:
+        from slx.ingestion.seed import SeedConnector
+
+        SeedConnector().run()
+        print("[green]seed:[/green] deterministic observations written")
+    if connector:
+        conn, is_primary = resolve_connector(connector)
+        if conn is None:
+            print(f"[red]unknown connector:[/red] {connector}")
+            raise typer.Exit(1)
+        if not is_primary:
+            print(f"[yellow]{connector} is a secondary source[/yellow] (covered by {conn.source_id})")
+        conn.run()
+        print(f"[green]{conn.source_id}:[/green] run complete (audit_log has the outcome)")
+    if all_real:
+        for src, (cls, is_primary) in sorted(discover_connectors().items()):
+            if not is_primary or src == "seed":
+                continue
+            try:
+                cls().run()
+                print(f"[green]{src}[/green] ok")
+            except Exception as e:  # noqa: BLE001 — one flaky source must not sink the sweep
+                print(f"[yellow]{src}[/yellow] {e}")
+
+
+@andy_app.command("identify")
+def andy_identify(as_of: str = typer.Option(None, help="ISO date; default today")) -> None:
+    """Run the identification engine (DID / within-FE) and write derived estimates PIT."""
+    from slx.ingestion.identification_panels import run_identification
+
+    _bridge_slx_env()
+    run_identification(_parse_as_of(as_of))
+    print("[green]✓ identification[/green] derived estimates written")
+
+
+@andy_app.command("evaluate")
+def andy_evaluate(as_of: str = typer.Option(None, help="ISO date; default today")) -> None:
+    """Evaluate the 9 overclaim-registry claims at as_of (writes eval log + status)."""
+    from slx.engine import overclaim
+
+    _bridge_slx_env()
+    for claim_key, verdict in overclaim.run(_parse_as_of(as_of)):
+        print(f"  {claim_key}: {verdict}")
+
+
+@andy_app.command("status")
+def andy_status() -> None:
+    """Row counts + claim statuses of the macro module."""
+    from slx.db import connect
+
+    _bridge_slx_env()
+    t = Table("slx table", "rows")
+    with connect() as c:
+        for tbl in ["theory_anchor", "metric_registry", "metric_source", "observation",
+                    "panel_observation", "overclaim_registry", "overclaim_eval_log", "audit_log"]:
+            try:
+                t.add_row(tbl, str(c.execute(f"SELECT count(*) FROM {tbl}").fetchone()[0]))
+            except Exception:  # noqa: BLE001
+                t.add_row(tbl, "—")
+        print(t)
+        try:
+            rows = c.execute("SELECT claim_key, status FROM overclaim_registry ORDER BY claim_key").fetchall()
+            s = Table("claim", "status")
+            for k, v in rows:
+                s.add_row(k, v)
+            print(s)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 @app.command()

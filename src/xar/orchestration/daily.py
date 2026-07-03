@@ -85,6 +85,28 @@ def _run_source(src: str, ids: list[str], since) -> dict:
     elif src == "polymarket":
         providers.polymarket.pull()
         signals.derive_market_signals()
+    elif src == "macro":
+        # Andy (slx) macro module — opt-in (add 'macro' to XAR_DAILY_ENABLED_SOURCES).
+        # Ignores the company shard: connectors → identification → overclaim verdicts.
+        from datetime import date
+
+        from slx.engine import overclaim
+        from slx.ingestion.discovery import discover_connectors
+        from slx.ingestion.identification_panels import run_identification
+
+        from ..cli import _bridge_slx_env
+
+        _bridge_slx_env()
+        for source_id, (cls, is_primary) in sorted(discover_connectors().items()):
+            if not is_primary or source_id == "seed":
+                continue
+            try:
+                cls().run()          # returns an audit_log run uuid; rows land in slx.observation
+                pulled += 1          # count sources swept (per-source row counts: audit_log)
+            except Exception as e:  # noqa: BLE001
+                log.warning("macro connector %s: %s", source_id, e)
+        run_identification(date.today())
+        overclaim.run(date.today())
     else:
         return {"skipped": f"unknown source {src}"}
     return {"pulled": pulled}

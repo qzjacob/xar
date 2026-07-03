@@ -566,6 +566,17 @@ except Exception as e:  # noqa: BLE001
     log.warning("fenny module not mounted: %s", e)
 
 
+# Andy (siliconomics macro-indicator platform) — vendored sub-app mounted under /api/andy.
+# XAR-native 勾稽 routes (/api/andy/link/*) are @app.get-registered above and shadow the
+# mount for their exact paths; everything else under /api/andy/* falls through to the slx
+# app. MUST stay before the SPA catch-all below.
+try:
+    from .andy_mount import get_andy_app
+    app.mount("/api/andy", get_andy_app())
+except Exception as e:  # noqa: BLE001
+    log.warning("andy module not mounted: %s", e)
+
+
 @app.get("/{full_path:path}", response_class=HTMLResponse, include_in_schema=False)
 def spa_fallback(full_path: str):
     """SPA client-side routing fallback. API/doc/asset paths fall through to 404."""
