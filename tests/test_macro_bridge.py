@@ -55,6 +55,8 @@ def test_sync_idempotent_and_visible(slx_seeded):
     from xar.storage import db
 
     as_of = date(2026, 6, 30)
+    # self-contained on any DB state: clear this bridge's own rows (license_tag='slx')
+    db.execute("DELETE FROM kg_events WHERE license_tag='slx'")
     first = macro_bridge.sync(as_of)
     second = macro_bridge.sync(as_of)
     total_first = first["prints"]["inserted"] + first["claims"]["inserted"]
