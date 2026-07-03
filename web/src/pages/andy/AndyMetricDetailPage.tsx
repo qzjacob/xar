@@ -147,7 +147,7 @@ export function AndyMetricDetailPage() {
                     {r.note ?? "承重墙不可量化项：无数值读数，仅作定性边界。"}
                   </span>
                 </div>
-              ) : series.length >= 2 ? (
+              ) : series.length >= 1 ? (
                 <PlotlyChart
                   height={280}
                   data={[
@@ -155,9 +155,10 @@ export function AndyMetricDetailPage() {
                       x: series.map((p) => p.valid_time),
                       y: series.map((p) => p.value),
                       type: "scatter",
-                      mode: "lines+markers",
+                      // a single vintage still deserves a visible print — markers only
+                      mode: series.length >= 2 ? "lines+markers" : "markers",
                       line: { color: "#2dd4bf", width: 2 },
-                      marker: { size: 5, color: "#2dd4bf" },
+                      marker: { size: series.length >= 2 ? 5 : 9, color: "#2dd4bf" },
                       hovertemplate: "%{x}<br>%{y}<extra></extra>",
                       name: reg.display_name_zh,
                     },
