@@ -10,7 +10,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { fennyApi } from "../../lib/fenny";
-import { PlotlyChart } from "../../components/fenny/PlotlyChart";
+import { PlotlyChart } from "../../components/charts/PlotlyChart";
 import { Card } from "../../components/ui/Card";
 import { SectionHeader } from "../../components/ui/SectionHeader";
 import { Badge } from "../../components/ui/Badge";

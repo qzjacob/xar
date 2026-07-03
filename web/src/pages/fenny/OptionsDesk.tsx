@@ -7,7 +7,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { PlotlyChart } from "../../components/fenny/PlotlyChart";
+import { PlotlyChart } from "../../components/charts/PlotlyChart";
 import { Badge } from "../../components/ui/Badge";
 import { Card } from "../../components/ui/Card";
 import { SectionHeader } from "../../components/ui/SectionHeader";

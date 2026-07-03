@@ -1,8 +1,9 @@
 import Plotly from "plotly.js-dist-min";
 import createPlotlyComponent from "react-plotly.js/factory";
 
-// Wrapped via the factory over the minified dist so the whole Fenny route (lazy-loaded)
-// carries plotly in ONE chunk — it never touches the main bundle.
+// Wrapped via the factory over the minified dist. Both lazy routes that draw charts
+// (Fenny AND Andy) import THIS specifier, so Vite splits plotly into ONE shared chunk
+// loaded on demand — it never touches the main bundle and is never duplicated.
 const Plot = createPlotlyComponent(Plotly);
 
 /** Dark plotly template matching the terminal theme tokens. */

@@ -20,6 +20,7 @@ export default {
           neg: ramp("neg", [50, 100, 700]),
           warn: ramp("warn", [50, 100, 700]),
           explore: ramp("explore", [50, 100, 500, 600, 700]),
+          andy: ramp("andy", [50, 100, 500, 600, 700]),
         };
       })(),
       fontFamily: {

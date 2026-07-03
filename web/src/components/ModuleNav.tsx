@@ -1,4 +1,4 @@
-import { CandlestickChart, LayoutDashboard, Sparkles, Telescope, SlidersHorizontal } from "lucide-react";
+import { Activity, CandlestickChart, LayoutDashboard, Sparkles, Telescope, SlidersHorizontal } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "../lib/format";
 
@@ -11,10 +11,12 @@ type Mod = {
   match: (p: string) => boolean;
 };
 
-/** The three primary modules + two satellite consoles. Order = primary first. */
+/** The four primary modules + two satellite consoles. Order = primary first. */
 export const MODULES: Mod[] = [
   { key: "chathy", label: "Chathy", cn: "对话分析", to: "/", icon: Sparkles,
     match: (p) => p === "/" || p.startsWith("/chathy") },
+  { key: "andy", label: "Andy", cn: "宏观指标", to: "/andy", icon: Activity,
+    match: (p) => p.startsWith("/andy") },
   { key: "genny", label: "Genny", cn: "研究终端", to: "/genny", icon: LayoutDashboard,
     match: (p) => p.startsWith("/genny") || p.startsWith("/segment") || p.startsWith("/company") },
   { key: "fenny", label: "Fenny", cn: "结构化票据", to: "/fenny", icon: CandlestickChart,

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Radio } from "lucide-react";
+import { Activity, Radio } from "lucide-react";
 import {
   catalystLabel,
   SOURCE_LABEL,
@@ -126,14 +126,25 @@ function SignalRow({
       <div className="min-w-0 flex-1">
         {/* top line: catalyst chip · source · time */}
         <div className="flex items-center gap-1.5">
-          <Badge className={polarityChip(sig.polarity)}>
-            <span
-              className="h-1.5 w-1.5 rounded-full"
-              style={{ backgroundColor: accent }}
-              aria-hidden="true"
-            />
-            {catalystLabel(sig.type).en}
-          </Badge>
+          {sig.type === "macro_print" ? (
+            /* macro prints route through XAR Andy — teal gauge glyph + 宏观 tag */
+            <Badge
+              className="bg-andy-50 text-andy-500 ring-1 ring-inset ring-andy/25"
+              title="Macro Print · 宏观数据 (XAR Andy)"
+            >
+              <Activity size={11} strokeWidth={2.5} className="text-andy-500" aria-hidden="true" />
+              宏观
+            </Badge>
+          ) : (
+            <Badge className={polarityChip(sig.polarity)}>
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: accent }}
+                aria-hidden="true"
+              />
+              {catalystLabel(sig.type).en}
+            </Badge>
+          )}
           <Badge
             className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line"
             title={`Source · ${SOURCE_LABEL[sig.source]}`}

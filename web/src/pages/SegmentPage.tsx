@@ -15,6 +15,7 @@ import {
 } from "../lib/format";
 import { REGIME_LABEL, type SegmentDetail } from "../types";
 import { CompanyWatchlist } from "../components/CompanyWatchlist";
+import { MacroStrip } from "../components/MacroStrip";
 import { SignalFeed } from "../components/SignalFeed";
 import { Badge, Card, SectionHeader, Sparkline } from "../components/ui";
 
@@ -26,7 +27,7 @@ import { Badge, Card, SectionHeader, Sparkline } from "../components/ui";
 export function SegmentPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { overview, market } = useData();
+  const { overview, market, theme } = useData();
   const [detail, setDetail] = useState<SegmentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -237,6 +238,9 @@ export function SegmentPage() {
           ))}
         </div>
       </Card>
+
+      {/* macro crosswalk (renders nothing if the Andy link API is unavailable) */}
+      <MacroStrip theme={theme} compact />
 
       {/* members */}
       <CompanyWatchlist

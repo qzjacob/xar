@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-
 import { DataProvider } from "./context";
 
 const FennyApp = lazy(() => import("./pages/fenny/FennyApp"));
+const AndyApp = lazy(() => import("./pages/andy/AndyApp"));
 import { Layout } from "./components/Layout";
 import { AdminLayout } from "./components/AdminLayout";
 import { ExplorationLayout } from "./components/ExplorationLayout";
@@ -37,10 +38,10 @@ function LegacyRedirect({ to }: { to: "segment" | "company" }) {
   return <Navigate to={`/genny/${to}/${id ?? ""}`} replace />;
 }
 
-function FennyFallback() {
+function LazyFallback({ name }: { name: string }) {
   return (
     <div className="flex h-full items-center justify-center bg-canvas text-xs text-slate-400">
-      Loading Fenny…
+      Loading {name}…
     </div>
   );
 }
@@ -66,8 +67,11 @@ export default function App() {
         <Route path="/segment/:id" element={<LegacyRedirect to="segment" />} />
         <Route path="/company/:id" element={<LegacyRedirect to="company" />} />
 
+        {/* Andy — macro-indicator terminal (lazy chunk; shares the plotly chunk with Fenny) */}
+        <Route path="/andy/*" element={<Suspense fallback={<LazyFallback name="Andy" />}><AndyApp /></Suspense>} />
+
         {/* Fenny — structured-notes / options desk (lazy chunk isolates plotly) */}
-        <Route path="/fenny/*" element={<Suspense fallback={<FennyFallback />}><FennyApp /></Suspense>} />
+        <Route path="/fenny/*" element={<Suspense fallback={<LazyFallback name="Fenny" />}><FennyApp /></Suspense>} />
 
         {/* Exploration — frontier module (indigo shell) */}
         <Route path="/explore" element={<ExplorationLayout />}>

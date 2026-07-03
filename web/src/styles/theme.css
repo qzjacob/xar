@@ -42,6 +42,22 @@
   --c-explore-700: 139 92 246; --c-explore-600: 124 58 237; --c-explore-500: 167 139 250;
   --c-explore-100: 196 181 253; --c-explore-50: 30 25 52; --c-explore-DEFAULT: 139 92 246;
 
+  /* andy macro-indicator module accent = teal (50/100 are dark tinted panels; 500 is
+   * bright text on dark — AA on canvas/surface) */
+  --c-andy-700: 13 148 136; --c-andy-600: 20 184 166; --c-andy-500: 45 212 191;
+  --c-andy-100: 19 52 54; --c-andy-50: 15 35 36; --c-andy-DEFAULT: 20 184 166;
+
+  /* bare aliases — tailwind.config's c(base) resolves DEFAULT utilities (bg-pos,
+   * text-neg, bg-explore, bg-andy, ring-andy/25 …) via var(--c-<base>); the
+   * `-DEFAULT`-suffixed names above are not readable by that helper. */
+  --c-brand: 231 237 245;
+  --c-accent: 245 158 11;
+  --c-pos: 45 200 118;
+  --c-neg: 244 96 96;
+  --c-warn: 245 176 40;
+  --c-explore: 139 92 246;
+  --c-andy: 20 184 166;
+
   /* motion */
   --dur-fast: 130ms;
   --dur-med: 220ms;

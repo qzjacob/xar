@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useData } from "../context";
 import { RegimeSummaryCard } from "../components/RegimeSummaryCard";
+import { MacroStrip } from "../components/MacroStrip";
 import { ChainHeatmap } from "../components/ChainHeatmap";
 import { SegmentRankingTable } from "../components/SegmentRankingTable";
 import { SignalFeed } from "../components/SignalFeed";
@@ -12,7 +13,7 @@ import { DecisionRail } from "../components/DecisionRail";
 /** Home dashboard. Every module click navigates to a detail page. */
 export function DashboardPage() {
   const nav = useNavigate();
-  const { overview, companies, signals, catalysts, market } = useData();
+  const { overview, companies, signals, catalysts, market, theme } = useData();
 
   const marketCompanies = useMemo(
     () => (market === "ALL" ? companies : companies.filter((c) => c.market === market)),
@@ -38,6 +39,7 @@ export function DashboardPage() {
   return (
     <div className="mx-auto flex max-w-[1200px] flex-col gap-5">
       <RegimeSummaryCard regime={regime} segments={segments} />
+      <MacroStrip theme={theme} />
       <ChainHeatmap segments={segments} selectedSegmentId={null} onSelectSegment={goSegment} />
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         <div className="flex min-w-0 flex-col gap-5">
