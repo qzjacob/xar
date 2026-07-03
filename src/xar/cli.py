@@ -148,6 +148,29 @@ def pull(
     print(json.dumps(out, indent=2, default=str))
 
 
+@app.command("pull-rss")
+def pull_rss(
+    feed: str = typer.Argument(None, help="feed id (see --list); omit for all curated feeds"),
+    since: str = typer.Option(None, help="ISO datetime lower bound; omit for the full window"),
+    limit: int = typer.Option(50, help="max entries per feed"),
+    list_feeds: bool = typer.Option(False, "--list", help="show the curated feed registry"),
+) -> None:
+    """Pull curated industry-news RSS/Atom feeds (8 themes, 丰富资讯来源) into
+    theme-tagged documents. Idempotent (content-hash dedup); also runs nightly
+    when 'rss' is in XAR_DAILY_ENABLED_SOURCES."""
+    from .ingestion.feeds import FEEDS
+    from .providers import rss
+
+    if list_feeds:
+        t = Table("id", "name", "themes", "lang", "url")
+        for f in FEEDS:
+            t.add_row(f["id"], f["name"], ",".join(f["themes"]), f["lang"], f["url"])
+        print(t)
+        raise typer.Exit(0)
+    n = rss.pull(feed, since=since, limit=limit)
+    print(f"[green]rss:[/green] {n} docs saved")
+
+
 @app.command()
 def daily(
     sources: str = typer.Option(None, help="CSV of sources; omit for XAR_DAILY_ENABLED_SOURCES"),

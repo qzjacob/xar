@@ -25,20 +25,39 @@ _X_V2 = "https://api.twitter.com/2/tweets/search/recent"
 
 EXPERT_HANDLES: dict[str, list[str]] = {
     "ai_optical": ["dnystedt", "SemiAnalysis_", "Fiber_Optics", "LightCounting", "optics_news"],
-    "ai_chip": ["dylan522p", "Jukanlosreve", "SKundojjala", "IanCutress", "morethanmoore", "Frank_Hong_"],
+    "ai_chip": ["dylan522p", "Jukanlosreve", "SKundojjala", "IanCutress", "morethanmoore",
+                "Frank_Hong_"],
     "ai_software": ["jaminball", "swyx", "GergelyOrosz", "saranormous", "alexandr_wang", "bgurley"],
-    "space_exploration": ["SpaceX", "Rocket_Lab", "elonmusk", "torybruno", "planet", "SciGuySpace"],
-    "humanoid_robotics": ["Tesla_Optimus", "Figure_robot", "UnitreeRobotics", "adcock_brett", "DrJimFan", "Scott_eFoster"],
+    "space_exploration": ["SpaceX", "Rocket_Lab", "elonmusk", "torybruno", "planet4589",
+                          "NASASpaceflight", "SciGuySpace", "Erdayastronaut"],
+    "humanoid_robotics": ["Tesla_Optimus", "Figure_robot", "UnitreeRobotics", "adcock_brett",
+                          "DrJimFan", "ericjang11", "pabbeel", "Scott_eFoster"],
+    # consumer complex — internet platforms / retail / restaurants
+    "internet": ["benedictevans", "benthompson", "profgalloway", "CaseyNewton",
+                 "mgsiegler", "eMarketer"],
+    "retail": ["retailgeek", "DelRey", "NeilRetail", "SarahNassauer",
+               "melissa_repko", "laurenthomas"],
+    "restaurants": ["jonathanmaze", "MarkKalinowski", "QSRmagazine",
+                    "TechnomicInc", "NRNonline"],
 }
 DOMAIN_TERMS: dict[str, list[str]] = {
-    "ai_optical": ['"optical module"', "1.6T", "CPO", '"silicon photonics"', "EML", '"linear drive"'],
-    "ai_chip": ["HBM", "CoWoS", '"advanced packaging"', "EUV", '"AI accelerator"', '"wafer fab"'],
+    "ai_optical": ['"optical module"', "1.6T", "CPO", '"silicon photonics"', "EML",
+                   '"linear drive"'],
+    "ai_chip": ["HBM", "CoWoS", '"advanced packaging"', "EUV", '"AI accelerator"',
+                '"wafer fab"'],
     "ai_software": ['"AI agent"', "Agentforce", "copilot", "RAG", "LLMOps",
                     '"agentic"', '"consumption revenue"', '"seat-based"'],
-    "space_exploration": ["Starship", '"reusable rocket"', '"satellite constellation"', "Starlink",
-                          '"orbital data center"', '"launch cadence"', '"space-based compute"'],
+    "space_exploration": ["Starship", '"reusable rocket"', '"satellite constellation"',
+                          "Starlink", '"orbital data center"', '"launch cadence"',
+                          '"space-based compute"'],
     "humanoid_robotics": ["humanoid", "Optimus", '"harmonic reducer"', '"roller screw"',
                           '"dexterous hand"', '"frameless motor"', "VLA", '"embodied AI"'],
+    "internet": ['"digital advertising"', '"ad spend"', '"e-commerce growth"', '"take rate"',
+                 '"subscriber growth"', '"app store revenue"', '"DAU growth"'],
+    "retail": ['"same-store sales"', '"comparable sales"', '"foot traffic"', '"retail sales"',
+               '"consumer spending"', '"off-price"', '"inventory levels"'],
+    "restaurants": ['"same-store sales"', '"restaurant traffic"', "QSR", '"value menu"',
+                    '"drive-thru"', '"menu prices"', '"fast casual"'],
 }
 
 

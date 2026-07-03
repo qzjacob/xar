@@ -9,9 +9,16 @@ import type {
   SegmentDetail,
   Signal,
 } from "../types";
+import type { ThesisBuildResult } from "../types-thesis";
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(path, { headers: { Accept: "application/json" } });
+  if (!r.ok) throw new Error(`${path} -> ${r.status}`);
+  return (await r.json()) as T;
+}
+
+async function post<T>(path: string): Promise<T> {
+  const r = await fetch(path, { method: "POST", headers: { Accept: "application/json" } });
   if (!r.ok) throw new Error(`${path} -> ${r.status}`);
   return (await r.json()) as T;
 }
@@ -26,4 +33,9 @@ export const api = {
   getCompany: (id: string, theme?: string) =>
     get<CompanyDetail>(`/api/ui/company/${encodeURIComponent(id)}${theme ? T(theme) : ""}`),
   getSegment: (id: string) => get<SegmentDetail>(`/api/ui/segment/${encodeURIComponent(id)}`),
+  /** Build/refresh the investment thesis — sync, can take ~60s; await it. */
+  buildThesis: (cid: string, force = false) =>
+    post<ThesisBuildResult>(
+      `/api/thesis/${encodeURIComponent(cid)}/build?force=${force ? "true" : "false"}`,
+    ),
 };

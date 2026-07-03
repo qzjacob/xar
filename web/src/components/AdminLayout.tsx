@@ -9,6 +9,7 @@ import type { HealthInfo } from "../types-ops";
 const TITLES: Record<string, { en: string; cn: string }> = {
   "/ops": { en: "Overview", cn: "总览" },
   "/ops/ontology": { en: "Ontology", cn: "本体" },
+  "/ops/coverage": { en: "Coverage 360", cn: "覆盖度" },
   "/ops/sources": { en: "Data Sources", cn: "数据源" },
   "/ops/datalake": { en: "Data Lake", cn: "数据湖" },
   "/ops/altdata": { en: "Alt-Data AI", cn: "另类数据加工" },

@@ -69,6 +69,11 @@ CORE_PACK = [
     _s("revenue_growth", "Revenue Growth", "ratio", True, (STAR,)),
     _s("earnings_growth", "Earnings Growth", "ratio", True, (STAR,)),
     _s("market_cap", "Market Cap", "USD", True, (STAR,)),
+    # market structure / positioning — point-in-time snapshots (e.g. yahoo .info)
+    _s("float_shares", "Float Shares", "count", True, (STAR,)),
+    _s("short_interest_shares", "Short Interest (shares)", "count", False, (STAR,)),
+    _s("short_ratio", "Short Ratio (days-to-cover)", "days", False, (STAR,)),
+    _s("short_pct_float", "Short % of Float", "ratio", False, (STAR,)),
 ]
 
 # === LANDSCAPE — industry structure / 行业格局 (used by P3 view; keys defined now) ===

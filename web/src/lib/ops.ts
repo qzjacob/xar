@@ -9,6 +9,7 @@ import type {
   LlmInfo,
   LlmTestResult,
   OntologyInfo,
+  OpsCoverageInfo,
   SelfTest,
   SkillsInfo,
   SourcesInfo,
@@ -47,4 +48,5 @@ export const ops = {
   altdata: () => get<AltDataInfo>("/api/ops/altdata"),
   processAltdata: () => post<ActionResult>("/api/ops/altdata/process"),
   selftest: () => get<SelfTest>("/api/ops/selftest"),
+  coverage: () => get<OpsCoverageInfo>("/api/ops/coverage"),
 };

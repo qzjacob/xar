@@ -4,6 +4,14 @@
 // (catalyst taxonomy, chain segments, permission/source tags).
 // ===========================================================================
 
+import type {
+  CalendarRow,
+  CompanyCoverage,
+  EstimateRow,
+  HoldingRow,
+  Thesis,
+} from "./types-thesis";
+
 export type Market = "ALL" | "US" | "CN" | "JP" | "KR" | "HK";
 export const MARKETS: Market[] = ["ALL", "US", "CN", "JP", "KR", "HK"];
 
@@ -244,6 +252,13 @@ export interface CompanyDetail {
   fundamentals: FundamentalRow[];
   signals: Signal[];
   supplyChain: SupplyChain;
+  // --- Company 360 blocks (optional: older backends omit them; most names
+  // have no thesis yet — every consumer must degrade gracefully) -----------
+  thesis?: Thesis | null;
+  coverage?: CompanyCoverage | null;
+  estimates?: EstimateRow[];
+  holdings?: HoldingRow[];
+  calendar?: CalendarRow[];
 }
 
 export interface SegmentDetail {

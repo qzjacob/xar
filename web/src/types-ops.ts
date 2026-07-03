@@ -209,3 +209,23 @@ export interface LlmTestResult {
   reply?: string;
   detail?: string;
 }
+
+// --- coverage 360 dashboard (/api/ops/coverage) ----------------------------
+export interface OpsCoverageDimension {
+  key: string;
+  name: string;
+  name_cn: string;
+  weight: number; // dimension weights sum to 1.0
+}
+export interface OpsCoverageTheme {
+  theme: string;
+  name: string;
+  name_cn: string;
+  companies: number;
+  avg_composite: number; // 0..1 mean weighted composite across members
+  dims: Record<string, number>; // dim key -> 0..1 fill rate (share of names with score >= 0.34)
+}
+export interface OpsCoverageInfo {
+  dimensions: OpsCoverageDimension[];
+  themes: OpsCoverageTheme[];
+}

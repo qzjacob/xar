@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -27,6 +27,9 @@ import {
 import type { CompanyDetail, SupplyEdge } from "../types";
 import { Badge, Card, DeltaTag, MetricPill, SectionHeader, Sparkline } from "../components/ui";
 import { SignalFeed } from "../components/SignalFeed";
+import { ThesisSection } from "../components/ThesisSection";
+import { CoverageRing } from "../components/CoverageRing";
+import { CalendarPanel, EstimatesPanel, HoldingsPanel } from "../components/CompanyDataPanels";
 
 /** Company detail — name-level drilldown: price, fundamentals, KG supply chain, signals. */
 export function CompanyPage() {
@@ -59,6 +62,16 @@ export function CompanyPage() {
     return () => {
       on = false;
     };
+  }, [id, theme]);
+
+  /** Silent refetch (no loading flash) — used after a thesis build completes. */
+  const refetch = useCallback(async () => {
+    if (!id) return;
+    try {
+      setDetail(await api.getCompany(id, theme));
+    } catch {
+      // keep whatever is on screen
+    }
   }, [id, theme]);
 
   // --- loading -------------------------------------------------------------
@@ -96,6 +109,13 @@ export function CompanyPage() {
   }
 
   const { company, segment, prices, fundamentals, signals, supplyChain } = detail;
+  // Company 360 blocks — optional in the payload; older backends / sparse names
+  // simply omit them, so every consumer below gets a safe default.
+  const thesis = detail.thesis ?? null;
+  const coverage = detail.coverage ?? null;
+  const estimates = detail.estimates ?? [];
+  const holdings = detail.holdings ?? [];
+  const calendar = detail.calendar ?? [];
   const segments = overview?.segments ?? [];
   const closes = prices.map((p) => p.close);
   const first = prices[0];
@@ -165,12 +185,13 @@ export function CompanyPage() {
             </div>
           </div>
 
-          {/* price delta + sparkline */}
-          <div className="flex shrink-0 items-center gap-4 lg:flex-col lg:items-end">
+          {/* price delta + sparkline + coverage ring */}
+          <div className="flex shrink-0 flex-wrap items-center gap-4 lg:flex-col lg:items-end">
             <DeltaTag value={company.priceChange} size={18} className="text-2xl" />
             {closes.length >= 2 && (
               <Sparkline data={closes} width={240} height={48} className="w-[200px] sm:w-[240px]" />
             )}
+            {coverage && <CoverageRing coverage={coverage} />}
           </div>
         </div>
 
@@ -210,6 +231,9 @@ export function CompanyPage() {
           </div>
         </div>
       </Card>
+
+      {/* ============================ THESIS 360 =========================== */}
+      <ThesisSection cid={company.id} thesis={thesis} onRefetch={refetch} />
 
       {/* ============================ BODY GRID ============================ */}
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
@@ -289,6 +313,9 @@ export function CompanyPage() {
               </div>
             )}
           </Card>
+
+          {/* ANALYST ESTIMATES */}
+          <EstimatesPanel rows={estimates} />
         </div>
 
         {/* ---------- RIGHT: supply chain + signals ---------- */}
@@ -337,6 +364,12 @@ export function CompanyPage() {
               <SingleSourceRisks risks={supplyChain.single_source_risks} />
             </div>
           </Card>
+
+          {/* FORWARD CALENDAR */}
+          <CalendarPanel rows={calendar} />
+
+          {/* INSTITUTIONAL OWNERSHIP */}
+          <HoldingsPanel rows={holdings} />
 
           {/* SIGNALS */}
           <SignalFeed

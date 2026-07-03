@@ -85,6 +85,11 @@ def _run_source(src: str, ids: list[str], since) -> dict:
     elif src == "polymarket":
         providers.polymarket.pull()
         signals.derive_market_signals()
+    elif src == "rss":
+        # curated industry-news feeds (theme-level) — ignores the company shard
+        from ..providers import rss
+
+        pulled += rss.pull(since=since)
     elif src == "macro":
         # Andy (slx) macro module — opt-in (add 'macro' to XAR_DAILY_ENABLED_SOURCES).
         # Ignores the company shard: connectors → identification → overclaim verdicts.

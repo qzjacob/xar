@@ -16,6 +16,7 @@ import { CompanyPage } from "./pages/CompanyPage";
 import { SegmentPage } from "./pages/SegmentPage";
 import { OpsOverviewPage } from "./pages/ops/OpsOverviewPage";
 import { OntologyPage } from "./pages/ops/OntologyPage";
+import { CoveragePage } from "./pages/ops/CoveragePage";
 import { SourcesPage } from "./pages/ops/SourcesPage";
 import { DataLakePage } from "./pages/ops/DataLakePage";
 import { AltDataPage } from "./pages/ops/AltDataPage";
@@ -83,6 +84,7 @@ export default function App() {
         <Route path="/ops" element={<AdminLayout />}>
           <Route index element={<OpsOverviewPage />} />
           <Route path="ontology" element={<OntologyPage />} />
+          <Route path="coverage" element={<CoveragePage />} />
           <Route path="sources" element={<SourcesPage />} />
           <Route path="datalake" element={<DataLakePage />} />
           <Route path="altdata" element={<AltDataPage />} />

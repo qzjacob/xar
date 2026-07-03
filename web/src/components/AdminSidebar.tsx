@@ -7,6 +7,7 @@ import {
   Layers3,
   Network,
   Plug,
+  Radar,
   Workflow,
   type LucideIcon,
 } from "lucide-react";
@@ -15,6 +16,7 @@ import { cn } from "../lib/format";
 const ADMIN_NAV: { id: string; label: string; icon: LucideIcon; route: string }[] = [
   { id: "overview", label: "Overview", icon: Gauge, route: "/ops" },
   { id: "ontology", label: "Ontology", icon: Network, route: "/ops/ontology" },
+  { id: "coverage", label: "Coverage 覆盖度", icon: Radar, route: "/ops/coverage" },
   { id: "sources", label: "Data Sources", icon: Database, route: "/ops/sources" },
   { id: "datalake", label: "Data Lake", icon: Layers3, route: "/ops/datalake" },
   { id: "altdata", label: "Alt-Data AI", icon: BrainCircuit, route: "/ops/altdata" },

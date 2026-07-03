@@ -27,6 +27,29 @@ export function fmtScore(n: number): string {
   return Math.round(n).toString();
 }
 
+/** Compact USD from a raw dollar amount: $1.2T / $34.5B / $120M / $87K / —. */
+export function fmtUsdCompact(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  const n = Math.abs(v);
+  const sign = v < 0 ? "-" : "";
+  if (n >= 1e12) return `${sign}$${(n / 1e12).toFixed(1)}T`;
+  if (n >= 1e9) return `${sign}$${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `${sign}$${(n / 1e6).toFixed(0)}M`;
+  if (n >= 1e3) return `${sign}$${(n / 1e3).toFixed(0)}K`;
+  return `${sign}$${n.toFixed(0)}`;
+}
+
+/** Compact count (shares etc.): 1.2B / 34.5M / 120K / —. */
+export function fmtCount(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  const n = Math.abs(v);
+  const sign = v < 0 ? "-" : "";
+  if (n >= 1e9) return `${sign}${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `${sign}${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${sign}${(n / 1e3).toFixed(0)}K`;
+  return `${sign}${n.toLocaleString("en-US")}`;
+}
+
 // --- dates -----------------------------------------------------------------
 export function relTime(iso: string): string {
   const then = new Date(iso).getTime();
