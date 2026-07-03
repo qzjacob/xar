@@ -36,7 +36,7 @@ def pool() -> ConnectionPool:
             if _POOL is None:
                 s = get_settings()
                 _POOL = ConnectionPool(
-                    s.database_url, min_size=1, max_size=8, configure=_configure, open=True
+                    s.database_url, min_size=2, max_size=16, configure=_configure, open=True
                 )
     return _POOL
 

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import math
 import re
+import threading
+import time
 from datetime import datetime, timezone
 
 from ..ingestion.registry import SEGMENTS, THEMES
@@ -83,7 +85,30 @@ def _pct(series: list[float], lookback: int) -> float:
 
 
 # --- bulk loaders ----------------------------------------------------------
+# The dashboard reloads the full company/price/fundamentals/event corpus on every call, and
+# a single page (DataProvider) fans out to overview+companies+signals+catalysts — each of which
+# calls _load() 1-4×. Uncached, that stampedes ~10 full-table scans through the small DB pool
+# and deadlocks under concurrency (PoolTimeout → 500). The underlying data only changes on the
+# nightly ingest, so a short TTL cache + single-flight lock collapses those into one load.
+_LOAD_CACHE: dict | None = None
+_LOAD_AT = 0.0
+_LOAD_TTL = 30.0
+_LOAD_LOCK = threading.Lock()
+
+
 def _load() -> dict:
+    global _LOAD_CACHE, _LOAD_AT
+    if _LOAD_CACHE is not None and time.monotonic() - _LOAD_AT < _LOAD_TTL:
+        return _LOAD_CACHE
+    with _LOAD_LOCK:  # single-flight: only one thread hits the DB; the rest reuse its result
+        if _LOAD_CACHE is not None and time.monotonic() - _LOAD_AT < _LOAD_TTL:
+            return _LOAD_CACHE
+        _LOAD_CACHE = _load_uncached()
+        _LOAD_AT = time.monotonic()
+        return _LOAD_CACHE
+
+
+def _load_uncached() -> dict:
     companies = db.query(
         "SELECT id,name,aliases,tickers,region,chain_role,themes,meta FROM companies ORDER BY name"
     )
