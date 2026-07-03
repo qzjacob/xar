@@ -1,0 +1,238 @@
+# 指标族：劳动、分配、双相相对价格。中指标（逻辑推论）+ 软指标（待识别假说）。
+# 锚定 A3（要素二分坍塌）、A8（生产率—工资脱钩、鲍莫尔升级）、A5（双相相对价格）、A6。
+metrics:
+  # ── 中指标（medium）─────────────────────────────────────────────────────
+  - metric_key: labor.labor_share
+    display_name_zh: 劳动报酬份额（非农，季度）
+    family: labor_distribution
+    theory_anchor: [A3, A8]
+    binding_scarcity: cognition
+    phase: mixed
+    mechanism: 认知资本化后劳动从"必要投入"降格为可被复制权重替代的要素，劳动份额不再是分配稳态吸引子。
+    hardness: medium
+    falsification_condition: 在 AI 高渗透行业劳动份额长期稳定甚至回升，则"替代弹性跨过 1、份额结构性塌缩"被削弱。
+    decision_window: 5-10y
+    source_grade: A_official
+    caveat: 份额受全球化/议价权等多因素影响，AI 归因需控他因；FRED/ALFRED 提供 vintage。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: "PRS85006173", source_grade: A_official, ingest_cadence: quarterly, vintage_aware: true, url: "https://fred.stlouisfed.org/" }
+
+  - metric_key: labor.productivity_wage_decoupling
+    display_name_zh: 生产率—工资脱钩缺口
+    family: labor_distribution
+    theory_anchor: [A8]
+    binding_scarcity: cognition
+    phase: mixed
+    mechanism: 新脱钩源于生产函数本身（要素地位塌方），非议价权——是结构性而非可由政策弥合的。
+    hardness: medium
+    falsification_condition: 生产率跃升后实际工资中位数同步跟上（缺口收敛），则结构性脱钩假说被削弱。
+    decision_window: 5-10y
+    source_grade: A_official
+    caveat: 派生指标（生产率指数 − 实际工资指数），口径对齐敏感。
+    is_quantifiable: true
+    unit: index_gap
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: "OPHNFB_minus_real_wage", source_grade: D_derived, ingest_cadence: quarterly, vintage_aware: true }
+
+  - metric_key: price.software_vs_atom_scissors
+    display_name_zh: 软件相 vs 原子相相对价格剪刀差
+    family: dual_phase_price
+    theory_anchor: [A5, A8]
+    binding_scarcity: energy
+    phase: mixed
+    mechanism: 比特白菜化与原子坚挺化是一枚硬币两面；利润系统性向原子相迁移——卖智能不赚钱，卖支撑智能的焦耳与 FLOP 才赚钱。
+    hardness: medium
+    falsification_condition: 软件相产出价与原子相要素价长期同向同速，则双相分层（利润迁往原子相）被削弱。
+    decision_window: 2-3y
+    source_grade: D_derived
+    caveat: 派生自（认知密集 CPI/软件价 ÷ 能源材料价）；篮子构成决定结论，须透明。
+    is_quantifiable: true
+    unit: ratio
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: bls, series_id: cpi_software_vs_energy, source_grade: D_derived, ingest_cadence: monthly, vintage_aware: false }
+
+  - metric_key: price.split_cpi
+    display_name_zh: 分裂 CPI（认知通缩 vs 执行通胀）
+    family: dual_phase_price
+    theory_anchor: [A8]
+    binding_scarcity: energy
+    phase: mixed
+    mechanism: 认知成本坍缩不带来单向通缩，而把价格撕裂为两个反向子系统；总 CPI 是掩盖结构断裂的加权平均（鲍莫尔升级版）。
+    hardness: medium
+    falsification_condition: CPI-认知 与 CPI-原子 不再背离（同向运动），则"价格双速撕裂"被证伪。
+    decision_window: 2-3y
+    source_grade: A_official
+    caveat: 官方 CPI 分类与"认知 vs 执行"框架不对应，需自建分组映射，分组是研究判断。
+    is_quantifiable: true
+    unit: pct_yoy
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: bls, series_id: cpi_components, source_grade: A_official, ingest_cadence: monthly, vintage_aware: false, url: "https://www.bls.gov/cpi/" }
+
+  - metric_key: price.trades_wage
+    display_name_zh: 技工工资增速（电工/水管工 vs 全经济）
+    family: labor_distribution
+    theory_anchor: [A8]
+    binding_scarcity: energy
+    phase: atom
+    mechanism: 瓶颈从设计端推向执行端，停滞的物理部门相对涨价；技工工资领跑是鲍莫尔升级版的价格侧证据。
+    hardness: medium
+    falsification_condition: 技工/护理薪资增速掉回全经济均值以下（被新供给抹平），则"执行端报复"价格效应被削弱。
+    decision_window: 3-5y
+    source_grade: A_official
+    caveat: 价格效应≠吸纳能力（涨价不证明能吸纳被位移白领）；OES 年度粒度。
+    is_quantifiable: true
+    unit: pct_yoy
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: bls, series_id: oes_electricians_plumbers, source_grade: A_official, ingest_cadence: annual, vintage_aware: false, url: "https://www.bls.gov/oes/" }
+
+  - metric_key: capital.vc_flows_to_ai
+    display_name_zh: 风投流向 AI 的占比（区间表达）
+    family: capex_concentration
+    theory_anchor: [A8]
+    binding_scarcity: positionality
+    phase: software
+    mechanism: 过半创投美元只为 AI 一条窄轨定价，是"接入租"集中的资金侧证据；不同口径互不调和，只取共同下界。
+    hardness: medium
+    falsification_condition: AI 占创投比例结构性回落至常态（如 <30%），则"窄轨定价"集中度叙事被削弱。
+    decision_window: 1-2y
+    source_grade: C_vendor_estimate
+    caveat: PitchBook 52.5% / OECD 61% 口径不一、互不调和——**以区间(min,max)而非点估入库**，取共同下界"过半"。
+    is_quantifiable: true
+    unit: pct_range
+    geo_scope: global
+    status: active
+    sources:
+      - { source_id: pitchbook, series_id: ai_share_of_vc, source_grade: C_vendor_estimate, ingest_cadence: quarterly, vintage_aware: false }
+      - { source_id: oecd_ai, series_id: ai_investment_share, source_grade: B_public_curated, ingest_cadence: quarterly, vintage_aware: false }
+
+  - metric_key: macro.fed_funds_rate
+    display_name_zh: 联邦基金有效利率（周期对照变量）
+    family: macro_controls
+    theory_anchor: [A5]
+    binding_scarcity: compute
+    phase: atom
+    mechanism: 作为初级岗位/投资周期归因的对照变量——把"利率+裁员周期"这个对立假说显式纳入 DID 控制项。
+    hardness: medium
+    falsification_condition: （对照变量，无独立证伪；用于剥离周期效应。）
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 仅作 controls，不单独承载理论命题。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: "FEDFUNDS", source_grade: A_official, ingest_cadence: monthly, vintage_aware: true }
+
+  # ── 软指标（soft，待识别假说；identification_strategy 必填，看板强制"未识别"水印）──
+  - metric_key: labor.ai_skill_wage_premium
+    display_name_zh: AI 技能工资溢价（待识别为因果回报）
+    family: ai_wage_premium
+    theory_anchor: [A8]
+    binding_scarcity: cognition
+    phase: mixed
+    mechanism: 若 AI 技能是与硅基互补的稀缺资本，接入者应获因果溢价；但横截面相关(AI技能↔高薪)不等于因果回报。
+    hardness: soft
+    identification_strategy: 个体固定效应面板（同一工人采用 AI 技能前后的溢价）；横截面 PwC 56% 不可用作因果。
+    falsification_condition: 个体固定效应面板中前后溢价远小于横截面值（如 <10%），或主要由人/岗位选择解释，则因果断言证伪。
+    decision_window: testable_now
+    source_grade: C_vendor_estimate
+    caveat: PwC 25%→56% 一年翻倍更像口径/样本构成变化；存在选择偏差与反向因果；在拿到面板前强制打"未识别·勿作因果"水印。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: global
+    status: candidate
+    sources:
+      - { source_id: pwc, series_id: ai_wage_premium_cross_section, source_grade: C_vendor_estimate, ingest_cadence: annual, vintage_aware: false }
+
+  - metric_key: labor.junior_postings_high_vs_low_ai_exposure
+    display_name_zh: 初级岗位发布（高 AI 暴露 vs 低暴露职类）
+    family: labor_distribution
+    theory_anchor: [A6]
+    binding_scarcity: cognition
+    phase: mixed
+    mechanism: 凡稀缺性确已被位移进权重的标准化认知劳动，其定价权下降是机制上必然的；但这段岗位数据是否为该机制的显影，待识别。
+    hardness: soft
+    identification_strategy: 控利率与裁员周期后的双重差分（AI 暴露度横截面 DID）；对立假说=2022–23 过度招聘回吐+高利率融资收缩。
+    falsification_condition: 控周期后高/低 AI 暴露两类无显著差异；或利率下行后初级岗位回弹，则 AI 位移归因证伪。
+    decision_window: 2-3y
+    source_grade: C_vendor_estimate
+    caveat: 单一归因 AI 是把时间相关当因果；Indeed Hiring Lab 仅批量下载，无"高 AI 暴露"标准分类，须自建映射。
+    is_quantifiable: true
+    unit: index
+    geo_scope: US
+    status: candidate
+    sources:
+      - { source_id: indeed_hiring_lab, series_id: job_postings_by_category, source_grade: C_vendor_estimate, ingest_cadence: monthly, vintage_aware: false }
+
+  - metric_key: macro.ai_capex_gdp_contribution
+    display_name_zh: AI 相关 capex 对 GDP 增长的会计贡献（非因果）
+    family: macro_controls
+    theory_anchor: [A8]
+    binding_scarcity: compute
+    phase: atom
+    mechanism: '"X% GDP 增长来自信息处理设备与软件投资"是支出项会计分解，不是"增长绕开劳动"的因果证明。'
+    hardness: soft
+    identification_strategy: 会计分解非因果识别；须换基期/换剔除分项做稳健性，且建设期蓝领用工须并表（一次性脉冲≠资本化租金）。
+    falsification_condition: 改用不同基期或剔除其他高波动分项后非 AI 增长非零；或建设期蓝领工时被证实显著为正，则"绕开劳动"会计叙事被削弱。
+    decision_window: 2y
+    source_grade: A_official
+    caveat: 剔除任何高波动分项都能制造"剔除后仅剩 +0.1%"式耸动结论，对净出口/库存同样适用——这是会计游戏不是机制。
+    is_quantifiable: true
+    unit: pct_of_gdp_growth
+    geo_scope: US
+    status: candidate
+    sources:
+      - { source_id: bea, series_id: gdp_contribution_ipp, source_grade: A_official, ingest_cadence: quarterly, vintage_aware: true }
+
+  - metric_key: labor.bottom_decile_real_wage
+    display_name_zh: 第 10 百分位纯低技能实际时薪
+    family: labor_distribution
+    theory_anchor: [A8]
+    binding_scarcity: cognition
+    phase: mixed
+    mechanism: 真正在沉的是一个狭窄子集（第 10 百分位），不是"99%"这个被压平的伪集合。
+    hardness: soft
+    identification_strategy: 分位数实际时薪面板；区分"AI 位移"与"宏观周期/最低工资政策"需控他因。
+    falsification_condition: 第 10 百分位实际时薪恢复增长且与 AI 暴露无关，则"狭窄子集下沉"归因被削弱。
+    decision_window: 3-5y
+    source_grade: A_official
+    caveat: Cleveland Fed 仅发布研究报告无原始 API；2025Q2→Q3 的疫情外首次下降是单点，勿过度外推。
+    is_quantifiable: true
+    unit: usd_per_hour_real
+    geo_scope: US
+    status: candidate
+    sources:
+      - { source_id: cleveland_fed, series_id: wage_growth_by_decile, source_grade: A_official, ingest_cadence: quarterly, vintage_aware: false }
+
+  - metric_key: macro.ai_tfp_contribution
+    display_name_zh: AI 的全要素生产率（TFP）外溢贡献
+    family: macro_controls
+    theory_anchor: [A7, A8]
+    binding_scarcity: compute
+    phase: mixed
+    mechanism: 检验"AI 资本回路是稳态引擎"——capex 是否兑现为可验证 TFP 跃升（Brynjolfsson 2.7% vs Acemoglu 0.06pp 之争）。
+    hardness: soft
+    identification_strategy: 增长会计残差归因极不稳健；须用 FLOP/J 与 task/FLOP 两个可审计物理比率还原残差，而非拟合。
+    falsification_condition: capex 兑现为广泛 TFP 跃升且广泛雇人，则"泡沫"反面成立；若回报不及预期、循环融资断裂，则第三种结局（两半同沉）。
+    decision_window: 2-3y
+    source_grade: C_vendor_estimate
+    caveat: TFP 残差是"我们不懂的部分"的垃圾桶；42% 企业 AI 项目被放弃复刻 1987 Solow 悖论。
+    is_quantifiable: true
+    unit: pp_annual
+    geo_scope: US
+    status: candidate
+    sources:
+      - { source_id: bls, series_id: tfp_estimate, source_grade: C_vendor_estimate, ingest_cadence: annual, vintage_aware: false }

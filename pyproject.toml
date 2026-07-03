@@ -37,6 +37,11 @@ dependencies = [
     # Fenny (vendored src/fcn): Monte-Carlo structured-note / options pricing engine.
     "numpy>=1.26",
     "scipy>=1.11",
+    # Andy (vendored src/slx, siliconomics): macro-indicator registry + connectors.
+    "pyyaml>=6.0",
+    "jsonschema>=4.21",
+    "requests>=2.31",
+    "fredapi>=0.5",
 ]
 
 [project.optional-dependencies]
@@ -59,13 +64,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/xar", "src/fcn"]
+packages = ["src/xar", "src/fcn", "src/slx"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-# Vendored Fenny (src/fcn + tests/fenny) keeps its own upstream lint config — don't churn it.
-extend-exclude = ["src/fcn", "tests/fenny"]
+# Vendored Fenny (src/fcn + tests/fenny) and Andy/siliconomics (src/slx + tests/andy)
+# keep their upstream style — don't churn them.
+extend-exclude = ["src/fcn", "tests/fenny", "src/slx", "tests/andy"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

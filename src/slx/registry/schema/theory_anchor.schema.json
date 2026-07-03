@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "siliconomics/theory_anchor.schema.json",
+  "title": "理论锚点表 schema",
+  "type": "object",
+  "required": ["anchors"],
+  "additionalProperties": false,
+  "properties": {
+    "anchors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["anchor_key", "title"],
+        "additionalProperties": false,
+        "properties": {
+          "anchor_key": { "type": "string", "pattern": "^(A[1-8]|META_[a-z]+)$" },
+          "title": { "type": "string", "minLength": 1 },
+          "industrial_assumption": { "type": "string" },
+          "silicon_restatement": { "type": "string" },
+          "verdict": { "type": "string" }
+        }
+      }
+    }
+  }
+}

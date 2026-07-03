@@ -1,0 +1,61 @@
+# 指标族：能源—算力瓶颈（原子相）。锚定 A6（产出换锚物理通量）、A2（约束守恒）。
+# 这是稀缺位移最干净的一次演示——工程—物理约束，不依赖任何因果识别，故为最硬的一类证据。
+metrics:
+  - metric_key: power.datacenter_twh
+    display_name_zh: 数据中心年耗电（TWh）
+    family: dc_power
+    theory_anchor: [A6, META_conservation]
+    binding_scarcity: energy
+    phase: atom
+    mechanism: 认知约束解除后，被遮蔽的能源稀缺浮出——每个 token 背后都有一度电；数据中心总耗电是原子相绑定的直读指标。
+    hardness: hard
+    falsification_condition: 在 AI 算力持续扩张下数据中心总耗电不再上升（如可逆计算逼近兰道尔极限），则杰文斯链条断裂、能源墙叙事被削弱。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: IEA 为年度×区域预测，粒度粗且含不确定性；设施级数据不开源，须 IEA 宏观 + Ember 结构 + Epoch 地理融合。
+    is_quantifiable: true
+    unit: TWh
+    geo_scope: global
+    status: active
+    sources:
+      - { source_id: iea, series_id: datacenter_electricity, source_grade: A_official, ingest_cadence: annual, vintage_aware: false, url: "https://www.iea.org/reports/energy-and-ai" }
+      - { source_id: eia, series_id: electricity_consumption, source_grade: A_official, ingest_cadence: monthly, vintage_aware: false }
+      - { source_id: ember, series_id: electricity_demand, source_grade: A_official, ingest_cadence: monthly, vintage_aware: false }
+
+  - metric_key: power.ai_power_constraint
+    display_name_zh: AI 电力约束度（电价 × 可调度容量缺口）
+    family: dc_power
+    theory_anchor: [A5, A6]
+    binding_scarcity: energy
+    phase: atom
+    mechanism: 软件相递增撞上原子相递减；当训练与推理总能耗逼近可调度电力上限，G(A) 被电网而非算法封顶。
+    hardness: hard
+    falsification_condition: 电力供给对 AI 扩张长期不构成绑定约束（电价平稳、无并网排队），则双相模型的原子相封顶不成立。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: '"约束度"为派生合成（电价×容量缺口），权重需透明；电力比芯片顽固——电力不能装船。'
+    is_quantifiable: true
+    unit: index
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: eia, series_id: electricity_price_industrial, source_grade: A_official, ingest_cadence: monthly, vintage_aware: false, url: "https://www.eia.gov/opendata/" }
+
+  - metric_key: power.grid_interconnection_queue
+    display_name_zh: 电网互联排队容量与时延（GW / 年）
+    family: dc_power
+    theory_anchor: [A6, META_conservation]
+    binding_scarcity: energy
+    phase: atom
+    mechanism: 算法可数月推进一个数量级，配套发电与输电资产工期以年计——互联排队是"认知充裕、焦耳稀缺"最具象的一帧。
+    hardness: hard
+    falsification_condition: 互联排队时延系统性缩短至月度级且容量充裕，则"接不到电"的原子瓶颈被解除。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: LBNL 队列数据覆盖美国并网申请，含大量最终不落地项目（队列≠装机）。
+    is_quantifiable: true
+    unit: GW
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: lbnl, series_id: queued_up, source_grade: A_official, ingest_cadence: annual, vintage_aware: false, url: "https://emp.lbl.gov/queues" }

@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "siliconomics/metric.schema.json",
+  "title": "指标注册表 schema（理论本体 ↔ 数据模型咬合）",
+  "type": "object",
+  "required": ["metrics"],
+  "additionalProperties": false,
+  "properties": {
+    "metrics": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/metric" }
+    }
+  },
+  "$defs": {
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "metric_key", "display_name_zh", "family", "theory_anchor",
+        "mechanism", "hardness", "source_grade"
+      ],
+      "properties": {
+        "metric_key": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$" },
+        "display_name_zh": { "type": "string", "minLength": 1 },
+        "family": { "type": "string", "minLength": 1 },
+        "theory_anchor": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^(A[1-8]|META_[a-z]+)$" }
+        },
+        "binding_scarcity": {
+          "type": ["string", "null"],
+          "enum": ["cognition","energy","compute","data","trust","legitimacy","originality","positionality", null]
+        },
+        "phase": { "type": ["string", "null"], "enum": ["software","atom","mixed", null] },
+        "mechanism": { "type": "string", "minLength": 1 },
+        "hardness": { "type": "string", "enum": ["hard","medium","soft","wall"] },
+        "identification_strategy": { "type": ["string", "null"] },
+        "falsification_condition": { "type": ["string", "null"] },
+        "decision_window": { "type": ["string", "null"] },
+        "source_grade": {
+          "type": "string",
+          "enum": ["A_official","B_public_curated","C_vendor_estimate","D_derived","E_press"]
+        },
+        "caveat": { "type": ["string", "null"] },
+        "is_quantifiable": { "type": "boolean" },
+        "unit": { "type": ["string", "null"] },
+        "geo_scope": { "type": ["string", "null"] },
+        "status": { "type": "string", "enum": ["active","candidate","deprecated"] },
+        "sources": { "type": "array", "items": { "$ref": "#/$defs/source" } }
+      },
+      "allOf": [
+        {
+          "$comment": "纪律：soft 指标必须声明识别策略（绝不把横截面相关当因果回报）",
+          "if": { "properties": { "hardness": { "const": "soft" } } },
+          "then": {
+            "required": ["identification_strategy"],
+            "properties": { "identification_strategy": { "type": "string", "minLength": 1 } }
+          }
+        },
+        {
+          "$comment": "纪律：wall 承重墙不可量化项必须显式 is_quantifiable=false",
+          "if": { "properties": { "hardness": { "const": "wall" } } },
+          "then": {
+            "required": ["is_quantifiable"],
+            "properties": { "is_quantifiable": { "const": false } }
+          }
+        }
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id"],
+      "properties": {
+        "source_id": { "type": "string", "minLength": 1 },
+        "series_id": { "type": "string" },
+        "source_grade": {
+          "type": "string",
+          "enum": ["A_official","B_public_curated","C_vendor_estimate","D_derived","E_press"]
+        },
+        "ingest_cadence": { "type": "string" },
+        "vintage_aware": { "type": "boolean" },
+        "url": { "type": "string" }
+      }
+    }
+  }
+}

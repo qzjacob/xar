@@ -1,0 +1,175 @@
+# 指标族：承重墙（wall）+ 合法性可操作化代理 + 位置性价格反转。
+# 第 27 章"幸存的地基"：判据=不依赖"人脑是唯一可规模化智能载体"，故 AI 动不了它。
+# 纪律：承重墙概念 is_quantifiable=false（value 永远 NULL，只渲染定性注记）；
+#       其可观测"代理/后果"另立为可量化指标，并显式标注"代理≠概念"。
+metrics:
+  # ── 合法性的三个可操作化代理（medium，可量化；Phase 2 接数据）──────────────
+  - metric_key: proxy.legitimacy.redistribution_intensity
+    display_name_zh: 合法性代理 a · 再分配强度
+    family: legitimacy_proxy
+    theory_anchor: [A4, META_conservation]
+    binding_scarcity: legitimacy
+    phase: atom
+    mechanism: 把不可证伪的"合法性"拽回可观测——最高边际税率/资本利得税/转移支付占 GDP 的结构性变化。
+    hardness: medium
+    falsification_condition: 见登记簿 marginalization_unstable（10–15y 窗，与另两代理联合判定）。
+    decision_window: 10-15y
+    source_grade: A_official
+    caveat: 代理≠概念；须与反垄断强度、政权稳定三件套联合解读；石油食租国是合法性可经赎买长期维持的对照组。
+    is_quantifiable: true
+    unit: index_composite
+    geo_scope: US
+    status: candidate
+    sources:
+      - { source_id: oecd_tax, series_id: top_marginal_rate, source_grade: A_official, ingest_cadence: annual, vintage_aware: false }
+      - { source_id: fred, series_id: transfers_gdp, source_grade: A_official, ingest_cadence: quarterly, vintage_aware: true }
+
+  - metric_key: proxy.legitimacy.antitrust_intensity
+    display_name_zh: 合法性代理 b · 反垄断强度
+    family: legitimacy_proxy
+    theory_anchor: [A4]
+    binding_scarcity: legitimacy
+    phase: atom
+    mechanism: 针对超大规模厂商的立案、拆分、并购否决数——制度对硅基生产资料集中的回应强度。
+    hardness: medium
+    falsification_condition: 见登记簿 marginalization_unstable（三代理之一）。
+    decision_window: 10-15y
+    source_grade: B_public_curated
+    caveat: DOJ/FTC/EC 仅网页案件列表无 API，须自建爬虫；案件数≠执行力度。
+    is_quantifiable: true
+    unit: count
+    geo_scope: US
+    status: candidate
+    sources:
+      - { source_id: doj_ftc, series_id: bigtech_cases, source_grade: B_public_curated, ingest_cadence: quarterly, vintage_aware: false }
+
+  - metric_key: proxy.legitimacy.regime_stability
+    display_name_zh: 合法性代理 c · 政权/选举稳定
+    family: legitimacy_proxy
+    theory_anchor: [A4]
+    binding_scarcity: legitimacy
+    phase: atom
+    mechanism: 在位者支持率、体制外候选人得票、抗议规模——边缘化是否被政治系统重新定价的可观测信号。
+    hardness: medium
+    falsification_condition: 见登记簿 marginalization_unstable（三代理之一）。
+    decision_window: 10-15y
+    source_grade: B_public_curated
+    caveat: V-Dem 文件型发布、ACLED 依赖媒体报道（新闻偏差）；"稳定性"需自建合成。
+    is_quantifiable: true
+    unit: index_composite
+    geo_scope: global
+    status: candidate
+    sources:
+      - { source_id: vdem, series_id: democracy_indices, source_grade: B_public_curated, ingest_cadence: annual, vintage_aware: false }
+      - { source_id: acled, series_id: protest_events, source_grade: B_public_curated, ingest_cadence: daily, vintage_aware: false }
+
+  # ── 位置性/本真性价格反转（medium，可量化；本部唯一可在十年尺度被数据证伪的命题）──
+  - metric_key: price.positional_authenticity_inversion
+    display_name_zh: 位置性/本真性价格反转（现场 vs 录制 / 核心地段）
+    family: positional_authenticity
+    theory_anchor: [A8, META_migration]
+    binding_scarcity: positionality
+    phase: atom
+    mechanism: 可数字复制品相对价格持续下行，位置性与本真性商品持续上行；剪刀差是"对充裕免疫的价值"的直接温度计。
+    hardness: medium
+    falsification_condition: 未来十年可复制品与位置性/本真性商品的实际相对价格剪刀差不出现，则命题被证伪。
+    decision_window: 10-15y
+    source_grade: A_official
+    caveat: 票务价格数据零散（Ticketmaster 仅价格区间、无二级市场）；本真性证明本身可被伪造（二阶验证问题）。
+    is_quantifiable: true
+    unit: ratio
+    geo_scope: US
+    status: candidate
+    sources:
+      - { source_id: fhfa, series_id: house_price_index, source_grade: A_official, ingest_cadence: monthly, vintage_aware: false }
+      - { source_id: ticketmaster, series_id: live_event_price, source_grade: C_vendor_estimate, ingest_cadence: monthly, vintage_aware: false }
+
+  # ── 七面承重墙（wall，不可量化；value 永远 NULL，仅渲染定性"完整性注记"）────────
+  - metric_key: wall.opportunity_cost
+    display_name_zh: 承重墙 · 机会成本恒正
+    family: load_bearing_wall
+    theory_anchor: [A1, META_migration]
+    mechanism: 只要"可能用途多于可用手段"，选择即有代价；与谁来选无关——AI 动不了它。
+    hardness: wall
+    falsification_condition: 构造一个约束完全解除、选择无代价的"经济"——本书赌其在十年尺度不出现。
+    source_grade: D_derived
+    caveat: 源为理论文本第 27 章承重墙清单，非数据序列；不可量化，仅作定性注记。
+    is_quantifiable: false
+    geo_scope: universal
+    status: active
+
+  - metric_key: wall.non_rivalry
+    display_name_zh: 承重墙 · 思想的非竞争性
+    family: load_bearing_wall
+    theory_anchor: [A7]
+    mechanism: 一个想法可被无限复用——AI 强化它而非废除它。
+    hardness: wall
+    source_grade: D_derived
+    caveat: 不可量化承重墙；AI 把非竞争性推到极致而非证伪。
+    is_quantifiable: false
+    geo_scope: universal
+    status: active
+
+  - metric_key: wall.incentive_compatibility
+    display_name_zh: 承重墙 · 激励相容
+    family: load_bearing_wall
+    theory_anchor: [A4]
+    mechanism: 多主体协调永远要解决偏好不一致；主体是硅是碳都一样。
+    hardness: wall
+    source_grade: D_derived
+    caveat: 不可量化承重墙；对齐即机制设计在新主体类上的延拓。
+    is_quantifiable: false
+    geo_scope: universal
+    status: active
+
+  - metric_key: wall.thermodynamic_limits
+    display_name_zh: 承重墙 · 物理守恒（热力学下界）
+    family: load_bearing_wall
+    theory_anchor: [A6]
+    mechanism: 焦耳与 FLOP 受热力学与电网约束，是算不掉的硬底（兰道尔极限）。
+    hardness: wall
+    falsification_condition: 可逆计算逼近兰道尔极限使单位推理能耗趋零——是否在十年尺度发生待观测（与 power.datacenter_twh 联动）。
+    source_grade: D_derived
+    caveat: 概念为承重墙不可量化；其可观测后果由 power.* 系列承载。
+    is_quantifiable: false
+    geo_scope: universal
+    status: active
+
+  - metric_key: wall.positionality
+    display_name_zh: 承重墙 · 位置性（对充裕免疫）
+    family: load_bearing_wall
+    theory_anchor: [A8]
+    mechanism: 核心地段、相对排名本质零和，充裕对其免疫——"前 1%"永远只有 1%。
+    hardness: wall
+    falsification_condition: 文化变迁压低地位焦虑使位置性溢价从需求端瓦解——位置性是物理事实还是偏好建构，待观测。
+    source_grade: D_derived
+    caveat: 概念为承重墙；其可观测后果由 price.positional_authenticity_inversion 承载。
+    is_quantifiable: false
+    geo_scope: universal
+    status: active
+
+  - metric_key: wall.trust_legitimacy
+    display_name_zh: 承重墙 · 信任与合法性
+    family: load_bearing_wall
+    theory_anchor: [A4, META_conservation]
+    mechanism: 由社会授予、不可由性能涌现；碾压基准也得不到一克——AI 越强信任越贵（造假成本趋零）。
+    hardness: wall
+    falsification_condition: 信任能否被机制（而非人）授予——若能，则此墙可降级；本书赌十年尺度不能。
+    source_grade: D_derived
+    caveat: 概念为承重墙；其可操作化代理由 proxy.legitimacy.* 三件套承载，代理≠概念。
+    is_quantifiable: false
+    geo_scope: universal
+    status: active
+
+  - metric_key: wall.human_final_arbitration
+    display_name_zh: 承重墙 · 人类的最终裁判权
+    family: load_bearing_wall
+    theory_anchor: [A4, A6]
+    mechanism: '"什么算更好"是终极外生变量，只能落在能被惩罚、能负责的主体上；把它内生化交给优化器=取消经济学要服务的目的本身。'
+    hardness: wall
+    falsification_condition: 终极偏好/合法性被法律拟制部分赋予 AI 且不回穿到人——本书赌不发生。
+    source_grade: D_derived
+    caveat: 最硬的一面墙；AI 是工具性主体、人是规范性主体，可承责性永远是借来的。
+    is_quantifiable: false
+    geo_scope: universal
+    status: active

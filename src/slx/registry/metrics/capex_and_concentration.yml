@@ -1,0 +1,137 @@
+# 指标族：硅基生产资料的所有权（capex）+ 半导体咽喉 + 市值/盈利集中度。
+# 锚定 A8（谁拥有硅基生产资料）、A5（双相：软件相递增的市值显影）、A6（算力地缘）。
+metrics:
+  - metric_key: capex.hyperscaler_capex
+    display_name_zh: 超大规模厂商 capex（季度，USD）
+    family: capex_concentration
+    theory_anchor: [A8, META_conservation]
+    binding_scarcity: compute
+    phase: atom
+    mechanism: 认知民主化，但生产认知的资料——超大规模数据中心——所有权空前集中；capex 是"约束从会不会位移到拥不拥有"的会计事实。
+    hardness: hard
+    falsification_condition: 四大厂商 capex 指引连续多季大幅下修且未被新进入者补上，则"AI 资本回路"规模假设被削弱（与登记簿 ai_capital_loop_steady_engine 联动）。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 10-Q/10-K 中 capex 不区分 AI vs 非 AI；AI 占比拆分无权威数据，须标注为派生/估算。
+    is_quantifiable: true
+    unit: USD
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: sec_edgar, series_id: "CapitalExpenditures", source_grade: A_official, ingest_cadence: quarterly, vintage_aware: false, url: "https://data.sec.gov/api/xbrl/companyfacts/" }
+
+  - metric_key: supply.semiconductor_chokepoint
+    display_name_zh: 半导体咽喉吞吐（TSMC 月营收 / ASML 订单）
+    family: capex_concentration
+    theory_anchor: [A6]
+    binding_scarcity: compute
+    phase: atom
+    mechanism: 先进芯片必经 ASML（EUV 唯一供应商）→台积电（主导 2/3nm）→英伟达窄通道；咽喉吞吐是算力供给的物理上界代理。
+    hardness: hard
+    falsification_condition: 咽喉环节出现多供应商分散（EUV 非唯一、先进制程多极化），则"单点咽喉"风险叙事被削弱。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 月营收含非 AI 需求；单颗芯片成本/良率为私有数据，不可得。
+    is_quantifiable: true
+    unit: USD
+    geo_scope: global
+    status: active
+    sources:
+      - { source_id: tsmc, series_id: monthly_revenue, source_grade: A_official, ingest_cadence: monthly, vintage_aware: false, url: "https://investor.tsmc.com/english/monthly-revenue" }
+      - { source_id: sec_edgar, series_id: "asml_6k", source_grade: A_official, ingest_cadence: quarterly, vintage_aware: false }
+
+  - metric_key: mktcap.concentration
+    display_name_zh: 市值集中度（前十权重 / Mag7 占比 / HHI）
+    family: capex_concentration
+    theory_anchor: [A5]
+    binding_scarcity: positionality
+    phase: software
+    mechanism: 软件相递增报酬（边际成本结构+网络效应）的市值显影；须谨记市值加权指数只是忠实放大底层分布，**反映**而非**制造**集中，故可逆。
+    hardness: hard
+    falsification_condition: （此为可观测会计量，无独立证伪；其"是否=盈利集中度"由登记簿 concentration_eq_earnings 单独判定。）
+    decision_window: testable_now
+    source_grade: B_public_curated
+    caveat: 集中度是结果不是机制；不要把"市值加权放大"当成"算法本能制造集中"。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: stooq, series_id: spx_components, source_grade: B_public_curated, ingest_cadence: daily, vintage_aware: false, url: "https://stooq.com/db/h/" }
+      - { source_id: sp_global, series_id: spx_top10_weight, source_grade: A_official, ingest_cadence: monthly, vintage_aware: false }
+
+  - metric_key: earnings.mag7_contribution_pct
+    display_name_zh: Mag7 对标普 500 盈利增长的贡献占比
+    family: capex_concentration
+    theory_anchor: [A5, A8]
+    binding_scarcity: positionality
+    phase: software
+    mechanism: 区分"市值集中"与"盈利集中"的关键变量；若集中源于基本面而非指数构造，盈利扩散一旦发生集中即回落（K 文核心机制）。
+    hardness: medium
+    falsification_condition: 盈利贡献与市值集中度长期背离（市值集中而盈利分散），则"市值=盈利集中"被证伪。
+    decision_window: testable_now
+    source_grade: C_vendor_estimate
+    caveat: FactSet/LSEG 口径；盈利贡献对样本与 TTM 窗口敏感。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: factset, series_id: mag7_earnings_contribution, source_grade: C_vendor_estimate, ingest_cadence: quarterly, vintage_aware: false }
+
+  - metric_key: earnings.rest493_eps_growth_pct
+    display_name_zh: 标普"其余 493"成分股 EPS 增速
+    family: capex_concentration
+    theory_anchor: [A5]
+    binding_scarcity: positionality
+    phase: software
+    mechanism: 盈利扩散的直接温度计；从 6.9% 升到 9.2% 即"盈利在前、集中在后"扩散信号（对接 Solow 悖论滞后）。
+    hardness: medium
+    falsification_condition: '"其余 493" EPS 增速持续掉头向下且 Mag7 盈利贡献回升，则盈利扩散假说被削弱。'
+    decision_window: testable_now
+    source_grade: C_vendor_estimate
+    caveat: 商业聚合口径；剔除负 EPS 公司的处理影响读数。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: factset, series_id: rest493_eps_growth, source_grade: C_vendor_estimate, ingest_cadence: quarterly, vintage_aware: false }
+
+  - metric_key: mktcap.rsp_vs_spy_excess_return
+    display_name_zh: 等权 RSP 相对市值加权 SPY 的超额收益
+    family: capex_concentration
+    theory_anchor: [A5]
+    binding_scarcity: positionality
+    phase: software
+    mechanism: 等权反超是"集中度回吐/扩散"的市场内生信号；但须警惕短窗噪声（<130bp 的季度领先是噪声级）。
+    hardness: medium
+    falsification_condition: 等权领先持续扩大并越出历史正常波动区间（取得统计显著性），则"裂缝已现"成立；反之归于噪声。
+    decision_window: testable_now
+    source_grade: B_public_curated
+    caveat: 季度级 <130bp 领先是噪声，不可当反向定价证据（已进登记簿 rsp_crack_appeared）。
+    is_quantifiable: true
+    unit: bps
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: stooq, series_id: rsp_spy, source_grade: B_public_curated, ingest_cadence: daily, vintage_aware: false }
+
+  - metric_key: mktcap.chinext_vs_sse_excess_return
+    display_name_zh: 创业板相对上证的超额收益（中国双轨上轨代理）
+    family: capex_concentration
+    theory_anchor: [A5, A8]
+    binding_scarcity: positionality
+    phase: software
+    mechanism: 中国 K 上轨代理；其涨幅"主要可由外需与全球科技股 beta 解释"，用于检验"国家队印估值"假说。
+    hardness: medium
+    falsification_condition: 剔除出口高敏感板块与全球科技 beta 后创业板涨幅大幅缩水，则"国家队印估值"单一意图归因被证伪。
+    decision_window: testable_now
+    source_grade: B_public_curated
+    caveat: 需做 beta 剥离才有解释力；裸涨幅不可直接归因政策。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: CN
+    status: candidate
+    sources:
+      - { source_id: stooq, series_id: chinext_sse, source_grade: B_public_curated, ingest_cadence: daily, vintage_aware: false }

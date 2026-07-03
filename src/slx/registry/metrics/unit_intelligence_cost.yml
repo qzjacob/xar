@@ -1,0 +1,118 @@
+# 指标族：推理经济学 / 算力 / 能力 —— 单位智能成本与其驱动。
+# 锚定 A1（稀缺形式不变）、A6（产出—人时解耦）、A7（递归内生增长）、META_migration。
+metrics:
+  - metric_key: cost.intelligence.inference_price_per_mtok
+    display_name_zh: 单位智能推理价格（美元/百万 token，前沿能力分位）
+    family: unit_intelligence_cost
+    theory_anchor: [A1, A6, META_migration]
+    binding_scarcity: compute
+    phase: software
+    mechanism: 规模律+推理时计算+算法效率使每单位智能边际成本沿指数下行；这是"认知从稀缺流量变存量资本"的价格侧硬证据。
+    hardness: hard
+    falsification_condition: 控能力分位后单位价格连续 4 季不再下行或反转上行，则"成本曲线翻越临界点"在该窗内被削弱。
+    decision_window: testable_now
+    source_grade: B_public_curated
+    caveat: 能力分位需对齐（LMArena/Artificial Analysis 口径不同）；价格非成本，含厂商补贴与圈地定价，反身性风险中等。
+    is_quantifiable: true
+    unit: USD_per_Mtok
+    geo_scope: global
+    status: active
+    sources:
+      - { source_id: epoch_ai, series_id: inference_price_index, source_grade: B_public_curated, ingest_cadence: monthly, vintage_aware: false, url: "https://epoch.ai/data-insights/llm-inference-price-trends" }
+      - { source_id: artificial_analysis, series_id: price_per_mtok, source_grade: C_vendor_estimate, ingest_cadence: daily, vintage_aware: false }
+      - { source_id: lmarena, series_id: elo_for_quantile, source_grade: C_vendor_estimate, ingest_cadence: weekly, vintage_aware: false }
+
+  - metric_key: compute.training_scaling
+    display_name_zh: 前沿模型训练算力 scaling（FLOP）
+    family: unit_intelligence_cost
+    theory_anchor: [A7, META_migration]
+    binding_scarcity: compute
+    phase: software
+    mechanism: 训练算力以可测幂律放大，是"递归内生增长"输入侧的硬通量；瓶颈从研究者人时换锚到 FLOP。
+    hardness: hard
+    falsification_condition: 前沿训练 FLOP 的年增长率结构性塌向零且非由能源墙解释，则递归项 A′=G(A) 的算力侧动力被削弱。
+    decision_window: testable_now
+    source_grade: B_public_curated
+    caveat: Epoch 估算基于公开硬件×训练时长逆推，含模型化假设；中国集群覆盖受限。
+    is_quantifiable: true
+    unit: FLOP
+    geo_scope: global
+    status: active
+    sources:
+      - { source_id: epoch_ai, series_id: notable_models_training_compute, source_grade: B_public_curated, ingest_cadence: monthly, vintage_aware: false, url: "https://epoch.ai/data" }
+
+  - metric_key: compute.algo_efficiency
+    display_name_zh: 算法效率（达到同等能力所需 FLOP 的下降）
+    family: unit_intelligence_cost
+    theory_anchor: [A7]
+    binding_scarcity: compute
+    phase: software
+    mechanism: 算法进步等价于整条成本曲线下移（等量 FLOP 产出更多能力），是唯一能松弛算力—能源—数据三硬要素的软杠杆。
+    hardness: hard
+    falsification_condition: 算法效率年化增益趋平，则"算法自动化掩盖能源墙"窗口收窄，原子相提前绑定。
+    decision_window: testable_now
+    source_grade: B_public_curated
+    caveat: 效率度量依赖基准选择；可能被基准饱和（天花板效应）污染。
+    is_quantifiable: true
+    unit: efficiency_index
+    geo_scope: global
+    status: active
+    sources:
+      - { source_id: epoch_ai, series_id: algorithmic_progress, source_grade: B_public_curated, ingest_cadence: quarterly, vintage_aware: false }
+
+  - metric_key: compute.gpu_geographic_distribution
+    display_name_zh: GPU 集群算力的地理分布（算力地缘）
+    family: unit_intelligence_cost
+    theory_anchor: [A6, A5]
+    binding_scarcity: compute
+    phase: atom
+    mechanism: 算力落在原子相、不可数字复制，取代石油成为硬禀赋；地理集中度=比较优势的物质基础（第十一章算力地缘）。
+    hardness: hard
+    falsification_condition: 前沿算力地理集中度（HHI）持续下降至接近均匀分布，则"算力地缘=新海峡封锁"叙事被削弱。
+    decision_window: testable_now
+    source_grade: B_public_curated
+    caveat: Epoch 仅覆盖约 10–20% 全球 GPU 能力，中国数据匿名化打折；定义为"集群所在地"非"实控方"。
+    is_quantifiable: true
+    unit: share_pct
+    geo_scope: global
+    status: active
+    sources:
+      - { source_id: epoch_ai, series_id: gpu_clusters, source_grade: B_public_curated, ingest_cadence: monthly, vintage_aware: false, url: "https://epoch.ai/data/gpu-clusters" }
+
+  - metric_key: capability.model_release_cadence
+    display_name_zh: 前沿模型发布节律（次/季）
+    family: unit_intelligence_cost
+    theory_anchor: [A7]
+    binding_scarcity: compute
+    phase: software
+    mechanism: 发布频率是递归自我改进迭代速度的代理；也驱动认知资本的相对折旧（前沿越快，摊销窗口越短）。
+    hardness: medium
+    falsification_condition: 发布节律与能力跃迁脱钩（高频发布但能力指数停滞），则"节律=进步速率"代理失效。
+    decision_window: testable_now
+    source_grade: C_vendor_estimate
+    caveat: 发布追踪站口径不一，小模型常遗漏；"发布"≠"能力前移"。
+    is_quantifiable: true
+    unit: count_per_quarter
+    geo_scope: global
+    status: active
+    sources:
+      - { source_id: epoch_ai, series_id: notable_models, source_grade: B_public_curated, ingest_cadence: monthly, vintage_aware: false }
+
+  - metric_key: capability.eci
+    display_name_zh: 通用能力指数（Epoch Capabilities Index 类）
+    family: unit_intelligence_cost
+    theory_anchor: [A7]
+    binding_scarcity: cognition
+    phase: software
+    mechanism: 多基准加权综合的能力标量，作为"智能作为可定价对象"的能力轴；与价格交叉即得每美元能力。
+    hardness: medium
+    falsification_condition: 能力指数与下游经济产出（TFP、任务自动化率）长期无相关，则能力指标的经济意义存疑。
+    decision_window: testable_now
+    source_grade: B_public_curated
+    caveat: 基准综合权重是人为设定，Goodhart 风险（基准被针对性优化）；非现金流量纲。
+    is_quantifiable: true
+    unit: index
+    geo_scope: global
+    status: active
+    sources:
+      - { source_id: epoch_ai, series_id: capabilities_index, source_grade: B_public_curated, ingest_cadence: monthly, vintage_aware: false, url: "https://epoch.ai/benchmarks" }

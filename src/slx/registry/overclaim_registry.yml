@@ -1,0 +1,127 @@
+# 过度宣称登记簿 —— 差异化内核之二：活监控。
+# 种子 = 《解读·AI时代的K型分化社会.md》第六节那张表的 9 条脆弱断言。
+# 语义约定（全 9 条一致）：
+#   fixation_rule = 让 claim_text_zh **成立/固化** 的观测；
+#   falsify_rule  = 让 claim_text_zh **被推翻/收敛** 的观测。
+# DSL：value(m) 取当前 point-in-time 读数；slope(m, Nq) 取近 N 季斜率；
+#      Phase 2.2 识别族（语法糖，展开为 value(<派生指标>)，读 engine/identification 写回的估计）：
+#        did_estimate(m)/did_pvalue(m) —— 双向固定效应 DID 交互项系数 / 双尾 p 值；
+#        panel_fixed_effects(m)/panel_fixed_effects_pvalue(m) —— 个体固定效应 within 系数 / p 值。
+#      仍未支持的函数（significant/structural_change/excess_return_after_beta_strip/... 任一）
+#      → 规则判 inconclusive（绝不把相关当因果焊进执行路径）。
+#      ★ 同步纪律：改本表规则必须同步改 dbt/macros/load_overclaims.sql 的内联常量（逐字一致），
+#        否则 assert_overclaim_parity 变红。
+claims:
+  - claim_key: ai_stripped_zero_growth
+    claim_text_zh: "剥离 AI，美国实体经济零增长是结构性终局（已降级为会计观察，非因果）"
+    related_metrics: [macro.ai_capex_gdp_contribution]
+    hardness: soft
+    decision_window: 2y
+    window_start: "2026-06-01"
+    fixation_rule: "value(macro.ai_capex_gdp_contribution) >= 0.85 AND robust_across_base_periods()"
+    falsify_rule: "value(macro.ai_capex_gdp_contribution) < 0.85 OR construction_blue_collar_hours_positive()"
+    status: open
+    owner: Andi
+    note: 会计分解非因果；剔除任何高波动分项都能制造耸动结论，须换基期稳健性。
+
+  - claim_key: junior_jobs_minus67_is_ai
+    claim_text_zh: "美国初级软件/数据岗位发布锐减约 67% 是 AI 位移所致（对立假说：利率+裁员周期）"
+    related_metrics: [labor.junior_postings_high_vs_low_ai_exposure, macro.fed_funds_rate]
+    hardness: soft
+    decision_window: 2-3y
+    window_start: "2026-06-01"
+    fixation_rule: "did_estimate(labor.junior_postings_high_vs_low_ai_exposure) < 0 AND did_pvalue(labor.junior_postings_high_vs_low_ai_exposure) < 0.05"
+    falsify_rule: "did_pvalue(labor.junior_postings_high_vs_low_ai_exposure) >= 0.05 OR (slope(macro.fed_funds_rate, 4q) < 0 AND did_estimate(labor.junior_postings_high_vs_low_ai_exposure) >= 0)"
+    status: inconclusive
+    owner: Andi
+    note: >-
+      Phase 2.2：双向固定效应 DID（time FE 吸收利率/裁员等纯时间维混淆）后，交互项 = 净 AI 暴露效应。
+      controls=[利率,裁员周期] 由 time FE 实现（见 engine/identification.did_two_way_fe）。当前由示例
+      面板算得 coef<0 且显著 → fixation；接真 Indeed Hiring Lab + 暴露度分类后 verdict 自动更新。
+
+  - claim_key: ai_wage_premium_causal
+    claim_text_zh: "AI 技能工资溢价 56% 是'接入硅基'的因果回报"
+    related_metrics: [labor.ai_skill_wage_premium]
+    hardness: soft
+    decision_window: 2y
+    window_start: "2026-06-01"
+    fixation_rule: "panel_fixed_effects(labor.ai_skill_wage_premium) > 0.10 AND panel_fixed_effects_pvalue(labor.ai_skill_wage_premium) < 0.05"
+    falsify_rule: "panel_fixed_effects(labor.ai_skill_wage_premium) <= 0.10 OR panel_fixed_effects_pvalue(labor.ai_skill_wage_premium) >= 0.05"
+    status: inconclusive
+    owner: Andi
+    note: >-
+      Phase 2.2：个体固定效应 within 估计剥离个体恒定能力 α_i（选择偏差主源）。当前由示例面板算得
+      within 净溢价≈0.06 « 横截面 56%、低于 0.10 阈值 → falsified（56% 主要是选择，非因果回报）。
+      接真个体雇主—雇员链接面板后 verdict 自动更新。explained_by_selection 由 within«横截面落差实现。
+
+  - claim_key: concentration_eq_earnings
+    claim_text_zh: "市值集中度 = 盈利与生产率集中度（若集中源于指数构造而非基本面，则随基本面可逆回落）"
+    related_metrics: [mktcap.concentration, earnings.mag7_contribution_pct, earnings.rest493_eps_growth_pct]
+    hardness: medium
+    decision_window: 1-2y
+    window_start: "2026-06-01"
+    fixation_rule: "value(earnings.mag7_contribution_pct) >= 0.50 AND slope(earnings.rest493_eps_growth_pct, 4q) < 0"
+    falsify_rule: "value(earnings.mag7_contribution_pct) < 0.33 AND slope(earnings.rest493_eps_growth_pct, 4q) > 0"
+    status: open
+    owner: Andi
+    note: v1 可判定（仅需 value/slope）；这是端到端验证活监控的样例断言。
+
+  - claim_key: ai_capital_loop_steady_engine
+    claim_text_zh: "AI 资本回路是稳态引擎（capex 兑现为可验证 TFP 跃升并广泛雇人）"
+    related_metrics: [capex.hyperscaler_capex, macro.ai_tfp_contribution]
+    hardness: soft
+    decision_window: 2-3y
+    window_start: "2026-06-01"
+    fixation_rule: "value(macro.ai_tfp_contribution) >= 1.5 AND broad_hiring()"
+    falsify_rule: "value(macro.ai_tfp_contribution) < 0.3 OR circular_financing_break()"
+    status: open
+    owner: Andi
+    note: 第三种结局——若回路是泡沫，破裂让 K 两半同时下沉（既非固化亦非收敛），不让二分框架结构性排除它。
+
+  - claim_key: china_visible_hand
+    claim_text_zh: "中国 K 是'同一只手同时托与按'（国家队印估值 + 去杠杆挤水分）"
+    related_metrics: [mktcap.chinext_vs_sse_excess_return]
+    hardness: soft
+    decision_window: 1-2y
+    window_start: "2026-06-01"
+    fixation_rule: "excess_return_after_beta_strip(mktcap.chinext_vs_sse_excess_return) > 0 AND policy_deflation_synced()"
+    falsify_rule: "excess_return_after_beta_strip(mktcap.chinext_vs_sse_excess_return) ~= 0 OR deflation_persists_through_easing()"
+    status: inconclusive
+    owner: Andi
+    note: 拟人化为单一意图不可证伪；须先剔除外需/全球科技 beta。v1 无 beta 剥离，判 inconclusive。
+
+  - claim_key: rest99_sinking_all_sectors
+    claim_text_zh: "其余 99% 正在所有部门下沉"
+    related_metrics: [price.trades_wage, labor.bottom_decile_real_wage]
+    hardness: medium
+    decision_window: 3-5y
+    window_start: "2026-06-01"
+    fixation_rule: "slope(price.trades_wage, 8q) <= economy_avg_wage_slope() AND slope(labor.bottom_decile_real_wage, 8q) < 0"
+    falsify_rule: "slope(price.trades_wage, 8q) > 2 * economy_avg_wage_slope() OR india_junior_it_net_positive()"
+    status: open
+    owner: Andi
+    note: 价格效应≠吸纳能力；技工涨价不证明能吸纳被位移白领，且与溢价持续性存在内在张力。
+
+  - claim_key: marginalization_unstable
+    claim_text_zh: "边缘化均衡不稳定、必被重新定价（合法性最终需规范主体授予）"
+    related_metrics: [proxy.legitimacy.redistribution_intensity, proxy.legitimacy.antitrust_intensity, proxy.legitimacy.regime_stability]
+    hardness: soft
+    decision_window: 10-15y
+    window_start: "2026-06-01"
+    fixation_rule: "structural_change(proxy.legitimacy.redistribution_intensity) OR structural_change(proxy.legitimacy.antitrust_intensity)"
+    falsify_rule: "marginalization_persists(3dims) AND NOT structural_change(proxy.legitimacy.redistribution_intensity) AND NOT structural_change(proxy.legitimacy.antitrust_intensity) AND NOT structural_change(proxy.legitimacy.regime_stability)"
+    status: open
+    owner: Andi
+    note: 石油食租国/历史食利社会是对照组——合法性可经赎买/镇压长期维持。A4 给方向不给时刻表；时刻表交三代理。
+
+  - claim_key: rsp_crack_appeared
+    claim_text_zh: "裂缝已现：等权 RSP 反超是有意义的反向定价信号"
+    related_metrics: [mktcap.rsp_vs_spy_excess_return]
+    hardness: soft
+    decision_window: 1-2q
+    window_start: "2026-06-01"
+    fixation_rule: "value(mktcap.rsp_vs_spy_excess_return) > 130 AND significant(beyond_normal_band(mktcap.rsp_vs_spy_excess_return))"
+    falsify_rule: "value(mktcap.rsp_vs_spy_excess_return) < 130 AND reverses_within(2q)"
+    status: open
+    owner: Andi
+    note: 作者自我审讯条目——把 <130bp 的季度领先当反向定价证据，与"把集中当终局"是同一种短窗噪声外推。

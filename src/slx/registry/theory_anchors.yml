@@ -1,0 +1,63 @@
+# 理论锚点：A1–A8 八公理 + 两条元定律。
+# 受控词表：metric_registry.theory_anchor 的每个元素都必须在此出现（DB 触发器 + 校验器双重把关）。
+# 权威出处（只读，不改）：../AI时代的经济学·教科书提纲.md 导论"八条公理"表。
+anchors:
+  - anchor_key: A1
+    title: 稀缺的形式不变性
+    industrial_assumption: 稀缺是第一公理，默认绑定于人类要素（劳动、认知）。
+    silicon_restatement: 形式（机会成本恒正）幸存，载体位移到能源、算力、数据、信任、位置；"零边际成本"只论复制，不论存在。
+    verdict: 幸存须重标作用对象
+
+  - anchor_key: A2
+    title: 约束守恒
+    industrial_assumption: 技术进步松弛约束、外推 PPF，被松弛者视为净消失。
+    silicon_restatement: 约束守恒而非消失，解除一类即把下一类前移到瓶颈；PPF 被重新定向而非外推。
+    verdict: 改写（约束递减→守恒与转移）
+
+  - anchor_key: A3
+    title: 要素二分坍塌
+    industrial_assumption: 劳动按流量（工资）定价，与资本（存量）二分；核心变量 L、K。
+    silicon_restatement: 认知训练进权重即转为存量资本（cognition-as-capital）；劳动—资本变为沿复制成本排列的连续谱；核心变量换为算力×能源×数据×算法。
+    verdict: 坍塌（二分线消失）
+
+  - anchor_key: A4
+    title: 主体扩展
+    industrial_assumption: 人是唯一具偏好、会缔约、可担责的主体。
+    silicon_restatement: 主体充分条件=目标函数＋可执行选择＋可承责；AI 是工具性主体，人是规范性主体，终极偏好与合法性只能由人赋予。
+    verdict: 改写（外延扩张，人/机重新分层）
+
+  - anchor_key: A5
+    title: 收益递减让位（双相动力学）
+    industrial_assumption: 边际成本递增、收益递减、趋于唯一稳定均衡。
+    silicon_restatement: 智能商品近零复制成本、规模报酬递增，默认赢家通吃与多重均衡；撞上能源、芯片、电网上限即翻转为硬约束。
+    verdict: 改写（递增—撞墙双相）
+
+  - anchor_key: A6
+    title: 产出与人时解耦
+    industrial_assumption: 产出受人类时间硬约束，GDP 隐含"人小时"刻度。
+    silicon_restatement: 认知产出 7×24 自我扩张，约束从人时换锚到能源—算力物理通量（焦耳与 FLOP）；但"想要什么"仍由人定义。
+    verdict: 改写（换锚物理通量，目的仍系于人）
+
+  - anchor_key: A7
+    title: 增长递归内生
+    industrial_assumption: Solow 外生残差；Romer 思想非竞争，但研究者仍是稀缺的人。
+    silicon_restatement: 非竞争性被强化，生产思想的研究者被自动化：A′=G(A) 递归自我改进，引入超指数与相变；瓶颈从 ideas 换为能源与算力。
+    verdict: 改写（外生/半内生→递归内生）
+
+  - anchor_key: A8
+    title: 价值与计价让渡
+    industrial_assumption: 价值锚于劳动/效用，单一法币本位，生产率顺畅传导为工资。
+    silicon_restatement: 价值部分让渡给"焦耳—FLOP 计价层"；生产率—工资传导带断裂，核心问题变为"谁拥有硅基生产资料"；鲍莫尔成本病升级。
+    verdict: 改写（货币锚让渡，传导断裂，成本病升级）
+
+  - anchor_key: META_migration
+    title: 稀缺的位移（Migration of Scarcity）
+    industrial_assumption: 稀缺默认绑定于认知/人类要素。
+    silicon_restatement: 稀缺作为"用途多于手段"的形式约束不灭，只是绑定变量从认知迁往能源、算力、数据、信任、合法性、原创性、位置性。
+    verdict: 承重梁（描述方向）
+
+  - anchor_key: META_conservation
+    title: 约束的守恒（Conservation of Constraints）
+    industrial_assumption: 被松弛的约束净消失。
+    silicon_restatement: 解除一类约束必把另一类顶到瓶颈；总稀缺不会净消失，只会改址。对每条"AI 解除了 X"强制追问"什么顶替了 X"。
+    verdict: 承重梁（禁止净消失）

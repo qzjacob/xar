@@ -1,0 +1,85 @@
+# 指标族：识别结果（Phase 2.2）。
+# 这些是 engine/identification.py 对 soft 断言跑出的**识别后估计**（系数 / p 值），
+# 作为派生 observation 双时态写回，再由登记簿规则用 value() 读取做阈值判定。
+# hardness=medium：识别后的估计是"带明示识别策略的逻辑推论"，不再是裸横截面（soft）。
+# 唯一写入者：ingestion/identification_panels.py::run_identification（source_id=identification）。
+metrics:
+  - metric_key: labor.junior_postings_high_vs_low_ai_exposure.did.coef
+    display_name_zh: 初级岗位 AI 暴露 DID 交互项系数（双向固定效应）
+    family: identification_result
+    theory_anchor: [A6]
+    binding_scarcity: cognition
+    phase: mixed
+    mechanism: 双向固定效应 DID 的 treat×post 交互项——time FE 吸收利率/裁员等纯时间维混淆后，残下的净 AI 暴露效应。
+    hardness: medium
+    identification_strategy: 双向固定效应（unit FE + time FE）+ treat×post 交互；周期混淆由 time FE 吸收（见 engine/identification.did_two_way_fe）。
+    falsification_condition: 交互项不显著（p>=0.05）或符号为正，则"初级岗位锐减归因 AI 位移"被证伪。
+    decision_window: 2-3y
+    source_grade: D_derived
+    caveat: 系数大小取决于面板；当前由示例面板（占位 Indeed Hiring Lab + 暴露度分类）算得，接真数据后自动更新。
+    is_quantifiable: true
+    unit: log_index_points
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: identification, series_id: did_two_way_fe, source_grade: D_derived, ingest_cadence: quarterly, vintage_aware: false }
+
+  - metric_key: labor.junior_postings_high_vs_low_ai_exposure.did.pvalue
+    display_name_zh: 初级岗位 AI 暴露 DID 交互项双尾 p 值
+    family: identification_result
+    theory_anchor: [A6]
+    binding_scarcity: cognition
+    phase: mixed
+    mechanism: DID 交互项的 Student-t 双尾 p 值（正则化不完全 Beta 算得）——把"显著性"焊进判定路径。
+    hardness: medium
+    identification_strategy: 同 .did.coef；p 值用真实 t 分布（df=n-rank）算，非近似。
+    falsification_condition: （配套显著性度量，无独立证伪；与系数联合判定。）
+    decision_window: 2-3y
+    source_grade: D_derived
+    caveat: p 值随面板与样本量变；当前为示例面板结果。
+    is_quantifiable: true
+    unit: pvalue
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: identification, series_id: did_two_way_fe_pvalue, source_grade: D_derived, ingest_cadence: quarterly, vintage_aware: false }
+
+  - metric_key: labor.ai_skill_wage_premium.fe.coef
+    display_name_zh: AI 技能工资溢价 个体固定效应 within 系数
+    family: identification_result
+    theory_anchor: [A8]
+    binding_scarcity: cognition
+    phase: mixed
+    mechanism: 个体固定效应（worker FE + time FE）的 within 估计——剥离个体恒定能力 α_i（选择偏差主源）后回收的净溢价。
+    hardness: medium
+    identification_strategy: within 个体固定效应面板（同一工人采用 AI 技能前后）；剥离选择，对照朴素横截面的落差即"勿把相关当因果"的证据（见 engine/identification.within_fixed_effects）。
+    falsification_condition: within 净溢价远小于横截面 56%（如 <10%）或主要由选择解释，则"56% 是因果回报"被证伪。
+    decision_window: 2y
+    source_grade: D_derived
+    caveat: within 系数取决于面板；当前由示例个体面板算得（占位个体雇主—雇员链接数据），接真数据后自动更新。
+    is_quantifiable: true
+    unit: log_wage_premium
+    geo_scope: global
+    status: active
+    sources:
+      - { source_id: identification, series_id: within_fixed_effects, source_grade: D_derived, ingest_cadence: annual, vintage_aware: false }
+
+  - metric_key: labor.ai_skill_wage_premium.fe.pvalue
+    display_name_zh: AI 技能工资溢价 within 系数双尾 p 值
+    family: identification_result
+    theory_anchor: [A8]
+    binding_scarcity: cognition
+    phase: mixed
+    mechanism: within 系数的 Student-t 双尾 p 值——与系数阈值联合判定因果断言成立/证伪。
+    hardness: medium
+    identification_strategy: 同 .fe.coef；真实 t 分布 p 值。
+    falsification_condition: （配套显著性度量，无独立证伪。）
+    decision_window: 2y
+    source_grade: D_derived
+    caveat: p 值随面板与样本量变；当前为示例面板结果。
+    is_quantifiable: true
+    unit: pvalue
+    geo_scope: global
+    status: active
+    sources:
+      - { source_id: identification, series_id: within_fixed_effects_pvalue, source_grade: D_derived, ingest_cadence: annual, vintage_aware: false }
