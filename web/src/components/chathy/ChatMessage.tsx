@@ -1,7 +1,7 @@
 import { Sparkles, User } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { ChatMessage as Msg } from "../../types-andy";
+import type { ChatMessage as Msg } from "../../types-chathy";
 import { cn } from "../../lib/format";
 import { ToolChip } from "./ToolChip";
 
@@ -29,7 +29,7 @@ export function ChatMessage({ m }: { m: Msg }) {
           {isUser ? (
             <span className="whitespace-pre-wrap text-sm">{m.content}</span>
           ) : (
-            <div className="andy-md">
+            <div className="chathy-md">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {m.content || (m.streaming ? "" : "")}
               </ReactMarkdown>

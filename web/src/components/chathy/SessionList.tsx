@@ -1,9 +1,9 @@
 import { MessageSquarePlus, Trash2 } from "lucide-react";
-import type { AndySession } from "../../types-andy";
+import type { ChathySession } from "../../types-chathy";
 import { cn, relTime } from "../../lib/format";
 
 export function SessionList({ sessions, activeId, onSelect, onNew, onDelete }: {
-  sessions: AndySession[];
+  sessions: ChathySession[];
   activeId: string | null;
   onSelect: (id: string) => void;
   onNew: () => void;

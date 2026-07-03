@@ -1,4 +1,4 @@
-"""HTTP surface for Andy — session CRUD + the streaming chat endpoint.
+"""HTTP surface for Chathy — session CRUD + the streaming chat endpoint.
 
 The chat endpoint streams Server-Sent Events (`data: {json}\\n\\n`), one per agent event
 (delta / tool_start / tool_result / done / error), so the browser renders tokens and tool
@@ -12,7 +12,7 @@ from collections.abc import Iterator
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 
-from ..andy import agent, sessions
+from ..chathy import agent, sessions
 
 
 def create_session(title: str | None = None) -> dict:

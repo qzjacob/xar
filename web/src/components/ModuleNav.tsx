@@ -13,8 +13,8 @@ type Mod = {
 
 /** The three primary modules + two satellite consoles. Order = primary first. */
 export const MODULES: Mod[] = [
-  { key: "andy", label: "Andy", cn: "对话分析", to: "/", icon: Sparkles,
-    match: (p) => p === "/" || p.startsWith("/andy") },
+  { key: "chathy", label: "Chathy", cn: "对话分析", to: "/", icon: Sparkles,
+    match: (p) => p === "/" || p.startsWith("/chathy") },
   { key: "genny", label: "Genny", cn: "研究终端", to: "/genny", icon: LayoutDashboard,
     match: (p) => p.startsWith("/genny") || p.startsWith("/segment") || p.startsWith("/company") },
   { key: "fenny", label: "Fenny", cn: "结构化票据", to: "/fenny", icon: CandlestickChart,

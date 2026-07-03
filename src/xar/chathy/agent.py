@@ -1,4 +1,4 @@
-"""Andy's turn engine: a streaming, multi-turn tool-calling loop.
+"""Chathy's turn engine: a streaming, multi-turn tool-calling loop.
 
 `run_turn` persists the user message, then repeatedly streams an assistant turn; when the
 model asks for tools it executes them in-process (`tools.execute`), appends the results, and
@@ -17,11 +17,11 @@ from ..models.router import TaskClass
 from . import sessions
 from .tools import execute, openai_tool_defs
 
-log = get_logger("xar.andy.agent")
+log = get_logger("xar.chathy.agent")
 
 _MAX_ITERS = 8
 
-SYSTEM_PROMPT = """You are Andy, the analyst copilot for XAR — an industry-chain investment \
+SYSTEM_PROMPT = """You are Chathy, the analyst copilot for XAR — an industry-chain investment \
 research terminal. You answer questions about companies, supply chains, catalysts and \
 market regimes across 8 themes (ai_optical, ai_chip, ai_software, space_exploration, \
 humanoid_robotics, internet, retail, restaurants) by CALLING THE PLATFORM'S TOOLS — never \
@@ -55,7 +55,7 @@ def run_turn(session_id: str, user_text: str) -> Iterator[dict]:
     for _ in range(_MAX_ITERS):
         final: dict | None = None
         for ev in llm.complete_stream(msgs, tools=tool_defs, task=TaskClass.CHAT,
-                                      node="andy", run_id=run_id):
+                                      node="chathy", run_id=run_id):
             kind = ev.get("type")
             if kind == "delta":
                 yield ev

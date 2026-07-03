@@ -477,7 +477,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS segment TEXT;
 CREATE INDEX IF NOT EXISTS idx_documents_theme_segment ON documents(theme, segment);
 
 -- ---------------------------------------------------------------------------
--- Andy: persistent tool-calling chat sessions (ChatGPT-style). One session has an
+-- Chathy: persistent tool-calling chat sessions (ChatGPT-style). One session has an
 -- ordered message log; assistant rows may carry tool_calls, tool rows carry a result.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS chat_sessions (

@@ -1,7 +1,7 @@
-"""Andy's tool registry — code-as-truth.
+"""Chathy's tool registry — code-as-truth.
 
 Each `ToolSpec` maps a stable tool name + JSON-schema to one plain in-process function
-(the same ones the dashboards/retrieval already expose), so Andy invokes the platform
+(the same ones the dashboards/retrieval already expose), so Chathy invokes the platform
 directly — no HTTP hop, no reimplementation. `openai_tool_defs()` renders the registry into
 the function-calling schema LiteLLM/OpenAI expect; `execute()` runs a call and returns a
 JSON string (truncated) for the tool-result message.
@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from ..ingestion.registry import THEMES, company_by_id
 from ..logging import get_logger
 
-log = get_logger("xar.andy.tools")
+log = get_logger("xar.chathy.tools")
 
 _THEME_ENUM = list(THEMES.keys()) if isinstance(THEMES, dict) else list(THEMES)
 _MAX_RESULT_CHARS = 8000

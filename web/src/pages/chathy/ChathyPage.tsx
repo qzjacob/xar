@@ -1,11 +1,11 @@
 import { Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { andyApi, streamChat } from "../../lib/andy";
+import { chathyApi, streamChat } from "../../lib/chathy";
 import { ModuleNav } from "../../components/ModuleNav";
-import { ChatMessage as MsgView } from "../../components/andy/ChatMessage";
-import { Composer } from "../../components/andy/Composer";
-import { SessionList } from "../../components/andy/SessionList";
-import type { AndyEvent, AndySession, ChatMessage } from "../../types-andy";
+import { ChatMessage as MsgView } from "../../components/chathy/ChatMessage";
+import { Composer } from "../../components/chathy/Composer";
+import { SessionList } from "../../components/chathy/SessionList";
+import type { ChathyEvent, ChathySession, ChatMessage } from "../../types-chathy";
 
 const SUGGESTIONS = [
   "What changed in the HBM memory segment this month?",
@@ -14,9 +14,9 @@ const SUGGESTIONS = [
   "What are the upcoming catalysts for the ai_chip theme?",
 ];
 
-/** XAR Andy — the conversational, tool-calling analyst (default home). */
-export function AndyPage() {
-  const [sessions, setSessions] = useState<AndySession[]>([]);
+/** XAR Chathy — the conversational, tool-calling analyst (default home). */
+export function ChathyPage() {
+  const [sessions, setSessions] = useState<ChathySession[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
@@ -24,7 +24,7 @@ export function AndyPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const refreshSessions = useCallback(async () => {
-    try { setSessions(await andyApi.listSessions()); } catch { /* ignore */ }
+    try { setSessions(await chathyApi.listSessions()); } catch { /* ignore */ }
   }, []);
   useEffect(() => { refreshSessions(); }, [refreshSessions]);
   useEffect(() => {
@@ -34,7 +34,7 @@ export function AndyPage() {
   const loadSession = useCallback(async (id: string) => {
     setActiveId(id);
     try {
-      const stored = await andyApi.getMessages(id);
+      const stored = await chathyApi.getMessages(id);
       const ui: ChatMessage[] = [];
       for (const m of stored) {
         if (m.role === "user") ui.push({ role: "user", content: m.content || "", tools: [] });
@@ -46,7 +46,7 @@ export function AndyPage() {
   }, []);
 
   const newSession = useCallback(async () => {
-    const s = await andyApi.createSession();
+    const s = await chathyApi.createSession();
     setActiveId(s.id);
     setMessages([]);
     refreshSessions();
@@ -72,7 +72,7 @@ export function AndyPage() {
     const ac = new AbortController();
     abortRef.current = ac;
     try {
-      await streamChat(sid, text, (e: AndyEvent) => {
+      await streamChat(sid, text, (e: ChathyEvent) => {
         if (e.type === "delta") patchAssistant((a) => ({ ...a, content: a.content + e.text }));
         else if (e.type === "tool_start")
           patchAssistant((a) => ({ ...a, tools: [...a.tools, { id: e.id, name: e.name, args: e.args, done: false }] }));
@@ -93,7 +93,7 @@ export function AndyPage() {
 
   const stop = useCallback(() => { abortRef.current?.abort(); setStreaming(false); }, []);
   const del = useCallback(async (id: string) => {
-    await andyApi.deleteSession(id);
+    await chathyApi.deleteSession(id);
     if (id === activeId) { setActiveId(null); setMessages([]); }
     refreshSessions();
   }, [activeId, refreshSessions]);
@@ -104,7 +104,7 @@ export function AndyPage() {
         <div className="flex items-center gap-2.5">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-sm font-bold text-white shadow-card">X</span>
           <div>
-            <div className="text-sm font-bold leading-none text-brand-900">XAR Andy</div>
+            <div className="text-sm font-bold leading-none text-brand-900">XAR Chathy</div>
             <div className="mt-0.5 text-2xs uppercase tracking-wide text-slate-500">对话分析</div>
           </div>
         </div>
@@ -139,7 +139,7 @@ function Welcome({ onPick }: { onPick: (t: string) => void }) {
         <Sparkles size={22} />
       </div>
       <div>
-        <div className="text-lg font-semibold text-brand-900">Ask Andy</div>
+        <div className="text-lg font-semibold text-brand-900">Ask Chathy</div>
         <div className="mt-1 max-w-md text-xs text-slate-400">
           Grounded in the XAR platform — semantic facts, dashboards, the supply-chain graph, and your Data Room.
         </div>

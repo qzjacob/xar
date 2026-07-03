@@ -2,16 +2,16 @@
 
 围绕多条并行主题（首发：**AI 光互连**，现已扩展至 **8 大主题**：5 条 AI 供应链 + 3 条消费经济周期链，覆盖 947 家公司）自动汇聚公司公告、财报、研报元数据、新闻、产品页与招聘信号 →
 构建**双时态产业链知识图谱 + 时间戳化语义层（semantic_facts）+ RAG** → 经**多 Agent 流水线**产出**深度报告 / 跟踪摘要 / 投资启示**，每条结论可溯源引用，并由**日级自动增量采集**持续刷新。
-平台前端由**三个同级模块**组成：**XAR Andy**（对话分析，默认首页 `/`）、**XAR Genny**（投研终端 + 数据室，`/genny`）、**XAR Fenny**（结构化票据 + 期权台，`/fenny`），另有 **前沿探索**（`/explore`）与 **运维控制台**（`/ops`）两个卫星页；全部为同一 React SPA 内的外壳，共享同一 Postgres + 本体 + 语义层 + 文档/嵌入/LLM 栈。
+平台前端由**三个同级模块**组成：**XAR Chathy**（对话分析，默认首页 `/`）、**XAR Genny**（投研终端 + 数据室，`/genny`）、**XAR Fenny**（结构化票据 + 期权台，`/fenny`），另有 **前沿探索**（`/explore`）与 **运维控制台**（`/ops`）两个卫星页；全部为同一 React SPA 内的外壳，共享同一 Postgres + 本体 + 语义层 + 文档/嵌入/LLM 栈。
 
 > 交钥匙工程：填入一个 LLM Key 即可运行。设计蓝图见 [`DESIGN.md`](./DESIGN.md)，前端三模块说明见 [`UI.md`](./UI.md)。
 
-## 三大前端模块 — Andy / Genny / Fenny
+## 三大前端模块 — Chathy / Genny / Fenny
 
-同一个由 FastAPI 托管的 **React SPA**（React + TS + Tailwind），顶栏 **ModuleNav** 在 Andy | Genny | Fenny（+ Explore / Ops 卫星）间切换；全站统一**深色金融终端主题**（Bloomberg 风、琥珀强调，`web/src/styles/theme.css` 的 CSS 变量 token 经 `tailwind.config.js` 消费）。
+同一个由 FastAPI 托管的 **React SPA**（React + TS + Tailwind），顶栏 **ModuleNav** 在 Chathy | Genny | Fenny（+ Explore / Ops 卫星）间切换；全站统一**深色金融终端主题**（Bloomberg 风、琥珀强调，`web/src/styles/theme.css` 的 CSS 变量 token 经 `tailwind.config.js` 消费）。
 
-- **XAR Andy**（对话分析，默认首页 **`/`**）— ChatGPT 式流式、**工具调用**分析助手：以 SSE 流式 + function-calling 就地调用仪表盘同款的平台函数（语义事实、混合文档检索、仪表盘、供应链图谱、公司/环节详情、数据室文档）作答。后端 `models/llm.complete_stream()`（新增 `TaskClass.CHAT` = STRONG token）+ `src/xar/andy/{tools,sessions,agent}.py`（code-as-truth 工具注册表、≤8 轮工具循环、会话入 Postgres `chat_sessions`/`chat_messages`）+ `api/andy.py`（`/api/andy/*`）。
-- **XAR Genny**（投研终端 + 数据室，**`/genny`**）— 原投研终端改名迁移至此（legacy `/segment/:id`、`/company/:id` 自动重定向）；新增 **数据室 Data Room**（`/genny/dataroom`）：上传 PDF/TXT/MD 研报 → 复用既有 Doc/解析/分块/嵌入管线，按 主题·环节 打标（新增 `documents.theme/segment` 列），可浏览/下载，并可被 Andy 检索。后端 `api/dataroom.py`（`/api/genny/dataroom/*`）+ UI `pages/genny/DataRoomPage.tsx`。
+- **XAR Chathy**（对话分析，默认首页 **`/`**）— ChatGPT 式流式、**工具调用**分析助手：以 SSE 流式 + function-calling 就地调用仪表盘同款的平台函数（语义事实、混合文档检索、仪表盘、供应链图谱、公司/环节详情、数据室文档）作答。后端 `models/llm.complete_stream()`（新增 `TaskClass.CHAT` = STRONG token）+ `src/xar/chathy/{tools,sessions,agent}.py`（code-as-truth 工具注册表、≤8 轮工具循环、会话入 Postgres `chat_sessions`/`chat_messages`）+ `api/chathy.py`（`/api/chathy/*`）。
+- **XAR Genny**（投研终端 + 数据室，**`/genny`**）— 原投研终端改名迁移至此（legacy `/segment/:id`、`/company/:id` 自动重定向）；新增 **数据室 Data Room**（`/genny/dataroom`）：上传 PDF/TXT/MD 研报 → 复用既有 Doc/解析/分块/嵌入管线，按 主题·环节 打标（新增 `documents.theme/segment` 列），可浏览/下载，并可被 Chathy 检索。后端 `api/dataroom.py`（`/api/genny/dataroom/*`）+ UI `pages/genny/DataRoomPage.tsx`。
 - **XAR Fenny**（结构化票据 + 期权台，**`/fenny`**）— 新增 FCN / Phoenix / Snowball 结构化票据 + 期权工作台（自 github.com/qzjacob/fenny 集成）：`fcn` 包 vendored 于 `src/fcn`，其 FastAPI 子应用挂载于 **`/api/fenny`**（Monte-Carlo Dupire 局部波动率定价、greeks、期权分析），LLM 经 XAR 任务路由器（`route_via_xar`），blotter 入 Postgres（`fenny_blotter`）。前端 4 个懒加载工作区（报价台 / 市场解读 / 标的搜寻 / 期权台），plotly 收敛于 `/fenny` 懒加载分片以保持主包精简。
 
 ## 30 秒启动（Docker）
@@ -26,7 +26,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-打开 <http://localhost:8000> → 默认进入 **Andy 对话分析**（`/`），直接提问即可（它会工具调用整个平台作答）。投研终端已移到 **Genny**（`/genny`）：点「采集全部公司」→ 选公司 + 报告类型 → 「生成报告」；结构化票据/期权台在 **Fenny**（`/fenny`）。
+打开 <http://localhost:8000> → 默认进入 **Chathy 对话分析**（`/`），直接提问即可（它会工具调用整个平台作答）。投研终端已移到 **Genny**（`/genny`）：点「采集全部公司」→ 选公司 + 报告类型 → 「生成报告」；结构化票据/期权台在 **Fenny**（`/fenny`）。
 顶栏 **ModuleNav** 另可进入 **/explore**（前沿探索）与 **/ops**（运维控制台）。内置 Web UI 说明见 [`UI.md`](./UI.md)。
 `docker compose up` 同时起一个 **Dagster 边车**（日级自动采集运行时，UI / 运行历史 / 重试在 <http://localhost:3001>）；schema 仅由 `app` 容器 `xar init` 建表，Dagster 复用同一 Postgres。
 
@@ -49,7 +49,7 @@ xar serve                         # Web UI: http://localhost:8000
 
 ## 终端外壳与卫星模块（Genny 终端 · Ops · Explore）
 
-除上文 Andy / Genny / Fenny 外，同一 React SPA 还含两个经 **ModuleNav** 切换的卫星模块，共享同一套 Postgres + 文档/嵌入/LLM 栈：
+除上文 Chathy / Genny / Fenny 外，同一 React SPA 还含两个经 **ModuleNav** 切换的卫星模块，共享同一套 Postgres + 文档/嵌入/LLM 栈：
 
 1. **投研终端（Genny）**（`/genny`）— 投研主控台，主线为 **主题 → 环节 → 公司 → 信号 → 决策**；深色底 + 琥珀强调（`accent`），`Sidebar` + `TopBar` + `DecisionRail` + 全局 `DataProvider` context，并新增 **数据室**（`/genny/dataroom`）；legacy `/segment/:id`、`/company/:id` 自动重定向至此。
 2. **运维控制台 Operations Console**（`/ops/*`）— 管理控制平面，琥珀色强调（`warn`），`AdminLayout`。8 个子页：总览、本体、数据源、数据湖、另类数据、模型、连接器、技能（overview / ontology / sources / datalake / altdata / models / connectors / skills）。
@@ -142,12 +142,12 @@ xar providers-status provider 配置状态     xar status          各表行数
 xar serve           Web UI + API
 ```
 
-**前端路由**：`/`（Andy）· `/genny`（+ `dataroom` · `segment/:id` · `company/:id`；legacy `/segment/:id`、`/company/:id` 重定向至此）· `/fenny/*`（懒加载）· `/explore`（+ `/:sectionId`）· `/ops` + 8 个子页。
+**前端路由**：`/`（Chathy）· `/genny`（+ `dataroom` · `segment/:id` · `company/:id`；legacy `/segment/:id`、`/company/:id` 重定向至此）· `/fenny/*`（懒加载）· `/explore`（+ `/:sectionId`）· `/ops` + 8 个子页。
 设计 token（**深色金融终端主题**，`web/src/styles/theme.css`）：`brand` · `accent`（琥珀，全站强调）· `warn`（运维）· `explore`（violet，探索）· `pos`/`neg`。
 
 主要 API：`/api/providers` · `/api/pull` · `/api/fundamentals/{id}` · `/api/estimates/{id}` ·
 `/api/prices/{id}` · `/api/prediction-markets` · `/api/social/{id}` · `/api/signals/{id}` ·
-`/api/andy/*`（对话分析）· `/api/genny/dataroom/*`（数据室）· `/api/fenny/*`（结构化票据/期权，挂载子应用）·
+`/api/chathy/*`（对话分析）· `/api/genny/dataroom/*`（数据室）· `/api/fenny/*`（结构化票据/期权，挂载子应用）·
 `/api/ui/*`（投研仪表盘）· `/api/ops/*`（运维控制台）· `/api/exploration/*`（前沿探索）。
 
 ## 结构化数据层 + 本体（Ontology）决策

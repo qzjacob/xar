@@ -8,7 +8,7 @@ import { AdminLayout } from "./components/AdminLayout";
 import { ExplorationLayout } from "./components/ExplorationLayout";
 import { ExplorationOverviewPage } from "./pages/exploration/ExplorationOverviewPage";
 import { ExplorationSectionPage } from "./pages/exploration/ExplorationSectionPage";
-import { AndyPage } from "./pages/andy/AndyPage";
+import { ChathyPage } from "./pages/chathy/ChathyPage";
 import { DataRoomPage } from "./pages/genny/DataRoomPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { CompanyPage } from "./pages/CompanyPage";
@@ -49,9 +49,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Andy — conversational analyst, the default home */}
-        <Route path="/" element={<AndyPage />} />
-        <Route path="/andy" element={<Navigate to="/" replace />} />
+        {/* Chathy — conversational analyst, the default home */}
+        <Route path="/" element={<ChathyPage />} />
+        <Route path="/chathy" element={<Navigate to="/" replace />} />
 
         {/* Genny — research terminal */}
         <Route path="/genny" element={<GennyShell />}>

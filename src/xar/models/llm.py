@@ -257,11 +257,11 @@ def complete_stream(
     *,
     tools: list[dict] | None = None,
     task: "router.TaskClass | str" = "chat",
-    node: str = "andy",
+    node: str = "chathy",
     run_id: str | None = None,
     max_tokens: int = 4000,
 ) -> Iterator[dict]:
-    """Streaming, tool-calling completion for the Andy chat agent.
+    """Streaming, tool-calling completion for the Chathy chat agent.
 
     `messages` is a ready OpenAI-style message list (the agent owns history). Yields
     event dicts: `{"type":"delta","text":...}` as content streams, then exactly one

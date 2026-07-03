@@ -1,6 +1,6 @@
 import { CheckCircle2, Loader2, Wrench } from "lucide-react";
 import { useState } from "react";
-import type { ToolActivity } from "../../types-andy";
+import type { ToolActivity } from "../../types-chathy";
 
 /** A collapsible chip showing one tool invocation (name + args, expandable result). */
 export function ToolChip({ t }: { t: ToolActivity }) {

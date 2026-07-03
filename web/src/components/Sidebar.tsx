@@ -166,7 +166,7 @@ export function Sidebar(props: {
           </div>
         ))}
 
-        {/* module switcher (Andy / Genny / Fenny + Explore / Ops) */}
+        {/* module switcher (Chathy / Genny / Fenny + Explore / Ops) */}
         <div className="px-2 pt-4">
           <div className="mb-1 px-1 text-2xs font-semibold uppercase tracking-wide text-slate-500">
             Modules

@@ -24,7 +24,7 @@ export function Composer({ onSend, onStop, streaming }: {
               send();
             }
           }}
-          placeholder="Ask Andy about a company, theme, catalyst, supply chain…"
+          placeholder="Ask Chathy about a company, theme, catalyst, supply chain…"
           className="max-h-40 min-h-[24px] flex-1 resize-none bg-transparent px-1.5 py-1 text-sm text-brand-900 placeholder:text-slate-500 focus:outline-none"
         />
         {streaming ? (
@@ -40,7 +40,7 @@ export function Composer({ onSend, onStop, streaming }: {
         )}
       </div>
       <div className="mx-auto mt-1.5 max-w-3xl text-center text-[10px] text-slate-500">
-        Andy grounds answers in the XAR platform · research aide, not financial advice
+        Chathy grounds answers in the XAR platform · research aide, not financial advice
       </div>
     </div>
   );

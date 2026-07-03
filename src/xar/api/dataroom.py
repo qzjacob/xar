@@ -2,7 +2,7 @@
 
 An upload becomes an ordinary `documents` row (source='upload') via the existing
 `ingestion.base.Doc` → object-store + `parse_pending` chunk/embed pipeline, then tagged
-with theme/segment (the additive columns). So uploads are searchable by Andy (hybrid_search)
+with theme/segment (the additive columns). So uploads are searchable by Chathy (hybrid_search)
 and by the retrieval layer with zero new indexing code.
 """
 from __future__ import annotations

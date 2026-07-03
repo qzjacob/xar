@@ -67,7 +67,7 @@ export function DataRoomPage() {
   return (
     <div className="mx-auto max-w-[1100px] px-5 py-5">
       <SectionHeader icon={<FolderOpen size={16} />} title="Data Room"
-        titleCn="研究文档库 · 上传报告/纪要，自动入库并可被 Andy 检索引用" />
+        titleCn="研究文档库 · 上传报告/纪要，自动入库并可被 Chathy 检索引用" />
 
       {/* upload + filters */}
       <Card className="mt-3 p-4">

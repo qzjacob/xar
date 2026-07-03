@@ -10,7 +10,7 @@
 
 ## 0. 实现现状（As-Built，2026-06）
 
-蓝图的目标是"复用业界最佳开源件"，但落地时为**交钥匙（填一个 API Key 即跑）**做了精简：把多进程重栈（Neo4j + RAGFlow + Graphiti + LangGraph + Dagster + Langfuse + Next.js）收敛为**单 Postgres + 自建薄层**，能力等价、运维成本骤降。蓝图的"护城河"（双时态可引用 KG、可控可审计的多 Agent 流水线、数值对账闸、实体消解、许可纪律）**全部保留**。前端从内置原生单页演进为 **React + TS + Tailwind 单页应用（SPA，由 FastAPI 托管）**，内含**三个对等顶层模块**（投研门户 / 运营控制台 / 前沿探索，见 §2）；**2026-07 再重构为 Andy / Genny / Fenny 三命名前端模块**——默认首页 `/` 改为对话式工具调用分析师 **Andy**，投研终端下移至 `/genny`（**Genny**，含新数据室），并新增结构化票据 + 期权台 **Fenny**（`/fenny`，vendored `fcn` 子应用），全部落深色金融终端主题（见 §2.3）。
+蓝图的目标是"复用业界最佳开源件"，但落地时为**交钥匙（填一个 API Key 即跑）**做了精简：把多进程重栈（Neo4j + RAGFlow + Graphiti + LangGraph + Dagster + Langfuse + Next.js）收敛为**单 Postgres + 自建薄层**，能力等价、运维成本骤降。蓝图的"护城河"（双时态可引用 KG、可控可审计的多 Agent 流水线、数值对账闸、实体消解、许可纪律）**全部保留**。前端从内置原生单页演进为 **React + TS + Tailwind 单页应用（SPA，由 FastAPI 托管）**，内含**三个对等顶层模块**（投研门户 / 运营控制台 / 前沿探索，见 §2）；**2026-07 再重构为 Chathy / Genny / Fenny 三命名前端模块**——默认首页 `/` 改为对话式工具调用分析师 **Chathy**，投研终端下移至 `/genny`（**Genny**，含新数据室），并新增结构化票据 + 期权台 **Fenny**（`/fenny`，vendored `fcn` 子应用），全部落深色金融终端主题（见 §2.3）。
 
 | 能力 | 蓝图选型 | **As-Built（实际实现）** |
 |---|---|---|
@@ -98,7 +98,7 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 
 | 模块 | 路由 | 角色 | 外壳 / 配色 |
 |---|---|---|---|
-| **1. 投研门户（Research Portal ＝ Genny）** | `/genny` · `/genny/segment/:id` · `/genny/company/:id`（旧 `/`·`/segment/:id`·`/company/:id` 302 重定向；`/` 现为 Andy，见 §2.3） | 投研终端：主题 → 细分 → 公司 → 信号 → 决策。全局 `DataProvider` 上下文供数据 | `Layout`(AppShell) + `Sidebar` + `TopBar` + `DecisionRail`；海军蓝 chrome(`brand`)、蓝色强调(`accent`) |
+| **1. 投研门户（Research Portal ＝ Genny）** | `/genny` · `/genny/segment/:id` · `/genny/company/:id`（旧 `/`·`/segment/:id`·`/company/:id` 302 重定向；`/` 现为 Chathy，见 §2.3） | 投研终端：主题 → 细分 → 公司 → 信号 → 决策。全局 `DataProvider` 上下文供数据 | `Layout`(AppShell) + `Sidebar` + `TopBar` + `DecisionRail`；海军蓝 chrome(`brand`)、蓝色强调(`accent`) |
 | **2. 运营控制台（Operations Console）** | `/ops` + 8 子页：overview · ontology · sources · datalake · altdata · models · connectors · skills | 管理控制面：本体/数据源/数据湖/另类数据/模型/连接器/技能巡检 | `AdminLayout`；琥珀色强调(`warn`)；不挂终端数据上下文 |
 | **3. 前沿探索（Exploration）** | `/explore` · `/explore/:sectionId` | **新增第三模块**——人类知识的前沿：6 领域研究前沿、预印本、专家声音 | `ExplorationLayout` + `ExplorationSidebar`；靛蓝"explore"强调(`explore`，token `#6D28D9`) |
 
@@ -139,19 +139,19 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 
 **与运营控制台的衔接**：arXiv、journals 两个前沿源已纳入运营控制台**数据源注册表**，归类 `category="frontier"`（`api/ops.py` `SOURCES`，`runnable=true`，公开无 Key），可在 `/ops/sources` 触发拉取。
 
-### 2.3 三大前端模块（As-Built，2026-07）—— Andy / Genny / Fenny
+### 2.3 三大前端模块（As-Built，2026-07）—— Chathy / Genny / Fenny
 
-在 §2.1 的"投研 / 运营 / 探索"三外壳之上，前端二次重构为**三个命名前端模块**（同一 React SPA、同一 FastAPI 托管、**共享数据 + 本体底座**：8 主题 / 947 公司 / 33 技术路线 / 语义数据库 / LLM 任务管理器不变）。**默认首页从投研终端改为对话式分析师**。共享 **ModuleNav 切换条**（`web/src/components/ModuleNav.tsx`：Andy | Genny | Fenny + Explore/Ops 卫星）出现在各外壳 chrome。
+在 §2.1 的"投研 / 运营 / 探索"三外壳之上，前端二次重构为**三个命名前端模块**（同一 React SPA、同一 FastAPI 托管、**共享数据 + 本体底座**：8 主题 / 947 公司 / 33 技术路线 / 语义数据库 / LLM 任务管理器不变）。**默认首页从投研终端改为对话式分析师**。共享 **ModuleNav 切换条**（`web/src/components/ModuleNav.tsx`：Chathy | Genny | Fenny + Explore/Ops 卫星）出现在各外壳 chrome。
 
 | 模块 | 路由 | 角色 |
 |---|---|---|
-| **XAR Andy** | `/`（默认首页；`/andy`→`/`） | ChatGPT 式、流式、**工具调用**分析师：以对话面覆盖全平台，调用仪表盘所用的**同一批进程内函数**（语义事实、混合文档检索、仪表盘、供应链图、公司/细分详情、数据室文档，见 `andy/tools.py`） |
+| **XAR Chathy** | `/`（默认首页；`/chathy`→`/`） | ChatGPT 式、流式、**工具调用**分析师：以对话面覆盖全平台，调用仪表盘所用的**同一批进程内函数**（语义事实、混合文档检索、仪表盘、供应链图、公司/细分详情、数据室文档，见 `chathy/tools.py`） |
 | **XAR Genny** | `/genny`（+ `/genny/segment/:id` · `/genny/company/:id` · `/genny/dataroom`） | 既有投研终端**改名并下移**至 `/genny`（旧 `/segment/:id`·`/company/:id` 302 重定向）；新增**数据室**上传→摄取→检索 |
 | **XAR Fenny** | `/fenny/*`（懒加载） | **新增**结构化票据（FCN/Phoenix/Snowball）+ 期权台：从 `github.com/qzjacob/fenny` **vendored** 的 `fcn` 包（见 `FENNY_UPSTREAM.md`），4 个工作区 |
 
-**Andy（`src/xar/andy/` + `api/andy.py`）**：后端 `models/llm.complete_stream()`（SSE 流式 + function-calling，复用任务管理器回退/计费；新增 `TaskClass.CHAT`=STRONG token）；`andy/{tools,sessions,agent}.py`（code-as-truth 工具注册表、Postgres `chat_sessions`/`chat_messages`、≤8 轮工具循环）；`api/andy.py`（SSE `POST /api/andy/sessions/{sid}/chat` + 会话 CRUD）。前端 `pages/andy/AndyPage.tsx` + `components/andy/*`（react-markdown、工具活动 chip、会话侧栏、fetch+ReadableStream 的 stop/abort）。
+**Chathy（`src/xar/chathy/` + `api/chathy.py`）**：后端 `models/llm.complete_stream()`（SSE 流式 + function-calling，复用任务管理器回退/计费；新增 `TaskClass.CHAT`=STRONG token）；`chathy/{tools,sessions,agent}.py`（code-as-truth 工具注册表、Postgres `chat_sessions`/`chat_messages`、≤8 轮工具循环）；`api/chathy.py`（SSE `POST /api/chathy/sessions/{sid}/chat` + 会话 CRUD）。前端 `pages/chathy/ChathyPage.tsx` + `components/chathy/*`（react-markdown、工具活动 chip、会话侧栏、fetch+ReadableStream 的 stop/abort）。
 
-**Genny 数据室（`api/dataroom.py` + `pages/genny/DataRoomPage.tsx`）**：上传 PDF/TXT/MD 研报 → 既有 `Doc`/`objects`/`parse_pending` 管线，按主题·细分打标（`documents` **加性列** `theme`/`segment`）→ 分块 + 嵌入 → 可浏览/下载，且**可被 Andy 检索**。
+**Genny 数据室（`api/dataroom.py` + `pages/genny/DataRoomPage.tsx`）**：上传 PDF/TXT/MD 研报 → 既有 `Doc`/`objects`/`parse_pending` 管线，按主题·细分打标（`documents` **加性列** `theme`/`segment`）→ 分块 + 嵌入 → 可浏览/下载，且**可被 Chathy 检索**。
 
 **Fenny（`src/fcn` vendored + 挂载 `/api/fenny`）**：Monte-Carlo Dupire 本地波动率定价、greeks、期权分析；其 FastAPI 子应用经 `api/app.py` `app.mount("/api/fenny", get_fenny_app())` 挂载；LLM 经 XAR 任务管理器（`src/fcn/service/llm.py` `route_via_xar` 标志）；blotter 迁至 Postgres（`fenny_blotter` 表，`src/xar/fenny/blotter_pg.py PgBlotterStore`）。UI：4 个懒加载工作区（Quotation Desk / Market Read / Underlying Finder / Options Desk，`pages/fenny/{QuoteDesk,MarketRead,Finder,OptionsDesk}.tsx`）带 plotly 收益图——plotly **隔离在懒加载 /fenny chunk**，主 bundle 保持精简。
 
@@ -434,22 +434,22 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 │   ├── providers/              # base + finnhub/fmp/polygon/yahoo/wind/aifinmarket + polymarket/twitter/reddit + arxiv/journals + sentiment（11 个 provider）
 │   ├── parsing/                # parse(分块/嵌入/索引) + tie_out(数值对账闸)
 │   ├── kg/                     # store(双时态) + resolve(实体消解) + extract(主题感知 LLM 抽取, _focus_for, 填 narrative/time_orientation/drivers) + resolve_claims(前瞻声明 hit/miss/stale) + expert(专家加工) + signals(结构化→事件)
-│   ├── andy/                   # 【新, 2026-07】tools(工具注册表) + sessions(chat_sessions/messages) + agent(≤8 轮工具循环)——Andy 流式工具调用分析师
+│   ├── chathy/                   # 【新, 2026-07】tools(工具注册表) + sessions(chat_sessions/messages) + agent(≤8 轮工具循环)——Chathy 流式工具调用分析师
 │   ├── fenny/                  # 【新, 2026-07】blotter_pg(PgBlotterStore→fenny_blotter)——Fenny Postgres blotter
 │   ├── exploration/            # 【新】domains(6 前沿领域) + ingest(arxiv/journals/voices→documents) + synthesis(研究前沿合成→frontier_fronts/_state)
 │   ├── retrieval/              # vector(RRF 混合) + graphrag(双时态遍历)
 │   ├── agents/                 # state/nodes/debate/evidence_gate/report/graph（可控 DAG）
 │   ├── backtest/ eval/ orchestration/   # 催化剂回测(driven by semantic_facts) / 评测金标 / daily(run_daily 每日链) + definitions(Dagster pull_shard/extract_all/core_daily)
-│   ├── api/                    # app(FastAPI 路由) + dashboard(投研 UI) + ops(运营控制台) + exploration(前沿探索) + andy(SSE 对话) + dataroom(数据室) + fenny_mount(挂 /api/fenny 子应用) + static/index.html（回退原生 UI）
+│   ├── api/                    # app(FastAPI 路由) + dashboard(投研 UI) + ops(运营控制台) + exploration(前沿探索) + chathy(SSE 对话) + dataroom(数据室) + fenny_mount(挂 /api/fenny 子应用) + static/index.html（回退原生 UI）
 │   └── (src/fcn/)              # 【vendored, 2026-07】fenny fcn 包（定价/greeks/期权分析），子应用挂 /api/fenny，见 FENNY_UPSTREAM.md
 ├── web/                        # 【新】React + TS + Tailwind SPA（FastAPI 托管编译产物）
 │   ├── tailwind.config.js      # 设计令牌 brand(navy)/accent(blue)/warn(amber)/explore(indigo)/pos/neg
 │   └── src/
-│       ├── App.tsx             # 路由：/(Andy 默认) · /genny(+/segment/:id·/company/:id·/dataroom；旧顶层路径 302) · /fenny/*(懒加载) · /explore(+/:sectionId) · /ops + 8 子页
+│       ├── App.tsx             # 路由：/(Chathy 默认) · /genny(+/segment/:id·/company/:id·/dataroom；旧顶层路径 302) · /fenny/*(懒加载) · /explore(+/:sectionId) · /ops + 8 子页
 │       ├── styles/theme.css    # 【新, 2026-07】深色终端主题 CSS 变量令牌 --c-*（tailwind 以 rgb(var(--c-*)) 消费）
 │       ├── context.tsx         # 投研门户全局 DataProvider
-│       ├── components/         # Layout/AppShell + Sidebar + TopBar + DecisionRail + AdminLayout + ExplorationLayout + ExplorationSidebar + ModuleNav(Andy|Genny|Fenny) + andy/*(ChatMessage/Composer/SessionList/ToolChip)
-│       ├── pages/              # andy/AndyPage + genny/DataRoomPage + fenny/*(4 工作区，懒加载 plotly) + DashboardPage/SegmentPage/CompanyPage + ops/*(8 页) + exploration/*(Overview/Section/_shared)
+│       ├── components/         # Layout/AppShell + Sidebar + TopBar + DecisionRail + AdminLayout + ExplorationLayout + ExplorationSidebar + ModuleNav(Chathy|Genny|Fenny) + chathy/*(ChatMessage/Composer/SessionList/ToolChip)
+│       ├── pages/              # chathy/ChathyPage + genny/DataRoomPage + fenny/*(4 工作区，懒加载 plotly) + DashboardPage/SegmentPage/CompanyPage + ops/*(8 页) + exploration/*(Overview/Section/_shared)
 │       └── lib/, types-*.ts    # lib/exploration.ts + types-exploration.ts 等
 ├── tests/                      # test_units + test_pipeline(DB-gated, LLM-mocked)
 ├── scripts/check_licenses.py   # 许可洁净

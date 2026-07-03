@@ -30,25 +30,25 @@
   .tnum {
     font-variant-numeric: tabular-nums;
   }
-  /* Andy chat markdown (no typography plugin — minimal, dark-tuned) */
-  .andy-md {
+  /* Chathy chat markdown (no typography plugin — minimal, dark-tuned) */
+  .chathy-md {
     @apply text-sm leading-relaxed text-brand-800;
   }
-  .andy-md > :first-child { margin-top: 0; }
-  .andy-md > :last-child { margin-bottom: 0; }
-  .andy-md p { @apply my-2; }
-  .andy-md h1, .andy-md h2, .andy-md h3 { @apply mb-1.5 mt-3 font-semibold text-brand-900; }
-  .andy-md h1 { @apply text-base; } .andy-md h2 { @apply text-sm; } .andy-md h3 { @apply text-sm; }
-  .andy-md ul { @apply my-2 list-disc pl-5; } .andy-md ol { @apply my-2 list-decimal pl-5; }
-  .andy-md li { @apply my-0.5; }
-  .andy-md a { @apply text-accent-100 underline decoration-accent/40 underline-offset-2; }
-  .andy-md code { @apply rounded bg-surface-2 px-1 py-0.5 font-mono text-2xs text-brand-900; }
-  .andy-md pre { @apply my-2 overflow-x-auto rounded-lg bg-surface-2 p-3; }
-  .andy-md pre code { @apply bg-transparent p-0; }
-  .andy-md table { @apply my-2 w-full border-collapse text-xs; }
-  .andy-md th, .andy-md td { @apply border border-line px-2 py-1 text-left; }
-  .andy-md th { @apply bg-surface-2 font-semibold text-brand-900; }
-  .andy-md blockquote { @apply my-2 border-l-2 border-line pl-3 text-slate-400; }
+  .chathy-md > :first-child { margin-top: 0; }
+  .chathy-md > :last-child { margin-bottom: 0; }
+  .chathy-md p { @apply my-2; }
+  .chathy-md h1, .chathy-md h2, .chathy-md h3 { @apply mb-1.5 mt-3 font-semibold text-brand-900; }
+  .chathy-md h1 { @apply text-base; } .chathy-md h2 { @apply text-sm; } .chathy-md h3 { @apply text-sm; }
+  .chathy-md ul { @apply my-2 list-disc pl-5; } .chathy-md ol { @apply my-2 list-decimal pl-5; }
+  .chathy-md li { @apply my-0.5; }
+  .chathy-md a { @apply text-accent-100 underline decoration-accent/40 underline-offset-2; }
+  .chathy-md code { @apply rounded bg-surface-2 px-1 py-0.5 font-mono text-2xs text-brand-900; }
+  .chathy-md pre { @apply my-2 overflow-x-auto rounded-lg bg-surface-2 p-3; }
+  .chathy-md pre code { @apply bg-transparent p-0; }
+  .chathy-md table { @apply my-2 w-full border-collapse text-xs; }
+  .chathy-md th, .chathy-md td { @apply border border-line px-2 py-1 text-left; }
+  .chathy-md th { @apply bg-surface-2 font-semibold text-brand-900; }
+  .chathy-md blockquote { @apply my-2 border-l-2 border-line pl-3 text-slate-400; }
   .scroll-thin {
     scrollbar-width: thin;
     scrollbar-color: rgb(var(--c-line)) transparent;

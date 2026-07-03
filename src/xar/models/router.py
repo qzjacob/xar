@@ -39,7 +39,7 @@ class TaskClass(str, Enum):
     EVAL = "eval"                 # one-off, fast
     ADHOC_FAST = "adhoc_fast"     # default for tier="fast"
     ADHOC_STRONG = "adhoc_strong"  # default for tier="strong"
-    CHAT = "chat"                 # Andy: interactive tool-calling chat (strong, token)
+    CHAT = "chat"                 # Chathy: interactive tool-calling chat (strong, token)
 
 
 @dataclass(frozen=True)

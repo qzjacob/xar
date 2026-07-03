@@ -1,4 +1,4 @@
-"""Andy chat persistence — `chat_sessions` + `chat_messages` (see storage/schema.sql).
+"""Chathy chat persistence — `chat_sessions` + `chat_messages` (see storage/schema.sql).
 
 Messages are stored in the OpenAI wire shape (role/content + optional tool_calls /
 tool_call_id / name) so a session round-trips straight back into `complete_stream`.

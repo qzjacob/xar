@@ -482,35 +482,35 @@ if _STATIC.exists():
 if (_WEBDIST / "assets").exists():
     app.mount("/assets", StaticFiles(directory=str(_WEBDIST / "assets")), name="assets")
 
-# Andy (conversational analyst) — session CRUD + streaming chat (SSE).
-@app.post("/api/andy/sessions")
-def andy_create_session(body: dict | None = None):
-    from . import andy
-    return andy.create_session((body or {}).get("title"))
+# Chathy (conversational analyst) — session CRUD + streaming chat (SSE).
+@app.post("/api/chathy/sessions")
+def chathy_create_session(body: dict | None = None):
+    from . import chathy
+    return chathy.create_session((body or {}).get("title"))
 
 
-@app.get("/api/andy/sessions")
-def andy_list_sessions():
-    from . import andy
-    return andy.list_sessions()
+@app.get("/api/chathy/sessions")
+def chathy_list_sessions():
+    from . import chathy
+    return chathy.list_sessions()
 
 
-@app.get("/api/andy/sessions/{sid}/messages")
-def andy_get_messages(sid: str):
-    from . import andy
-    return andy.get_messages(sid)
+@app.get("/api/chathy/sessions/{sid}/messages")
+def chathy_get_messages(sid: str):
+    from . import chathy
+    return chathy.get_messages(sid)
 
 
-@app.delete("/api/andy/sessions/{sid}")
-def andy_delete_session(sid: str):
-    from . import andy
-    return andy.delete_session(sid)
+@app.delete("/api/chathy/sessions/{sid}")
+def chathy_delete_session(sid: str):
+    from . import chathy
+    return chathy.delete_session(sid)
 
 
-@app.post("/api/andy/sessions/{sid}/chat")
-def andy_chat(sid: str, body: dict):
-    from . import andy
-    return andy.chat_stream(sid, (body or {}).get("message", ""))
+@app.post("/api/chathy/sessions/{sid}/chat")
+def chathy_chat(sid: str, body: dict):
+    from . import chathy
+    return chathy.chat_stream(sid, (body or {}).get("message", ""))
 
 
 # Genny Data Room — upload / browse / download report documents per theme·segment.

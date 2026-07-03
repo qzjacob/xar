@@ -1,4 +1,4 @@
-export interface AndySession {
+export interface ChathySession {
   id: string;
   title: string | null;
   created_at: string;
@@ -32,7 +32,7 @@ export interface ChatMessage {
   error?: boolean;
 }
 
-export type AndyEvent =
+export type ChathyEvent =
   | { type: "delta"; text: string }
   | { type: "tool_start"; id: string; name: string; args?: Record<string, unknown> }
   | { type: "tool_result"; id: string; name: string; preview?: string }

@@ -1,11 +1,11 @@
-"""Andy chat agent: tool registry validity + a fake-LLM tool round-trip with persistence."""
+"""Chathy chat agent: tool registry validity + a fake-LLM tool round-trip with persistence."""
 from __future__ import annotations
 
 import json
 
 
 def test_tool_registry_schemas_valid():
-    from xar.andy import tools
+    from xar.chathy import tools
     defs = tools.openai_tool_defs()
     assert defs and all(d["type"] == "function" for d in defs)
     names = set()
@@ -24,13 +24,13 @@ def test_tool_registry_schemas_valid():
 
 
 def test_execute_unknown_tool_returns_error_json():
-    from xar.andy import tools
+    from xar.chathy import tools
     out = json.loads(tools.execute("nope", {}))
     assert "error" in out
 
 
 def test_execute_coverage_tool_runs(seeded_db):  # seeded_db fixture ensures companies exist
-    from xar.andy import tools
+    from xar.chathy import tools
     out = json.loads(tools.execute("coverage", {"theme": "ai_optical"}))
     assert isinstance(out, dict) and "themes" in out
 
@@ -38,7 +38,7 @@ def test_execute_coverage_tool_runs(seeded_db):  # seeded_db fixture ensures com
 def test_run_turn_tool_loop_and_persistence(monkeypatch, seeded_db):
     """Fake a two-step LLM stream: turn 1 asks for a tool, turn 2 answers — assert the
     tool ran, events fired, and the whole exchange persisted to chat_messages."""
-    from xar.andy import agent, sessions
+    from xar.chathy import agent, sessions
     from xar.models import llm
 
     sess = sessions.create("t")

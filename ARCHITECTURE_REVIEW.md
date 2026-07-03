@@ -2,7 +2,7 @@
 
 > 评审范围：全仓代码（`src/xar` ~10,860 LOC）+ schema + tests + CI + 部署。
 > 评审视角：技术 / 用户 / 架构 / 第一性原理。
-> 决策前提（已与项目方确认）：**目标部署形态 = 自用 / 单团队研究工具**；平台现为**三个并列顶层模块**——产业链投研主轴（研究终端 **Genny** `/genny`）、运维控制台（Operations Console `/ops/*`）、**前沿探索（Exploration `/explore`）**。Exploration 已从"早期范围漂移信号"转正为正式第三模块，并经独立 agent 审计 PASS。**本轮前端进一步拆为三个并列 shell——默认首页 `/` 的对话式工具调用分析师 **Andy**、研究终端 **Genny** `/genny`（原 Research Portal `/`；旧 `/segment/:id`·`/company/:id` 现 302 重定向到 `/genny`，App.tsx:53-67）、结构化票据/期权台 **Fenny** `/fenny`——三者共享同一数据+本体底座（详见演进 6）。**
+> 决策前提（已与项目方确认）：**目标部署形态 = 自用 / 单团队研究工具**；平台现为**三个并列顶层模块**——产业链投研主轴（研究终端 **Genny** `/genny`）、运维控制台（Operations Console `/ops/*`）、**前沿探索（Exploration `/explore`）**。Exploration 已从"早期范围漂移信号"转正为正式第三模块，并经独立 agent 审计 PASS。**本轮前端进一步拆为三个并列 shell——默认首页 `/` 的对话式工具调用分析师 **Chathy**、研究终端 **Genny** `/genny`（原 Research Portal `/`；旧 `/segment/:id`·`/company/:id` 现 302 重定向到 `/genny`，App.tsx:53-67）、结构化票据/期权台 **Fenny** `/fenny`——三者共享同一数据+本体底座（详见演进 6）。**
 > 文档用途：团队对齐基线，指导后续 P0/P1/P2 改造。证据均带 `file:line` 可追溯。
 
 ---
@@ -19,8 +19,8 @@
 4. **前瞻断言解析生命周期（本轮唯一净新能力）**：`kg_events` 加 resolution/resolved_at/realizes_event_id；`src/xar/kg/resolve_claims.py` 的 `resolve_forward_claims()` 闭合"预期→兑现"环——一条 forward_looking 催化剂在窗口内出现同公司 backward 兑现事件即解析为 hit/miss，否则 stale（可复查），只改 forward 行，经 `semantic_facts.resolution` 暴露，CLI `xar resolve-claims`。
 5. **Exploration 第三模块转正**：6 个前沿域（ai 优先打通 + physics/math/cs_systems/neuro/complex），融合 arXiv + 期刊（Quanta/Physics World RSS）+ X 专家声音，由强推理 tier LLM 蒸馏出**前瞻性研究前沿**（方向/成熟度/视野/意义/动能，附 grounded+validated 的 arXiv 引用），落 `frontier_fronts` + `frontier_domain_state` 两表。**复用既有栈（documents/embeddings/llm/db/同套 FastAPI+SPA chrome），是方向性研究而非交易**。该交付经独立 agent 审计 → **PASS**。
 6. **前端三模块重构（本轮头条之二）**：同一 React SPA 由 FastAPI 单体托管，前端拆为三个并列 shell + 一套共享 ModuleNav 切换器（`web/src/components/ModuleNav.tsx`），全部坐在既有数据+本体底座上（无平行后端）：
-   - **XAR Andy**（默认首页 `/`，App.tsx:53）——ChatGPT 式、SSE 流式、**工具调用**分析师：不走 HTTP 回环，直接**在进程内**调用与仪表盘同源的函数（语义事实 / 混合文档检索 / 仪表盘 / 供应链图 / 公司·segment 详情 / data-room 文档，见 `src/xar/andy/tools.py` 的 code-as-truth 工具注册表 + `execute()`）。后端：`models/llm.complete_stream()`（SSE 流式 + function-calling，复用任务管理器的 fallback/计费；新增 `TaskClass.CHAT` → STRONG token，router.py:42/69）、`andy/{tools,sessions,agent}.py`（≤8 迭代工具循环 `_MAX_ITERS=8` agent.py:22、Postgres `chat_sessions`/`chat_messages` schema.sql:483-500）、`api/andy.py`（SSE `POST /api/andy/sessions/{sid}/chat` + 会话 CRUD）。前端 `pages/andy/AndyPage.tsx` + `components/andy/*`（react-markdown、工具活动 chips、会话栏、fetch+ReadableStream 的 stop/abort）。
-   - **XAR Genny**（`/genny`，App.tsx:57）——既有研究终端更名迁移；新增 **Data Room**（`/genny/dataroom`）：上传 PDF/TXT/MD → 既有 Doc/objects/parse_pending 流水线，加列 `documents.theme`/`segment`（schema.sql:475-477）打标 theme·segment，chunk+embed，可浏览/下载、可被 Andy 检索。后端 `api/dataroom.py` + `POST /api/genny/dataroom/upload`（app.py:517）；UI `pages/genny/DataRoomPage.tsx`。
+   - **XAR Chathy**（默认首页 `/`，App.tsx:53）——ChatGPT 式、SSE 流式、**工具调用**分析师：不走 HTTP 回环，直接**在进程内**调用与仪表盘同源的函数（语义事实 / 混合文档检索 / 仪表盘 / 供应链图 / 公司·segment 详情 / data-room 文档，见 `src/xar/chathy/tools.py` 的 code-as-truth 工具注册表 + `execute()`）。后端：`models/llm.complete_stream()`（SSE 流式 + function-calling，复用任务管理器的 fallback/计费；新增 `TaskClass.CHAT` → STRONG token，router.py:42/69）、`chathy/{tools,sessions,agent}.py`（≤8 迭代工具循环 `_MAX_ITERS=8` agent.py:22、Postgres `chat_sessions`/`chat_messages` schema.sql:483-500）、`api/chathy.py`（SSE `POST /api/chathy/sessions/{sid}/chat` + 会话 CRUD）。前端 `pages/chathy/ChathyPage.tsx` + `components/chathy/*`（react-markdown、工具活动 chips、会话栏、fetch+ReadableStream 的 stop/abort）。
+   - **XAR Genny**（`/genny`，App.tsx:57）——既有研究终端更名迁移；新增 **Data Room**（`/genny/dataroom`）：上传 PDF/TXT/MD → 既有 Doc/objects/parse_pending 流水线，加列 `documents.theme`/`segment`（schema.sql:475-477）打标 theme·segment，chunk+embed，可浏览/下载、可被 Chathy 检索。后端 `api/dataroom.py` + `POST /api/genny/dataroom/upload`（app.py:517）；UI `pages/genny/DataRoomPage.tsx`。
    - **XAR Fenny**（`/fenny`，App.tsx:70，从 github.com/qzjacob/fenny 集成的**新**结构化票据 FCN/Phoenix/Snowball + 期权台）——**mount-first 供应商化**：`fcn` 包**原样 vendored 到 `src/fcn`**（见 `FENNY_UPSTREAM.md`），其 FastAPI 子应用**挂载**在 `/api/fenny`（app.py:559-566，Monte-Carlo Dupire 局部波动率定价 / greeks / 期权分析）；LLM 经 `route_via_xar` 标志走 XAR 任务管理器（fcn/service/llm.py:24），blotter 迁至 Postgres `fenny_blotter` 表（`xar/fenny/blotter_pg.py` 的 `PgBlotterStore`，经 `blotter_factory` 注入）。**依赖单向 `xar → fcn`——`fcn` 从不 import `xar`，保持独立可运行、未来 re-sync 机械化**。UI 4 个 lazy-loaded 工作区（Quotation Desk / Market Read / Underlying Finder / Options Desk，`pages/fenny/FennyApp.tsx`）带 plotly payoff 图——**plotly 隔离在 lazy `/fenny` chunk 内，主 bundle 保持精简**。
    - **暗色金融终端主题**：`web/src/styles/theme.css` 的 CSS 变量 token 系统（`--c-*`，如 `--c-canvas`/`--c-surface`/`--c-accent-*`），由 `tailwind.config.js` 以 `rgb(var(--c-*) / <alpha-value>)` 消费（tailwind.config.js:9）；Bloomberg 风、amber accent、dark-only。三 shell + Ops/Explore 卫星统一视觉语言。schema 全部加列/加表为 additive/幂等（`documents.theme/segment`、`chat_sessions`、`chat_messages`、`fenny_blotter`）；新增依赖 numpy/scipy/python-multipart（后端）、react-markdown/remark-gfm/plotly（前端）。全量已测（后端 49 tests + fenny 206 + ruff clean + docker build + live headless 验证）。
 
@@ -310,7 +310,7 @@ Week 4:  [P1-3 ─ P1-4] 完成 P1
 - ✅ **可规则化的 LLM-output 纠错优先上升为 source 不变量，而非堆 hand-patch 表**：route↔theme 归属由 code-as-truth `registry.ROUTE_THEMES`（33 路线各声明其 home theme(s)）声明，`ontology_enrich._valid()` 在富化源头丢弃 home theme 与公司 theme 集**零交集**的越域路线（如芯片公司被打上航天推进路线），把"供应商↔路线混淆"这一可规则类别从事后 `_CORRECTIONS` 提升为不变量——重跑富化不再重生该错误类（仅守未来富化，非回溯改写；permissive：仅零交集才丢，如 `tr_cv` 对 ai_software/humanoid/ai_chip 均合法）（见 ADR：route-theme-invariant、Appendix H.5）。
 - ✅ Exploration 保持"方向性而非交易"：不写 `kg_events`、不进 signals、不触报告流水线。
 - ❌ **Fenny 不 fork-and-rewrite、不双向耦合**；✅ **vendor + mount，先挂后并**（`src/fcn` 原样 vendored + 子应用挂 `/api/fenny`），依赖单向 `xar → fcn`（`fcn` 从不 import `xar`），blotter/LLM 经注入点（`blotter_factory`/`route_via_xar`）改道，upstream re-sync 保持机械化（见 ADR：vendor-mount-merge-later、`FENNY_UPSTREAM.md`）。
-- ❌ **Andy 不另起后端、不走 HTTP 回环**；✅ 在进程内直调仪表盘同源函数（`andy/tools.py` code-as-truth 注册表），复用任务管理器的流式/fallback/计费（`TaskClass.CHAT`），≤8 迭代工具循环封顶。
+- ❌ **Chathy 不另起后端、不走 HTTP 回环**；✅ 在进程内直调仪表盘同源函数（`chathy/tools.py` code-as-truth 注册表），复用任务管理器的流式/fallback/计费（`TaskClass.CHAT`），≤8 迭代工具循环封顶。
 - ❌ **不为 Fenny 把 plotly 打进主 bundle**；✅ plotly 隔离在 lazy `/fenny` chunk，主 bundle 保持精简。
 - ✅ **暗色主题走 CSS 变量单一 token 源**（`theme.css` 的 `--c-*` 经 `rgb(var(--c-*))` 供 tailwind 消费），不散落硬编码色值、不引第二套主题机制。
 - ✅ 每个新功能过"垂直知识更准 / 信任纪律更硬"双门槛；交付走"独立 agent 审计"（本轮语义 DB + 日度 ingest 经多个独立 multi-agent 审计 + xhigh code-review，P0/P1 发现已修复）。
@@ -322,9 +322,9 @@ Week 4:  [P1-3 ─ P1-4] 完成 P1
 | 决策 | 选择 | 理由 |
 |---|---|---|
 | 部署形态 | 自用 / 单团队 | 多租户/RBAC/RLS 不计划；零鉴权降级为文档+可选 token |
-| 顶层模块 | 三模块并列：投研主轴 + Operations Console `/ops` + Exploration `/explore`；投研主轴前端再拆为 Andy `/` + Genny `/genny` 两 shell（原 Research Portal `/` → Genny `/genny`） | 三者复用同一 PG/LLM/embeddings 栈，分立 shell |
-| 前端三模块 | **同一 React SPA 拆为 Andy `/` + Genny `/genny` + Fenny `/fenny` 三并列 shell + 共享 ModuleNav，全部坐既有数据+本体底座** | 前端边界，无平行后端；schema 全加列/加表 additive/幂等（documents.theme/segment、chat_sessions/messages、fenny_blotter） |
-| Andy（对话分析师） | **工具调用 agent，进程内直调仪表盘同源函数（无 HTTP 回环）** | code-as-truth 工具注册表 `andy/tools.py`；复用任务管理器流式/fallback/计费（新 `TaskClass.CHAT`→STRONG token）；≤8 迭代工具循环；会话落 Postgres |
+| 顶层模块 | 三模块并列：投研主轴 + Operations Console `/ops` + Exploration `/explore`；投研主轴前端再拆为 Chathy `/` + Genny `/genny` 两 shell（原 Research Portal `/` → Genny `/genny`） | 三者复用同一 PG/LLM/embeddings 栈，分立 shell |
+| 前端三模块 | **同一 React SPA 拆为 Chathy `/` + Genny `/genny` + Fenny `/fenny` 三并列 shell + 共享 ModuleNav，全部坐既有数据+本体底座** | 前端边界，无平行后端；schema 全加列/加表 additive/幂等（documents.theme/segment、chat_sessions/messages、fenny_blotter） |
+| Chathy（对话分析师） | **工具调用 agent，进程内直调仪表盘同源函数（无 HTTP 回环）** | code-as-truth 工具注册表 `chathy/tools.py`；复用任务管理器流式/fallback/计费（新 `TaskClass.CHAT`→STRONG token）；≤8 迭代工具循环；会话落 Postgres |
 | Fenny 集成 | **vendor + mount，先挂后并**（`src/fcn` 原样 vendored + 子应用挂 `/api/fenny`，非 fork-rewrite） | 依赖单向 `xar → fcn`（fcn 从不 import xar，保持独立可运行、re-sync 机械化）；LLM 经 `route_via_xar` 走任务管理器、blotter 经 `blotter_factory` 迁 `fenny_blotter` 表；plotly 隔离在 lazy `/fenny` chunk 保主 bundle 精简 |
 | 前端主题 | **暗色金融终端：单一 CSS 变量 token 源 `theme.css`（`--c-*`）经 `rgb(var(--c-*))` 供 tailwind 消费** | Bloomberg 风、amber accent、dark-only；不散落硬编码色值、不引第二套主题机制 |
 | Exploration 模块 | **转正为正式第三支柱（撤销上版"冻结"）** | 复用既有栈、姿态清晰（方向性非交易）、有独立 API/CLI/schema/UI、经独立 agent 审计 PASS |
