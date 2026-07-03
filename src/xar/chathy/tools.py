@@ -89,8 +89,23 @@ def _macro_indicators(theme: str | None = None, metric_key: str | None = None,
         return out if out is not None else {"error": f"no crosswalk entry for {metric_key}"}
     if theme:
         out = andy_links.link_theme(theme, as_of)
-        return out if out is not None else {"error": f"unknown theme {theme}"}
-    return andy_links.link_themes()
+        if out is None:
+            return {"error": f"unknown theme {theme}"}
+        # compact for the tool channel (8k truncation): drop series, keep the reading +
+        # the watermark line (soft ⇒ 未识别·勿作因果 must reach the model verbatim).
+        for m in out["metrics"]:
+            m.pop("series", None)
+            ident = m.pop("identification", None) or {}
+            m["identification_status"] = ident.get("identification_status")
+            m["watermark"] = ident.get("watermark")
+        return out
+    full = andy_links.link_themes()
+    return {"themes": [{
+        "theme": t["theme"], "name_cn": t["name_cn"], "kind": t["kind"],
+        "metric_keys": [m["metric_key"] for m in t["metrics"]],
+        "overclaims": t["overclaims"],
+    } for t in full["themes"]],
+        "platform_metric_keys": [m["metric_key"] for m in full["platform_metrics"]]}
 
 
 TOOLS: list[ToolSpec] = [
@@ -195,5 +210,24 @@ def execute(name: str, args: dict) -> str:
         return json.dumps({"error": f"{type(e).__name__}: {e}"})
     out = json.dumps(result, ensure_ascii=False, default=str)
     if len(out) > _MAX_RESULT_CHARS:
-        out = out[:_MAX_RESULT_CHARS] + f'… [truncated, {len(out)} chars total]'
+        # Degrade list payloads by dropping tail items so the result STAYS valid JSON
+        # (a blind slice leaves an unterminated string the model then misreads).
+        trimmed = result
+        while True:
+            lists = [v for v in (trimmed.values() if isinstance(trimmed, dict) else [trimmed])
+                     if isinstance(v, list) and v]
+            longest = max(lists, key=len, default=None)
+            if longest is None or len(longest) <= 1:
+                break
+            del longest[len(longest) // 2:]
+            out = json.dumps(trimmed, ensure_ascii=False, default=str)
+            if len(out) <= _MAX_RESULT_CHARS - 60:
+                break
+        if len(out) > _MAX_RESULT_CHARS:
+            out = json.dumps({"error": "result too large", "chars": len(out)})
+        else:
+            trimmed_note = json.loads(out)
+            if isinstance(trimmed_note, dict):
+                trimmed_note["_truncated"] = "list tails dropped to fit the tool budget"
+                out = json.dumps(trimmed_note, ensure_ascii=False, default=str)
     return out
