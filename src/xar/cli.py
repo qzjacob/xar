@@ -334,13 +334,29 @@ def andy_identify(as_of: str = typer.Option(None, help="ISO date; default today"
 
 
 @andy_app.command("evaluate")
-def andy_evaluate(as_of: str = typer.Option(None, help="ISO date; default today")) -> None:
-    """Evaluate the 9 overclaim-registry claims at as_of (writes eval log + status)."""
+def andy_evaluate(as_of: str = typer.Option(None, help="ISO date; default today"),
+                  sync: bool = typer.Option(True, help="then emit 勾稽 events into kg_events")) -> None:
+    """Evaluate the 9 overclaim-registry claims at as_of (writes eval log + status),
+    then sync macro prints + verdict transitions into the semantic stream."""
     from slx.engine import overclaim
 
     _bridge_slx_env()
     for claim_key, verdict in overclaim.run(_parse_as_of(as_of)):
         print(f"  {claim_key}: {verdict}")
+    if sync:
+        from .ingestion import macro_bridge
+
+        print(json.dumps(macro_bridge.sync(_parse_as_of(as_of)), ensure_ascii=False))
+
+
+@andy_app.command("sync-events")
+def andy_sync_events(as_of: str = typer.Option(None, help="ISO date; default today")) -> None:
+    """勾稽数据层同步：宏观印字 + 登记簿判定跃迁 → kg_events(macro_print) → semantic_facts。
+    Idempotent (dedup_key)."""
+    from .ingestion import macro_bridge
+
+    _bridge_slx_env()
+    print(json.dumps(macro_bridge.sync(_parse_as_of(as_of)), ensure_ascii=False, indent=2))
 
 
 @andy_app.command("status")

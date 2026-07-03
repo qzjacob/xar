@@ -81,6 +81,18 @@ def _graph(fn_name: str):
     return call
 
 
+def _macro_indicators(theme: str | None = None, metric_key: str | None = None,
+                      as_of: str | None = None) -> dict:
+    from ..api import andy_links
+    if metric_key:
+        out = andy_links.link_metric(metric_key)
+        return out if out is not None else {"error": f"no crosswalk entry for {metric_key}"}
+    if theme:
+        out = andy_links.link_theme(theme, as_of)
+        return out if out is not None else {"error": f"unknown theme {theme}"}
+    return andy_links.link_themes()
+
+
 TOOLS: list[ToolSpec] = [
     ToolSpec("find_company", "Resolve a company name or ticker to its platform id + basic profile.",
              _obj({"query": {"type": "string", "description": "company name or ticker"}}, ["query"]),
@@ -142,6 +154,18 @@ TOOLS: list[ToolSpec] = [
              _obj({"theme": _THEME, "segment": {"type": "string"},
                    "company_id": _CID, "q": {"type": "string", "description": "title contains"}}),
              lambda **kw: __import__("xar.api.dataroom", fromlist=["list_docs"]).list_docs(**kw)),
+    ToolSpec("macro_indicators",
+             "XAR Andy macro module (siliconomics 宏观指标库). Modes: theme → the macro panel "
+             "cross-linked (勾稽) to one industry chain, with point-in-time readings at as_of "
+             "(look-ahead-safe) + overclaim-claim statuses; metric → reverse crosswalk for one "
+             "metric_key (linked themes/segments/tech-routes/companies + rationale); omit both → "
+             "the full 8-theme crosswalk matrix. ALWAYS quote the identification watermark: soft "
+             "metrics are 未识别 (unidentified) — never present them as causal facts.",
+             _obj({"theme": _THEME,
+                   "metric_key": {"type": "string",
+                                  "description": "a siliconomics metric_key, e.g. 'capex.hyperscaler_capex'"},
+                   "as_of": {"type": "string", "description": "ISO date look-ahead boundary; default today"}}),
+             _macro_indicators),
 ]
 # Phase 3 appends `dataroom_docs`; Fenny pricing (`fenny_quote`) and `start_report` are
 # later additions — same ToolSpec pattern.

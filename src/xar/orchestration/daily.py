@@ -107,6 +107,9 @@ def _run_source(src: str, ids: list[str], since) -> dict:
                 log.warning("macro connector %s: %s", source_id, e)
         run_identification(date.today())
         overclaim.run(date.today())
+        from ..ingestion import macro_bridge
+
+        macro_bridge.sync(date.today())   # 勾稽：印字+判定跃迁 → semantic_facts
     else:
         return {"skipped": f"unknown source {src}"}
     return {"pulled": pulled}

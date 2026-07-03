@@ -566,6 +566,39 @@ except Exception as e:  # noqa: BLE001
     log.warning("fenny module not mounted: %s", e)
 
 
+# Andy 勾稽 (crosswalk) — XAR-native macro ↔ industry-chain fusion routes. These are
+# registered BEFORE the /api/andy mount below so they shadow it for their exact paths
+# (Starlette matches in registration order); do not move them after the mount.
+@app.get("/api/andy/link/themes")
+def andy_link_themes():
+    from . import andy_links
+    return andy_links.link_themes()
+
+
+@app.get("/api/andy/link/theme/{theme}")
+def andy_link_theme(theme: str, as_of: str | None = None):
+    from . import andy_links
+    out = andy_links.link_theme(theme, as_of)
+    if out is None:
+        raise HTTPException(status_code=404, detail=f"unknown theme {theme}")
+    return out
+
+
+@app.get("/api/andy/link/metric/{metric_key}")
+def andy_link_metric(metric_key: str):
+    from . import andy_links
+    out = andy_links.link_metric(metric_key)
+    if out is None:
+        raise HTTPException(status_code=404, detail=f"metric {metric_key} has no crosswalk entry")
+    return out
+
+
+@app.post("/api/andy/link/sync-events")
+def andy_link_sync_events(as_of: str | None = None):
+    from . import andy_links
+    return andy_links.sync_events(as_of)
+
+
 # Andy (siliconomics macro-indicator platform) — vendored sub-app mounted under /api/andy.
 # XAR-native 勾稽 routes (/api/andy/link/*) are @app.get-registered above and shadow the
 # mount for their exact paths; everything else under /api/andy/* falls through to the slx
