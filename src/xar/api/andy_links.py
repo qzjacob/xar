@@ -236,5 +236,73 @@ def sync_events(as_of: str | None = None) -> dict:
     return macro_bridge.sync(date.fromisoformat(as_of) if as_of else None)
 
 
+# ── 数据源状态(XAR 原生;不改动 vendored slx)────────────────────────────────
+# 连接器 → 所需 key 的 env 名(布尔展示,绝不回传值)。None = 零 key 可跑。
+_SOURCE_KEY_ENV: dict[str, str | None] = {
+    "fred": "FRED_API_KEY", "bea": "BEA_API_KEY", "eia": "EIA_API_KEY",
+    "ember": "EIA_API_KEY", "iea": "EIA_API_KEY",
+    "acled": "ACLED_API_KEY", "ticketmaster": "TICKETMASTER_API_KEY",
+    "sec_edgar": None, "epoch_ai": None, "fhfa": None, "lbnl": None,
+    "indeed_hiring_lab": None, "bls": None, "stooq": None, "oecd_tax": None,
+    "oecd_ai": None, "doj_ftc": None, "vdem": None, "tsmc": None,
+    "cleveland_fed": None, "seed": None, "identification": None,
+}
+
+
+def sources_status() -> dict:
+    """Andy 数据源面板:每连接器最近运行 + 每指标观测新鲜度 + key 就绪(仅布尔)。"""
+    import os
+
+    from slx.db import connect
+    from slx.ingestion.discovery import discover_connectors
+
+    with connect() as conn:
+        last_runs = {r[0]: {"status": r[1], "started_at": str(r[2]),
+                            "finished_at": str(r[3]) if r[3] else None,
+                            "rows_written": r[4], "error": (r[5] or "")[:200]}
+                     for r in conn.execute(
+                         "SELECT DISTINCT ON (source_id) source_id, status, started_at, "
+                         "finished_at, rows_written, error FROM audit_log "
+                         "ORDER BY source_id, started_at DESC").fetchall()}
+        obs_by_source = dict(conn.execute(
+            "SELECT source_id, count(*) FROM observation GROUP BY 1").fetchall())
+        metric_sources: dict[str, list[str]] = {}
+        for mk, sid in conn.execute(
+                "SELECT DISTINCT metric_key, source_id FROM metric_source").fetchall():
+            metric_sources.setdefault(sid, []).append(mk)
+        freshness = [{
+            "metric_key": r[0], "display_name_zh": r[1], "hardness": r[2],
+            "observations": int(r[3] or 0),
+            "latest_valid_time": str(r[4]) if r[4] else None,
+            "latest_knowledge_time": str(r[5]) if r[5] else None,
+        } for r in conn.execute(
+            "SELECT m.metric_key, m.display_name_zh, m.hardness, count(o.value), "
+            "max(o.valid_time)::date, max(o.knowledge_time)::date "
+            "FROM metric_registry m LEFT JOIN observation o USING (metric_key) "
+            "WHERE m.is_quantifiable GROUP BY 1,2,3 ORDER BY count(o.value) DESC, m.metric_key"
+        ).fetchall()]
+
+    connectors = []
+    for sid, (_cls, is_primary) in sorted(discover_connectors().items()):
+        key_env = _SOURCE_KEY_ENV.get(sid)
+        connectors.append({
+            "source_id": sid, "is_primary": is_primary,
+            "key_env": key_env, "key_present": bool(os.environ.get(key_env)) if key_env else True,
+            "last_run": last_runs.get(sid),
+            "observations": int(obs_by_source.get(sid, 0)),
+            "metrics": sorted(metric_sources.get(sid, [])),
+        })
+    # audit_log 里可能有发现表之外的源(seed/identification 派生)
+    for sid in sorted(set(last_runs) | set(obs_by_source)):
+        if not any(c["source_id"] == sid for c in connectors):
+            connectors.append({
+                "source_id": sid, "is_primary": True, "key_env": None, "key_present": True,
+                "last_run": last_runs.get(sid),
+                "observations": int(obs_by_source.get(sid, 0)),
+                "metrics": sorted(metric_sources.get(sid, [])),
+            })
+    return {"connectors": connectors, "metrics_freshness": freshness}
+
+
 __all__ = ["link_themes", "link_theme", "link_metric", "sync_events",
            "MACRO_LINKS", "OVERCLAIM_LINKS"]

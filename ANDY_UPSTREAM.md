@@ -50,17 +50,25 @@ provenance labels, kept byte-identical to upstream.
 
 ## Local modifications (kept current)
 
-1. **`src/slx/db.py`** — rewritten (~25 lines): drops dotenv; DSN from
+1. **`src/slx/db.py`** — rewritten (~30 lines): drops dotenv; DSN from
    `SLX_DATABASE_URL` (fallback `DATABASE_URL`), bridged by `xar.api.andy_mount`
-   from XAR settings; every connection pins `search_path=slx,public` so **all slx
-   objects live in the dedicated Postgres schema `slx`** inside XAR's shared DB
-   (generic names like `observation`/`audit_log` cannot collide); adds
-   `init_schema()` (CREATE SCHEMA + idempotent schema.sql).
+   from XAR settings; every connection pins `search_path={SLX_SCHEMA},public`
+   (default `slx`) so **all slx objects live in a dedicated Postgres schema**
+   inside XAR's shared DB (generic names like `observation`/`audit_log` cannot
+   collide); adds `init_schema()` (CREATE SCHEMA + idempotent schema.sql).
+   `tests/andy/conftest.py` sets `SLX_SCHEMA=slx_test` so the vendored tests run
+   in a pristine sandbox — real connector data in `slx` never breaks their
+   seed-only PIT assertions.
 2. **`src/slx/schema.sql`** — de-TimescaleDB'd: `CREATE EXTENSION timescaledb` and the
    `create_hypertable('observation', …)` call removed (kept as comments). XAR's shared
    Postgres runs pgvector/pg_trgm only; at 43-metric cardinality the plain table +
    `idx_obs_pit` covers all point-in-time queries.
-3. **`tests/andy/conftest.py`** — `REG` resolves via the `slx` package; DSN bridged from
+3. **`src/slx/ingestion/connectors/epoch_ai.py`** — one line: the upstream
+   `_INFERENCE_PRICE_URL = None` TODO is completed as an env override
+   (`SILICON_INFERENCE_PRICE_CSV_URL`); the documented field assumptions and the
+   parse skeleton are unchanged, so the connector activates the moment a CSV link
+   is supplied and stays a graceful no-op otherwise.
+4. **`tests/andy/conftest.py`** — `REG` resolves via the `slx` package; DSN bridged from
    `xar.config` when `SLX_DATABASE_URL`/`DATABASE_URL` are unset; the `seeded` session
    fixture runs `slx.db.init_schema()` first (upstream relied on docker initdb).
 

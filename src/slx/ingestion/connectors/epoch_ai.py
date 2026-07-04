@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import csv
 import io
+import os
 from collections import defaultdict
 from datetime import date, datetime, timezone
 
@@ -34,7 +35,9 @@ from slx.ingestion.base import Connector
 _NOTABLE_URL = "https://epoch.ai/data/notable_ai_models.csv"
 _CLUSTERS_URL = "https://epoch.ai/data/gpu_clusters.csv"
 # 推理价格：Epoch 以 data-insights 页面呈现，无稳定 CSV 直链。占位常量，便于将来替换。
-_INFERENCE_PRICE_URL = None  # TODO: 接入 Epoch llm-inference-price 数据集稳定直链后填入
+# [XAR vendor local-mod] env 驱动接线:Epoch 无稳定直链;提供任何符合字段假设
+# (date, price_usd_per_mtok/…usd…) 的 CSV 直链即启用(见 ANDY_UPSTREAM.md)。
+_INFERENCE_PRICE_URL = os.environ.get("SILICON_INFERENCE_PRICE_CSV_URL") or None
 
 _US_NAMES = {"United States of America", "United States", "USA", "US"}
 

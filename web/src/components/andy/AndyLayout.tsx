@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo } from "react";
-import { Activity, ArrowLeft, BrickWall, Gauge, Scale, Table2, type LucideIcon } from "lucide-react";
+import { Activity, ArrowLeft, BrickWall, Database, Gauge, Scale, Table2, type LucideIcon } from "lucide-react";
 import { Link, Outlet, useLocation, useSearchParams } from "react-router-dom";
 import { ModuleNav } from "../ModuleNav";
 import { cn } from "../../lib/format";
@@ -34,6 +34,7 @@ const NAV: { to: string; label: string; cn: string; icon: LucideIcon; exact?: bo
   { to: "/andy/metrics", label: "Metrics", cn: "指标库", icon: Table2 },
   { to: "/andy/overclaims", label: "Overclaims", cn: "过度宣称登记簿", icon: Scale },
   { to: "/andy/walls", label: "Walls", cn: "承重墙", icon: BrickWall },
+  { to: "/andy/sources", label: "Sources", cn: "数据源", icon: Database },
 ];
 
 export function AndyLayout() {

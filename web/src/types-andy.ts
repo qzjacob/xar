@@ -135,6 +135,40 @@ export interface AndyEvaluateResult {
   disclaimer: string;
 }
 
+// --- data sources — /api/andy/sources -----------------------------------------
+export interface AndyConnectorRun {
+  status: "ok" | "error" | "running";
+  started_at: string;
+  finished_at: string | null;
+  rows_written: number | null;
+  error: string;
+}
+
+export interface AndyConnector {
+  source_id: string;
+  is_primary: boolean;
+  /** Env var holding the API key; null = keyless connector (零key). */
+  key_env: string | null;
+  key_present: boolean;
+  last_run: AndyConnectorRun | null;
+  observations: number;
+  metrics: string[];
+}
+
+export interface AndyMetricFreshness {
+  metric_key: string;
+  display_name_zh: string;
+  hardness: Hardness;
+  observations: number;
+  latest_valid_time: string | null;
+  latest_knowledge_time: string | null;
+}
+
+export interface AndySourcesResponse {
+  connectors: AndyConnector[];
+  metrics_freshness: AndyMetricFreshness[];
+}
+
 // --- XAR-native 勾稽 (crosswalk) contract — /api/andy/link/* ------------------
 export interface LinkMetric {
   metric_key: string;

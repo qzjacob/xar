@@ -8,6 +8,7 @@ import type {
   AndyEvaluateResult,
   AndyMetricReading,
   AndyMetricsList,
+  AndySourcesResponse,
   LinkMetricDetail,
   LinkThemeResponse,
   LinkThemesResponse,
@@ -47,6 +48,7 @@ export const andy = {
       `/api/andy/metrics/${encodeURIComponent(key)}${q({ as_of: asOf, n_points: nPoints })}`,
     ),
   anchors: () => get<AndyAnchorsList>("/api/andy/registry/anchors"),
+  sources: () => get<AndySourcesResponse>("/api/andy/sources"),
   overclaims: (logLimit = 5) => get<AndyClaimsList>(`/api/andy/overclaims${q({ log_limit: logLimit })}`),
   evaluate: (asOf: string) => post<AndyEvaluateResult>(`/api/andy/overclaims/evaluate${q({ as_of: asOf })}`),
   // 勾稽 crosswalk (frozen contract; may 404 until the backend lands)

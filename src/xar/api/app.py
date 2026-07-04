@@ -620,6 +620,13 @@ def andy_link_sync_events(as_of: str | None = None):
     return andy_links.sync_events(as_of)
 
 
+@app.get("/api/andy/sources")
+def andy_sources():
+    """数据源面板:连接器运行状态 + key 就绪(布尔) + 指标观测新鲜度。"""
+    from . import andy_links
+    return andy_links.sources_status()
+
+
 # Andy (siliconomics macro-indicator platform) — vendored sub-app mounted under /api/andy.
 # XAR-native 勾稽 routes (/api/andy/link/*) are @app.get-registered above and shadow the
 # mount for their exact paths; everything else under /api/andy/* falls through to the slx

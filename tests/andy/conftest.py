@@ -24,6 +24,10 @@ if not os.environ.get("SLX_DATABASE_URL") and not os.environ.get("DATABASE_URL")
     except Exception:
         pass
 
+# 测试沙箱：vendored 测试断言 seed 数据独占指标(如 labor_share 的 0.582/0.575 双 vintage);
+# 真实 ALFRED 等数据落入生产 schema `slx` 后会叠加同键。跑测试固定用独立 `slx_test`。
+os.environ["SLX_SCHEMA"] = "slx_test"
+
 
 def _db_available() -> bool:
     try:
