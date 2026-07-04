@@ -237,11 +237,14 @@ def sync_events(as_of: str | None = None) -> dict:
 
 
 # ── 数据源状态(XAR 原生;不改动 vendored slx)────────────────────────────────
-# 连接器 → 所需 key 的 env 名(布尔展示,绝不回传值)。None = 零 key 可跑。
-_SOURCE_KEY_ENV: dict[str, str | None] = {
-    "fred": "FRED_API_KEY", "bea": "BEA_API_KEY", "eia": "EIA_API_KEY",
-    "ember": "EIA_API_KEY", "iea": "EIA_API_KEY",
-    "acled": "ACLED_API_KEY", "ticketmaster": "TICKETMASTER_API_KEY",
+# 连接器 → 所需 key 的 env 名元组(布尔展示,绝不回传值)。None = 零 key 可跑。
+# 注意与 slx 连接器的实际 gate 对齐:ember 源 gate 在 EMBER_API_KEY(非 EIA),
+# acled 需要 KEY+EMAIL 两者(iea_eia_ember.py / acled.py)。
+_SOURCE_KEY_ENV: dict[str, tuple[str, ...] | None] = {
+    "fred": ("FRED_API_KEY",), "bea": ("BEA_API_KEY",), "eia": ("EIA_API_KEY",),
+    "ember": ("EMBER_API_KEY",), "iea": ("EIA_API_KEY",),
+    "acled": ("ACLED_API_KEY", "ACLED_EMAIL"),
+    "ticketmaster": ("TICKETMASTER_API_KEY",),
     "sec_edgar": None, "epoch_ai": None, "fhfa": None, "lbnl": None,
     "indeed_hiring_lab": None, "bls": None, "stooq": None, "oecd_tax": None,
     "oecd_ai": None, "doj_ftc": None, "vdem": None, "tsmc": None,
@@ -284,10 +287,11 @@ def sources_status() -> dict:
 
     connectors = []
     for sid, (_cls, is_primary) in sorted(discover_connectors().items()):
-        key_env = _SOURCE_KEY_ENV.get(sid)
+        envs = _SOURCE_KEY_ENV.get(sid)
         connectors.append({
             "source_id": sid, "is_primary": is_primary,
-            "key_env": key_env, "key_present": bool(os.environ.get(key_env)) if key_env else True,
+            "key_env": "+".join(envs) if envs else None,
+            "key_present": all(os.environ.get(x) for x in envs) if envs else True,
             "last_run": last_runs.get(sid),
             "observations": int(obs_by_source.get(sid, 0)),
             "metrics": sorted(metric_sources.get(sid, [])),

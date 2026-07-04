@@ -22,8 +22,12 @@ def database_url() -> str:
 
 def schema_name() -> str:
     """专用 schema 名;默认 slx。测试夹具设 SLX_SCHEMA=slx_test 获得与真实数据
-    完全隔离的干净沙箱(vendored 测试假设自己独占指标观测)。"""
-    return os.environ.get("SLX_SCHEMA", "slx")
+    完全隔离的干净沙箱。值会被 f-string 进 DDL/search_path,必须是合法 SQL 标识符
+    —— 非法值(注入/笔误)一律回落 'slx'。"""
+    import re
+
+    name = os.environ.get("SLX_SCHEMA", "slx")
+    return name if re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", name) else "slx"
 
 
 def connect():

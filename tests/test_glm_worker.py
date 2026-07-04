@@ -29,6 +29,8 @@ def test_glm52_leads_subscription_chains():
 
 
 def test_is_quota_error_patterns():
+    from xar.models.llm import BudgetExceeded
+
     assert gw.is_quota_error(RuntimeError("余额不足或无可用资源包,请充值。"))
     assert gw.is_quota_error(RuntimeError("Rate limit exceeded: 429"))
 
@@ -37,6 +39,10 @@ def test_is_quota_error_patterns():
 
     assert gw.is_quota_error(RateLimitError("anything"))
     assert not gw.is_quota_error(RuntimeError("connection reset by peer"))
+    # 审核修复钉住:预算帽与超长上下文不是订阅额度耗尽
+    assert not gw.is_quota_error(BudgetExceeded("run kg-abc exceeded $20.0"))
+    assert not gw.is_quota_error(RuntimeError(
+        "litellm.ContextWindowExceededError: prompt is too long"))
 
 
 @pytest.fixture
@@ -66,10 +72,17 @@ def test_exhaust_resume_state_machine(state_db):
 
 def test_cadence_gate(state_db):
     assert gw._due("unit_test_key", 3600) is True
-    assert gw._due("unit_test_key", 3600) is False   # 未到节拍
+    assert gw._due("unit_test_key", 3600) is True    # 只读:未 stamp 前保持 due
+    gw._stamp("unit_test_key", 3600, ok=True)
+    assert gw._due("unit_test_key", 3600) is False   # 成功后满间隔
+    gw._stamp("unit_test_key2", 3600, ok=False)      # 失败:1/4 间隔后重试
+    assert gw._due("unit_test_key2", 3600) is False
+    assert gw._due("unit_test_key2", 800) is True
 
 
-def test_run_once_quota_out_skips_llm_but_does_other_work(state_db, monkeypatch):
+def test_run_once_exhausted_probes_and_skips(state_db, monkeypatch):
+    gw.save_state("quota", {"status": "exhausted", "exhaust_count": 1})
+    monkeypatch.setattr(gw, "_sub_ready", lambda: True)
     monkeypatch.setattr(gw, "probe", lambda: False)
     monkeypatch.setattr(gw, "_pull_fresh", lambda: {"stub": True})
     monkeypatch.setattr(gw, "_backfill", lambda units: {"done_units": units})
@@ -80,8 +93,23 @@ def test_run_once_quota_out_skips_llm_but_does_other_work(state_db, monkeypatch)
     assert gw.get_state("quota")["status"] == "exhausted"
 
 
+def test_run_once_ok_extracts_without_probe(state_db, monkeypatch):
+    """ok 态零探针开销(审核修复):直接抽取,probe 不得被调用。"""
+    gw.save_state("quota", {"status": "ok"})
+    monkeypatch.setattr(gw, "_sub_ready", lambda: True)
+    monkeypatch.setattr(gw, "probe",
+                        lambda: (_ for _ in ()).throw(AssertionError("probe must not run")))
+    monkeypatch.setattr(gw, "_pull_fresh", lambda: {})
+    monkeypatch.setattr(gw, "_backfill", lambda units: {})
+    monkeypatch.setattr(gw, "_llm_stage",
+                        lambda batch, q: ({"kg": {"docs": 2}}, q))
+    out = gw.run_once(batch_docs=5, backfill_units=0)
+    assert out["extract"]["kg"]["docs"] == 2
+
+
 def test_run_once_recovery_resumes_extraction(state_db, monkeypatch):
     gw.save_state("quota", {"status": "exhausted", "exhaust_count": 1})
+    monkeypatch.setattr(gw, "_sub_ready", lambda: True)
     monkeypatch.setattr(gw, "probe", lambda: True)
     monkeypatch.setattr(gw, "_pull_fresh", lambda: {})
     monkeypatch.setattr(gw, "_backfill", lambda units: {})
@@ -92,3 +120,14 @@ def test_run_once_recovery_resumes_extraction(state_db, monkeypatch):
     assert out["extract"]["kg"]["docs"] == 3
     q = gw.get_state("quota")
     assert q["status"] == "ok" and q["resume_count"] == 1
+
+
+def test_run_once_refuses_metered_fallback(state_db, monkeypatch):
+    """订阅 key 缺位时拒绝抽取(零账单保证),而非静默落到按 token 计费。"""
+    monkeypatch.setattr(gw, "_sub_ready", lambda: False)
+    monkeypatch.setattr(gw, "_pull_fresh", lambda: {})
+    monkeypatch.setattr(gw, "_backfill", lambda units: {})
+    monkeypatch.setattr(gw, "_llm_stage",
+                        lambda batch, q: (_ for _ in ()).throw(AssertionError("must not extract")))
+    out = gw.run_once(batch_docs=1, backfill_units=0)
+    assert "GLM_SUB_API_KEY" in out["extract"]["skipped"]

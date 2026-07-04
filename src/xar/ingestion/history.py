@@ -27,11 +27,9 @@ import inspect
 import time
 from datetime import date, datetime, timedelta, timezone
 
-from psycopg.types.json import Json
 
 from ..config import get_settings
 from ..logging import get_logger
-from ..storage import db
 from .base import Doc, polite, save
 from .edgar import _filing_text, _parse_date, _ticker
 from .registry import COMPANIES, company_by_id
@@ -39,9 +37,13 @@ from .registry import COMPANIES, company_by_id
 log = get_logger("xar.ingest.history")
 
 CURSOR_KEY = "history_cursor"
-START_YEAR = 2026  # newest year walked first ...
-END_YEAR = 2016  # ... back to here (inclusive): the 10-year window
-YEARS: tuple[int, ...] = tuple(range(START_YEAR, END_YEAR - 1, -1))
+def _start_year() -> int:
+    return datetime.now(timezone.utc).year   # newest year walked first(随时间推移自动前滚)
+
+
+def _years() -> tuple[int, ...]:
+    y = _start_year()
+    return tuple(range(y, y - 11, -1))       # 10-year window inclusive
 PHASES: tuple[str, ...] = ("us", "cn")
 
 EDGAR_FORMS = ["10-K", "10-Q", "8-K", "20-F"]
@@ -51,35 +53,22 @@ FINNHUB_EMPTY_STOP = 2  # consecutive empty months that end a company's walk
 CNINFO_YEAR_CAP = 120  # max announcements per (company, year) window
 CNINFO_MAX_DEPTH = 200  # one-shot depth when akshare has no date windows
 
-_STATE_DDL = """\
-CREATE TABLE IF NOT EXISTS glm_worker_state (
-    key        TEXT PRIMARY KEY,
-    value      JSONB NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-)"""
-
-
-# --- cursor persistence (glm_worker_state key='history_cursor') --------------
-def _ensure_state_table() -> None:
-    db.execute(_STATE_DDL)  # defensive: idempotent, same style as schema.sql
-
-
+# --- cursor persistence (shared storage.kvstate, key='history_cursor') -------
 def _load_cursor() -> dict | None:
-    _ensure_state_table()
-    rows = db.query("SELECT value FROM glm_worker_state WHERE key=%s", (CURSOR_KEY,))
-    return rows[0]["value"] if rows else None
+    from ..storage.kvstate import get_state
+
+    v = get_state(CURSOR_KEY, default={})
+    return v or None
 
 
 def _save_cursor(cursor: dict) -> None:
-    db.execute(
-        """INSERT INTO glm_worker_state (key, value, updated_at) VALUES (%s, %s, now())
-           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()""",
-        (CURSOR_KEY, Json(cursor)),
-    )
+    from ..storage.kvstate import save_state
+
+    save_state(CURSOR_KEY, cursor)
 
 
 def _new_cursor() -> dict:
-    return {"phase_idx": 0, "company_idx": 0, "year": START_YEAR,
+    return {"phase_idx": 0, "company_idx": 0, "year": _start_year(),
             "totals": {"docs": 0, "units": 0},
             "started_at": datetime.now(timezone.utc).isoformat(),
             "finished": False}
@@ -95,7 +84,7 @@ def _phase_companies(phase: str) -> list[dict]:
 
 def _year_seq(phase: str) -> tuple[int | None, ...]:
     """Per-company unit sequence for a phase. `None` = the one finnhub_news unit."""
-    return YEARS + (None,) if phase == "us" else YEARS
+    return _years() + (None,) if phase == "us" else _years()
 
 
 def _unit_for(phase: str, company: dict, year: int | None) -> tuple[str, str, int | None]:
@@ -130,14 +119,23 @@ def _current_unit(cursor: dict) -> tuple[str, str, int | None] | None:
         phase = PHASES[pi]
         companies = _phase_companies(phase)
         ci = cursor["company_idx"]
+        want = cursor.get("company_id")
+        if want and ci < len(companies) and companies[ci]["id"] != want:
+            # 注册表顺序变化:按 id 重新对位;找不到(公司被移除)则保持位置继续
+            for j, c in enumerate(companies):
+                if c["id"] == want:
+                    ci = cursor["company_idx"] = j
+                    break
         if ci >= len(companies):
             cursor["phase_idx"] += 1
             cursor["company_idx"] = 0
-            cursor["year"] = START_YEAR
+            cursor["company_id"] = None
+            cursor["year"] = _start_year()
             continue
         seq = _year_seq(phase)
         if cursor["year"] not in seq:  # stale/corrupt cursor field: restart the company
             cursor["year"] = seq[0]
+        cursor["company_id"] = companies[ci]["id"]
         return _unit_for(phase, companies[ci], cursor["year"])
 
 
@@ -147,13 +145,24 @@ def _advance(cursor: dict, *, skip_company: bool = False) -> None:
     i = seq.index(cursor["year"]) if cursor["year"] in seq else len(seq) - 1
     if skip_company or i + 1 >= len(seq):
         cursor["company_idx"] += 1
-        cursor["year"] = START_YEAR
+        cursor["company_id"] = None      # 下一 _current_unit 重新钉住新公司 id
+        cursor["year"] = _start_year()
     else:
         cursor["year"] = seq[i + 1]
     _current_unit(cursor)  # eagerly normalize over phase boundaries / set finished
 
 
 # --- per-unit pull executors ---------------------------------------------------
+_EDGAR_MEMO: dict = {}   # {ticker: edgar.Company} — size 1:连续年单元同司复用一次索引拉取
+
+
+def _edgar_company(ticker: str, edgar_mod):
+    if ticker not in _EDGAR_MEMO:
+        _EDGAR_MEMO.clear()
+        _EDGAR_MEMO[ticker] = edgar_mod.Company(ticker)
+    return _EDGAR_MEMO[ticker]
+
+
 def _pull_edgar_year(company_id: str, year: int) -> int:
     """One YEAR of EDGAR filings for a US-tickered company (<= EDGAR_YEAR_CAP).
     edgartools >=5.x filters server-side via get_filings(year=...); pre-IPO
@@ -164,7 +173,8 @@ def _pull_edgar_year(company_id: str, year: int) -> int:
     import edgar
 
     edgar.set_identity(get_settings().edgar_identity)
-    filings = edgar.Company(ticker).get_filings(form=EDGAR_FORMS, year=year)
+    company = _edgar_company(ticker, edgar)
+    filings = company.get_filings(form=EDGAR_FORMS, year=year)
     filings = filings.head(EDGAR_YEAR_CAP) if filings is not None else []
     n = 0
     for f in filings:
@@ -266,7 +276,7 @@ def backfill_step(units: int = 4) -> dict:
     stopped. No LLM calls."""
     cursor = _load_cursor() or _new_cursor()
     _current_unit(cursor)  # normalize a stale/legacy cursor position up front
-    done = docs = 0
+    done = docs = consec_fail = 0
     for i in range(max(0, units)):
         unit = _current_unit(cursor)
         if unit is None:
@@ -274,15 +284,35 @@ def backfill_step(units: int = 4) -> dict:
         if i:  # politeness floor between consecutive units within one step
             time.sleep(get_settings().crawl_delay_seconds)
         skip_company = False
+        failed = False
         try:
             pulled, skip_company = _execute(unit)
-        except Exception as e:  # noqa: BLE001 — a bad unit must never stall the walk
+        except Exception as e:  # noqa: BLE001
             pulled = 0
-            log.warning("backfill unit %s failed: %s", unit, e)
+            failed = True
+            log.warning("backfill unit %s failed: %s", unit, str(e)[:200])
+        if failed:
+            consec_fail += 1
+            # 失败不消耗单元:重试一次;第二次仍失败 → 毒单元,记档后跳过
+            retries = cursor.setdefault("unit_retries", {})
+            ukey = f"{unit[0]}:{unit[1]}:{unit[2]}"
+            retries[ukey] = int(retries.get(ukey, 0)) + 1
+            if retries[ukey] >= 2:
+                cursor.setdefault("failed_units", []).append(ukey)
+                retries.pop(ukey, None)
+                _advance(cursor, skip_company=skip_company)
+            _save_cursor(cursor)
+            if consec_fail >= 3:
+                # 连续 3 失败 = 基建/网络级故障:提前收兵,单元留待下轮
+                log.warning("backfill aborting step after %d consecutive failures", consec_fail)
+                break
+            continue
+        consec_fail = 0
         docs += pulled
         done += 1
         cursor["totals"]["docs"] += pulled
         cursor["totals"]["units"] += 1
+        cursor.get("unit_retries", {}).pop(f"{unit[0]}:{unit[1]}:{unit[2]}", None)
         _advance(cursor, skip_company=skip_company)
         _save_cursor(cursor)  # crash-safe: persist after EVERY unit
         log.info("backfill %s -> %d docs (cursor p%s c%s y=%s)", unit, pulled,
@@ -321,5 +351,6 @@ def backfill_status() -> dict:
 def reset_cursor() -> None:
     """Forget all backfill progress; the next backfill_step restarts from the top.
     Already-pulled documents stay put (every save path dedups by content hash)."""
-    _ensure_state_table()
-    db.execute("DELETE FROM glm_worker_state WHERE key=%s", (CURSOR_KEY,))
+    from ..storage.kvstate import delete_state
+
+    delete_state(CURSOR_KEY)

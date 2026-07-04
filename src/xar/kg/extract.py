@@ -227,16 +227,26 @@ def build_kg(limit: int | None = None, run_id: str | None = None) -> dict:
     order = ("CASE source WHEN 'edgar' THEN (CASE WHEN doc_type='8-K' THEN 0 ELSE 2 END) "
              "WHEN 'cninfo' THEN 1 WHEN 'news' THEN 1 WHEN 'wechat' THEN 1 "
              "WHEN 'social' THEN 1 ELSE 3 END")
+    # pending = 未盖戳(kg_extracted_at):每次尝试后盖戳(含零产出与毒文档),
+    # 取代旧的 kg_edges/kg_events 反连接 —— 零产出文档不再被永久重抽。
     sql = f"""SELECT d.id FROM documents d
-              WHERE d.permission <> 'red'
-                AND NOT EXISTS (SELECT 1 FROM kg_edges e WHERE e.source_doc_id=d.id)
-                AND NOT EXISTS (SELECT 1 FROM kg_events v WHERE v.source_doc_id=d.id)
+              WHERE d.permission <> 'red' AND d.kg_extracted_at IS NULL
               ORDER BY {order}, d.published_at DESC NULLS LAST"""
     if limit:
         sql += f" LIMIT {int(limit)}"
     totals = {"docs": 0, "nodes": 0, "edges": 0, "events": 0, "causal_edges": 0, "metrics": 0}
     for row in db.query(sql):
-        r = extract_from_document(row["id"], run_id=run_id)
+        try:
+            r = extract_from_document(row["id"], run_id=run_id)
+        except llm.BudgetExceeded:
+            raise                                  # 预算帽:中止整批(不盖戳,下批续)
+        except Exception as e:  # noqa: BLE001
+            if type(e).__name__ == "RateLimitError":
+                raise                              # 额度耗尽:中止整批,由调用方定性等待
+            # 毒文档(超长/解析异常等确定性失败):盖戳跳过,绝不阻塞队列头
+            log.warning("extract %s failed — stamped & skipped: %s", row["id"], str(e)[:160])
+            r = None
+        db.execute("UPDATE documents SET kg_extracted_at=now() WHERE id=%s", (row["id"],))
         if r:
             totals["docs"] += 1
             for k in ("nodes", "edges", "events", "causal_edges", "metrics"):

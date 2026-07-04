@@ -472,6 +472,18 @@ CREATE INDEX IF NOT EXISTS idx_ingest_runs_started ON ingest_runs(started_at DES
 -- tagged to a theme/segment so a per-sector room can filter them. Additive, same
 -- pattern as the kg_events theme/segment columns.
 -- ---------------------------------------------------------------------------
+-- KG 抽取尝试戳:build_kg 每次尝试后盖戳(含零产出/毒文档),pending 口径即
+-- kg_extracted_at IS NULL —— 取代 kg_edges/kg_events 反连接(见 kg/extract.py)。
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS kg_extracted_at TIMESTAMPTZ;
+-- 迁移回填(幂等):已产出过边/事件的文档视为已抽取
+UPDATE documents SET kg_extracted_at = now()
+ WHERE kg_extracted_at IS NULL
+   AND (EXISTS (SELECT 1 FROM kg_edges  e WHERE e.source_doc_id = documents.id)
+     OR EXISTS (SELECT 1 FROM kg_events v WHERE v.source_doc_id = documents.id));
+CREATE INDEX IF NOT EXISTS idx_docs_kg_pending ON documents(kg_extracted_at) WHERE kg_extracted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_edges_srcdoc  ON kg_edges(source_doc_id);
+CREATE INDEX IF NOT EXISTS idx_events_srcdoc ON kg_events(source_doc_id);
+
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS theme   TEXT;
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS segment TEXT;
 CREATE INDEX IF NOT EXISTS idx_documents_theme_segment ON documents(theme, segment);

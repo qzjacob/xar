@@ -395,16 +395,19 @@ def test_llm_fallback_rotates_to_next_provider(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-deepseek")
     seen: list = []
 
+    from xar.models.router import TaskClass as _TC, resolve as _resolve
+    _head = _resolve(_TC.KG_EXTRACT)[0].litellm_model
+
     def fake(**kw):
         seen.append(kw["model"])
-        if kw["model"] == "openai/glm-5.2":     # first KG_EXTRACT candidate always fails
-            raise le.RateLimitError("rate", "zhipu", "glm-5.2")
+        if kw["model"] == _head:                # first KG_EXTRACT candidate always fails
+            raise le.RateLimitError("rate", "zhipu", _head)
         return _FakeResp("ROTATED")
 
     monkeypatch.setattr(litellm, "completion", fake)
     out = llm.complete("hi", task="kg_extract", node="t", run_id=None, max_tokens=50)
     assert out == "ROTATED"
-    assert "openai/glm-5.2" in seen and any(m != "openai/glm-5.2" for m in seen)
+    assert _head in seen and any(m != _head for m in seen)
 
 
 def test_llm_subscription_rides_over_budget(monkeypatch):
@@ -474,10 +477,13 @@ def test_route_override_persists_and_reroutes():
     db.execute("DELETE FROM route_overrides WHERE key='cheap_bulk'")
     router.registry.refresh_overrides()
     try:
+        # capture the un-overridden chain head BEFORE setting the override (no hardcoding:
+        # the registry's preferred subscription model can change — that broke this test once)
+        _default_head = router.resolve(TaskClass.KG_EXTRACT)[0].id
         assert ops.set_route("cheap_bulk", "kimi-k2-sub")["ok"] is True
         assert router.resolve(TaskClass.KG_EXTRACT)[0].id == "kimi-k2-sub"
         assert ops.set_route("cheap_bulk", "")["cleared"] is True
-        assert router.resolve(TaskClass.KG_EXTRACT)[0].id == "glm-5.2-sub"
+        assert router.resolve(TaskClass.KG_EXTRACT)[0].id == _default_head
         assert ops.set_route("cheap_bulk", "nonexistent")["ok"] is False
     finally:  # never leak a live override into the shared DB, even on assertion failure
         db.execute("DELETE FROM route_overrides WHERE key='cheap_bulk'")

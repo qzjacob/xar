@@ -30,14 +30,16 @@ NEITHER = {"id": "fake_jp", "tickers": ["1234.T"], "region": "JP"}
 def test_plan_units_us_company():
     units = history.plan_units(US)
     edgar = [u for u in units if u[0] == "edgar"]
-    assert [y for _, _, y in edgar] == list(range(2026, 2015, -1))  # descending, inclusive
+    y0 = history._start_year()
+    assert [y for _, _, y in edgar] == list(range(y0, y0 - 11, -1))  # descending, inclusive
     assert units[-1] == ("finnhub_news", "fake_us", None)
     assert len(units) == 12  # 11 edgar years + 1 finnhub_news
 
 
 def test_plan_units_cn_company():
     units = history.plan_units(CN)
-    assert all(u == ("cninfo", "fake_cn", y) for u, y in zip(units, range(2026, 2015, -1)))
+    y0 = history._start_year()
+    assert all(u == ("cninfo", "fake_cn", y) for u, y in zip(units, range(y0, y0 - 11, -1)))
     assert len(units) == 11
 
 
@@ -112,14 +114,27 @@ def test_cninfo_company_skip_marks_company_done(fake_world, monkeypatch):
 
 
 @requires_db
-def test_unit_failure_never_raises_and_advances(fake_world, monkeypatch):
+def test_unit_failure_retries_then_poison_skips(fake_world, monkeypatch):
+    """审核修复后的失败语义:失败不消耗单元(重试一次),第二次失败记档跳过;
+    连续 3 次失败提前收兵(基建级故障不吞单元)。"""
+    calls = {"n": 0}
+
     def boom(_cid, _year):
+        calls["n"] += 1
         raise RuntimeError("edgar down")
 
     monkeypatch.setattr(history, "_pull_edgar_year", boom)
-    r = history.backfill_step(units=3)
-    assert r["done_units"] == 3 and r["docs_pulled"] == 0
-    assert r["cursor"]["year"] == 2023  # advanced past the failing units
+    start_year = history._start_year()
+    r1 = history.backfill_step(units=1)          # 第一次失败:不推进,记 retry
+    assert r1["done_units"] == 0 and r1["cursor"]["year"] == start_year
+    assert r1["cursor"]["unit_retries"]
+    r2 = history.backfill_step(units=1)          # 第二次失败:毒单元记档 + 推进
+    assert r2["done_units"] == 0
+    assert r2["cursor"]["failed_units"]
+    assert r2["cursor"]["year"] == start_year - 1
+    r3 = history.backfill_step(units=6)          # 连续失败 ≥3:提前收兵,不吞剩余单元
+    assert r3["done_units"] == 0
+    assert len(r3["cursor"].get("failed_units", [])) <= 3
 
 
 @requires_db
