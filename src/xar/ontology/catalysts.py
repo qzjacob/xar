@@ -38,6 +38,7 @@ class CatalystType(str, Enum):
     INDEX_INCLUSION = "index_inclusion"        # added/removed from an index
     SHORT_REPORT = "short_report"              # activist short report
     MACRO_PRINT = "macro_print"                # rate/CPI/PMI print moving the basket
+    ALT_SIGNAL = "alt_signal"                  # 另类数据阈值信号(月营收/招聘/开源动能等 z>=2)
     STOCK_SPLIT = "stock_split"
     SECONDARY_OFFERING = "secondary_offering"  # equity raise / dilution
 

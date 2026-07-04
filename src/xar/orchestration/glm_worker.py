@@ -160,10 +160,17 @@ def _pull_fresh() -> dict:
 
         return {"docs": rss.pull()}
 
+    def _alt():
+        from ..config import get_settings
+        from ..ingestion import alt
+
+        return alt.pull_all(limit=get_settings().glm_worker_alt_limit)
+
     _run("twitter", 3600, _twitter)
     _run("wechat", 3600, _wechat)
     _run("finnhub_news", 4 * 3600, _finnhub)
     _run("rss", 2 * 3600, _rss)
+    _run("alt", 6 * 3600, _alt)
     return out
 
 
@@ -195,6 +202,33 @@ def _llm_stage(batch_docs: int, q: dict) -> tuple[dict, dict]:
         if is_quota_error(e):
             q = _mark_exhausted(q, str(e))
     return out, q
+
+
+def _alt_correction(q: dict, rebuilds: int) -> dict:
+    """信号→事件(每轮,零 LLM)+ 信号挑战最重的论点在额度 ok 时钉扎 GLM 重建。"""
+    out: dict = {}
+    try:
+        from ..research import thesis_signals
+
+        out["events"] = thesis_signals.sync_alt_events()
+    except Exception as e:  # noqa: BLE001
+        out["events"] = {"error": str(e)[:160]}
+    if q.get("status") == "ok" and _sub_ready() and rebuilds > 0:
+        try:
+            from ..research import thesis, thesis_signals
+
+            cids = thesis_signals.challenged_companies(limit=rebuilds)
+            rebuilt = []
+            with llm.pinned(GLM_PIN):
+                for cid in cids:
+                    r = thesis.build(cid, force=True)
+                    rebuilt.append({"cid": cid, "status": r.get("status")})
+            out["rebuilt"] = rebuilt
+        except Exception as e:  # noqa: BLE001
+            if is_quota_error(e):
+                _mark_exhausted(q, str(e))
+            out["rebuilt"] = {"error": str(e)[:160]}
+    return out
 
 
 def run_once(*, batch_docs: int | None = None, backfill_units: int | None = None) -> dict:
@@ -229,6 +263,9 @@ def run_once(*, batch_docs: int | None = None, backfill_units: int | None = None
     else:
         # ok 态零探针开销:直接抽取;额度耗尽由 _llm_stage 内的错误定性翻转状态
         out["extract"], q = _llm_stage(batch_docs, q)
+
+    # 另类数据高频校正闭环(零 LLM 的信号→事件 每轮做;论点重建仅在额度 ok 时)
+    out["alt_correct"] = _alt_correction(q, s.glm_worker_thesis_rebuilds)
 
     counters = get_state("counters")
     counters["cycles"] = int(counters.get("cycles", 0)) + 1

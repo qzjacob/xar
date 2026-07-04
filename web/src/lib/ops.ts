@@ -14,6 +14,7 @@ import type {
   SkillsInfo,
   SourcesInfo,
 } from "../types-ops";
+import type { AltTrackers } from "../types-alt";
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(path, { headers: { Accept: "application/json" } });
@@ -47,6 +48,7 @@ export const ops = {
   process: () => post<ActionResult>("/api/ops/datalake/process"),
   altdata: () => get<AltDataInfo>("/api/ops/altdata"),
   processAltdata: () => post<ActionResult>("/api/ops/altdata/process"),
+  altTrackers: () => get<AltTrackers>("/api/ops/altdata/trackers"),
   selftest: () => get<SelfTest>("/api/ops/selftest"),
   coverage: () => get<OpsCoverageInfo>("/api/ops/coverage"),
 };

@@ -445,6 +445,66 @@ def glm_worker_probe() -> None:
 
 
 # ── 投资论点(CompanyThesis)────────────────────────────────────────────────────
+# ── 另类数据追踪(alt-data)────────────────────────────────────────────────────
+alt_app = typer.Typer(add_completion=False,
+                      help="另类数据:追踪器拉取 / 阈值信号→事件 / 论点信号快照")
+app.add_typer(alt_app, name="alt")
+
+
+@alt_app.command("pull")
+def alt_pull(
+    source: str = typer.Argument(None, help="single source id (twse_revenue/github_metrics/…); omit for all"),
+    limit: int = typer.Option(None, help="cap companies per source (wiki/github pacing)"),
+) -> None:
+    """跑另类数据追踪器,写入 alt_signals(缺失的 provider 优雅跳过)。"""
+    from .ingestion import alt
+
+    stats = alt.pull_all([source] if source else None, limit=limit)
+    print(json.dumps(stats, ensure_ascii=False, indent=2, default=str))
+
+
+@alt_app.command("sync-events")
+def alt_sync() -> None:
+    """|z|>=2 的新期另类信号 → kg_events(alt_signal) → semantic_facts(幂等)。"""
+    from .ingestion import alt
+
+    print(json.dumps(alt.sync_events(), ensure_ascii=False, indent=2))
+
+
+@alt_app.command("snapshot")
+def alt_snapshot(company: str) -> None:
+    """一家公司的另类信号统计快照 + 支柱信号分。"""
+    from .research import thesis_signals
+
+    snap = thesis_signals.signal_snapshot(company)
+    scores = thesis_signals.pillar_signal_scores(company)
+    print(json.dumps({"signals": snap, "pillar_scores": scores},
+                     ensure_ascii=False, indent=2, default=str))
+
+
+@alt_app.command("challenged")
+def alt_challenged(limit: int = typer.Option(10)) -> None:
+    """信号面挑战最重的既有论点(glm_worker 据此排队重建)。"""
+    from .research import thesis_signals
+
+    for cid in thesis_signals.challenged_companies(limit=limit):
+        print(cid)
+
+
+@alt_app.command("status")
+def alt_status() -> None:
+    """alt_signals 库总览:每信号行数/覆盖公司数 + 绑定覆盖。"""
+    from .ontology import altdata
+    from .storage import db
+
+    t = Table("signal_key", "rows", "companies", "themes", "latest")
+    for r in db.query("SELECT signal_key, count(*) n, count(DISTINCT company_id) c, "
+                      "count(DISTINCT theme) th, max(period_end) mx FROM alt_signals GROUP BY 1 ORDER BY 1"):
+        t.add_row(r["signal_key"], str(r["n"]), str(r["c"]), str(r["th"]), str(r["mx"]))
+    print(t)
+    print(json.dumps(altdata.coverage_summary(), ensure_ascii=False, indent=2))
+
+
 thesis_app = typer.Typer(add_completion=False,
                          help="投资论点:生成/刷新/健康度(research/thesis.py)")
 app.add_typer(thesis_app, name="thesis")

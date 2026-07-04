@@ -557,6 +557,39 @@ CREATE TABLE IF NOT EXISTS thesis_evidence (
 );
 CREATE INDEX IF NOT EXISTS idx_thesis_evidence ON thesis_evidence(thesis_id);
 
+-- 另类数据信号库(ontology/altdata.py 的信号谱系;providers/alt/* 写入)。
+-- PIT 安全:period_end=经济期,observed_at=知晓时;读取按 observed_at <= as_of。
+CREATE TABLE IF NOT EXISTS alt_signals (
+    id          BIGSERIAL PRIMARY KEY,
+    signal_key  TEXT NOT NULL,               -- ontology.altdata.ALT_SIGNALS 之一
+    company_id  TEXT REFERENCES companies(id) ON DELETE CASCADE,  -- NULL = theme 级
+    theme       TEXT,                        -- theme 级信号的归属链
+    period_end  DATE NOT NULL,               -- 经济期末(月营收=月末,周频=周末)
+    value       DOUBLE PRECISION NOT NULL,
+    unit        TEXT,
+    meta        JSONB NOT NULL DEFAULT '{}',  -- 细分(如 AI 岗位数/星标增量/yoy)
+    source      TEXT NOT NULL,
+    observed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- 唯一键需处理 NULL 列(theme/company_id 互斥为 NULL);默认 UNIQUE 的 NULLS DISTINCT
+-- 会使 ON CONFLICT 永不触发 → 每次重拉都重复。一次性迁移(仅在索引缺失时执行):
+-- 去掉旧 NULLS-DISTINCT 约束 → 去重历史行 → 建 COALESCE 表达式唯一索引(可移植、自愈)。
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'uq_alt_signal') THEN
+        ALTER TABLE alt_signals DROP CONSTRAINT IF EXISTS
+            alt_signals_signal_key_company_id_theme_period_end_key;
+        DELETE FROM alt_signals a USING alt_signals b
+         WHERE a.id < b.id AND a.signal_key = b.signal_key
+           AND COALESCE(a.company_id, '') = COALESCE(b.company_id, '')
+           AND COALESCE(a.theme, '') = COALESCE(b.theme, '')
+           AND a.period_end = b.period_end;
+        CREATE UNIQUE INDEX uq_alt_signal ON alt_signals
+            (signal_key, COALESCE(company_id, ''), COALESCE(theme, ''), period_end);
+    END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_alt_company ON alt_signals(company_id, signal_key, period_end DESC);
+CREATE INDEX IF NOT EXISTS idx_alt_theme   ON alt_signals(theme, signal_key, period_end DESC);
+
 -- GLM 常驻工人状态(额度治理 + 回填游标 + 节拍;orchestration/glm_worker.py)
 CREATE TABLE IF NOT EXISTS glm_worker_state (
     key        TEXT PRIMARY KEY,

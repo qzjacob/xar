@@ -613,7 +613,7 @@ def company_detail(cid: str, theme: str | None = None) -> dict | None:
             "supplyChain": supply_chain, "landscape": graphrag.landscape(cid),
             "thesis": _thesis_block(cid), "coverage": _coverage_block(cid),
             "estimates": _estimates_block(cid), "holdings": _holdings_block(cid),
-            "calendar": _calendar_block(cid)}
+            "calendar": _calendar_block(cid), "alt": _alt_block(cid)}
 
 
 def _thesis_block(cid: str) -> dict | None:
@@ -628,9 +628,38 @@ def _thesis_block(cid: str) -> dict | None:
         return {"version": row["version"], "as_of": str(row["as_of"]), "stance": row["stance"],
                 "conviction": row["conviction"], "one_liner": row["one_liner"],
                 "quality": row["quality"], "changed_because": row["changed_because"],
-                "content": content, "health": th.health(cid)}
+                "content": content, "health": _thesis_health(cid)}
     except Exception as e:  # noqa: BLE001 — thesis layer must never break the company page
         log.warning("thesis block %s: %s", cid, e)
+        return None
+
+
+def _thesis_health(cid: str) -> dict | None:
+    """事件⊕信号合并健康度(health_v2);alt 层不可用时回落到纯事件健康度。"""
+    try:
+        from ..research import thesis_signals
+
+        return thesis_signals.health_v2(cid)
+    except Exception:  # noqa: BLE001
+        try:
+            from ..research import thesis as th
+
+            return th.health(cid)
+        except Exception:  # noqa: BLE001
+            return None
+
+
+def _alt_block(cid: str) -> dict | None:
+    """另类数据信号快照 + 支柱信号分(对冲基金级高频面板;无绑定→None)。"""
+    try:
+        from ..research import thesis_signals
+
+        snap = thesis_signals.signal_snapshot(cid)
+        if not snap:
+            return None
+        return {"signals": snap, "pillar_scores": thesis_signals.pillar_signal_scores(cid)}
+    except Exception as e:  # noqa: BLE001
+        log.warning("alt block %s: %s", cid, e)
         return None
 
 

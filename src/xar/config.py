@@ -113,6 +113,8 @@ class Settings(BaseSettings):
     glm_worker_probe_seconds: int = 900    # probe cadence while quota exhausted (15 min)
     glm_worker_batch_docs: int = 25        # KG-extraction docs per cycle
     glm_worker_backfill_units: int = 4     # (company,source,year) history units per cycle
+    glm_worker_alt_limit: int = 120        # alt-tracker company slice per cycle (wiki/github pacing)
+    glm_worker_thesis_rebuilds: int = 2    # signal-challenged theses rebuilt per cycle (LLM)
 
     # --- Posture / politeness ---
     data_posture: str = "self_use"

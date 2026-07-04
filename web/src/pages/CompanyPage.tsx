@@ -28,6 +28,7 @@ import type { CompanyDetail, SupplyEdge } from "../types";
 import { Badge, Card, DeltaTag, MetricPill, SectionHeader, Sparkline } from "../components/ui";
 import { SignalFeed } from "../components/SignalFeed";
 import { ThesisSection } from "../components/ThesisSection";
+import { AltDataPanel } from "../components/AltDataPanel";
 import { CoverageRing } from "../components/CoverageRing";
 import { CalendarPanel, EstimatesPanel, HoldingsPanel } from "../components/CompanyDataPanels";
 
@@ -234,6 +235,9 @@ export function CompanyPage() {
 
       {/* ============================ THESIS 360 =========================== */}
       <ThesisSection cid={company.id} thesis={thesis} onRefetch={refetch} />
+
+      {/* ==================== ALT-DATA HIGH-FREQ SIGNALS =================== */}
+      <AltDataPanel alt={detail.alt} />
 
       {/* ============================ BODY GRID ============================ */}
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">

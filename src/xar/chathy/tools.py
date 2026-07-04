@@ -98,6 +98,14 @@ def _get_thesis(company_id: str, refresh: bool = False) -> dict:
             "content": content, "health": th.health(company_id)}
 
 
+def _alt_signals(company_id: str) -> dict:
+    """另类数据信号(月营收/招聘/开源动能等)的 z-score 快照 + 支柱信号分 + 合并健康度。"""
+    from ..research import thesis_signals
+    return {"signals": thesis_signals.signal_snapshot(company_id),
+            "pillar_scores": thesis_signals.pillar_signal_scores(company_id),
+            "health": thesis_signals.health_v2(company_id)}
+
+
 def _coverage_360(company_id: str | None = None) -> dict | list:
     from ..ontology import coverage360
     if company_id:
@@ -204,6 +212,14 @@ TOOLS: list[ToolSpec] = [
              _obj({"company_id": _CID, "refresh": {"type": "boolean", "default": False}},
                   ["company_id"]),
              _get_thesis),
+    ToolSpec("alt_signals",
+             "Hedge-fund-grade ALTERNATIVE-DATA tracking for a company: z-scored high-frequency "
+             "signals (TW monthly revenue, ATS hiring velocity incl. AI-role share, GitHub OSS "
+             "momentum, package downloads, Wikipedia attention, theme-level KR chip exports) "
+             "mapped to thesis pillars, plus the merged event+signal thesis health. Use this to "
+             "answer 'is the thesis still on track right now' — signals lead earnings by weeks.",
+             _obj({"company_id": _CID}, ["company_id"]),
+             _alt_signals),
     ToolSpec("coverage_360",
              "360° information-coverage score: per-dimension (16 dims: financials/estimates/"
              "ownership/catalysts/thesis/...) coverage for one company (with gap list), or the "

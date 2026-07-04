@@ -11,6 +11,7 @@ import type {
   HoldingRow,
   Thesis,
 } from "./types-thesis";
+import type { AltData } from "./types-alt";
 
 export type Market = "ALL" | "US" | "CN" | "JP" | "KR" | "HK";
 export const MARKETS: Market[] = ["ALL", "US", "CN", "JP", "KR", "HK"];
@@ -259,6 +260,9 @@ export interface CompanyDetail {
   estimates?: EstimateRow[];
   holdings?: HoldingRow[];
   calendar?: CalendarRow[];
+  // High-frequency alternative-data signals — null for the ~99% of names with
+  // no bindings yet; consumers hide the panel entirely when null.
+  alt?: AltData | null;
 }
 
 export interface SegmentDetail {

@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import {
+  Activity,
   AlertTriangle,
   CalendarClock,
   Eye,
@@ -14,7 +15,8 @@ import {
   Wind,
 } from "lucide-react";
 import { api } from "../lib/api";
-import { cn, signClass } from "../lib/format";
+import { cn, fmtPct, signClass } from "../lib/format";
+import { contribTone, signalShort, signalToneChip } from "../types-alt";
 import {
   evidenceChipClass,
   healthOverallMeta,
@@ -536,8 +538,23 @@ function PillarCard({ pillar: p, health }: { pillar: ThesisPillar; health?: Thes
   const status = health ? pillarStatusMeta(health.status) : null;
   const score = Math.max(-1, Math.min(1, p.score ?? 0));
   const watchMetrics = p.watch_metrics ?? [];
+  // health_v2 alt-data roll-up (rare): a "challenging" pillar driven by a
+  // negative signal_score reads as signal-driven and gets a distinct ring.
+  const hasSignal = typeof health?.signal_score === "number";
+  const sig = hasSignal ? Math.max(-1, Math.min(1, health!.signal_score as number)) : 0;
+  const signalDriven = hasSignal && health?.status === "challenging";
+  const pillarSignals = health?.signals ?? [];
   return (
-    <div className="flex min-w-0 flex-col rounded-lg border border-line bg-canvas p-3">
+    <div
+      className={cn(
+        "flex min-w-0 flex-col rounded-lg border bg-canvas p-3",
+        signalDriven
+          ? sig < 0
+            ? "border-neg/45 ring-1 ring-inset ring-neg/25"
+            : "border-warn/45 ring-1 ring-inset ring-warn/25"
+          : "border-line",
+      )}
+    >
       <div className="flex items-center gap-2">
         <Badge className="shrink-0 bg-brand-50 text-brand-200 ring-1 ring-inset ring-brand-100">
           {kind.cn} {kind.en}
@@ -575,6 +592,43 @@ function PillarCard({ pillar: p, health }: { pillar: ThesisPillar; health?: Thes
           <ScoreBar value={score * 100} scheme="divergent" height={5} />
         </div>
       </div>
+
+      {hasSignal && (
+        <div className="mt-2.5 rounded-md border border-line bg-surface-2/40 px-2.5 py-2">
+          <div className="flex items-center gap-2">
+            <span className="flex items-center gap-1 text-2xs font-medium text-slate-400">
+              <Activity size={11} strokeWidth={2} /> 信号 Signal
+            </span>
+            <div className="flex-1">
+              <ScoreBar value={sig * 100} scheme="divergent" height={5} />
+            </div>
+            <span className={cn("tnum text-2xs font-semibold", signClass(sig))}>
+              {sig > 0 ? "+" : ""}
+              {sig.toFixed(2)}
+            </span>
+          </div>
+          {pillarSignals.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {pillarSignals.slice(0, 4).map((sg, i) => (
+                <span
+                  key={sg.signal_key + i}
+                  title={`${signalShort(sg.signal_key).short} · z ${sg.z.toFixed(2)} · 动量 ${fmtPct(sg.momentum * 100)} · ${sg.period_end}`}
+                  className={cn(
+                    "tnum inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-2xs",
+                    signalToneChip(contribTone(sg.contribution)),
+                  )}
+                >
+                  {sg.name_cn}
+                  <b className="font-semibold">
+                    {sg.z > 0 ? "+" : ""}
+                    {sg.z.toFixed(1)}
+                  </b>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <p className="mt-2 text-xs leading-relaxed text-slate-300">{p.claim_zh}</p>
 

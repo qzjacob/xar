@@ -8,6 +8,8 @@
 // raw key instead of white-screening the terminal.
 // ===========================================================================
 
+import type { PillarHealthSignal } from "./types-alt";
+
 // --- thesis ----------------------------------------------------------------
 
 export type ThesisStance = "bull" | "neutral" | "bear";
@@ -111,6 +113,11 @@ export interface ThesisHealthPillar {
   new_facts: number;
   net_polarity: number;
   status: PillarHealthStatus;
+  // health_v2: alt-data roll-up for this pillar. Present only when the pillar
+  // is bound to high-frequency signals (rare); a "challenging" status driven
+  // by a negative signal_score should read as signal-driven.
+  signal_score?: number | null; // -1..1
+  signals?: PillarHealthSignal[];
 }
 
 export interface ThesisHealth {

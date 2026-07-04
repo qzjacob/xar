@@ -450,6 +450,34 @@ def ops_coverage() -> dict:
             "themes": coverage360.summary_by_theme()}
 
 
+@app.get("/api/alt/company/{cid}")
+def alt_company(cid: str):
+    """另类数据信号快照 + 支柱信号分(高频校正面板)。"""
+    from ..research import thesis_signals
+
+    return {"signals": thesis_signals.signal_snapshot(cid),
+            "pillar_scores": thesis_signals.pillar_signal_scores(cid)}
+
+
+@app.get("/api/ops/altdata/trackers")
+def ops_alt_trackers():
+    """alt 追踪器覆盖 + 每信号库存(ops 面板)。"""
+    from ..ontology import altdata
+    from ..storage import db
+
+    try:
+        stock = db.query("SELECT signal_key, count(*) AS rows, count(DISTINCT company_id) AS companies, "
+                         "max(period_end) AS latest FROM alt_signals GROUP BY 1 ORDER BY 1")
+        stock = [{**dict(r), "latest": str(r["latest"])} for r in stock]
+    except Exception:  # noqa: BLE001
+        stock = []
+    return {"coverage": altdata.coverage_summary(),
+            "signals": [{"key": x.key, "name_cn": x.name_cn, "cadence": x.cadence,
+                         "scope": x.scope, "good_when": x.good_when, "source": x.source}
+                        for x in altdata.ALT_SIGNALS],
+            "stock": stock}
+
+
 @app.post("/api/thesis/{cid}/build")
 def thesis_build(cid: str, force: bool = False):
     """Build/refresh the company's investment thesis (sync; seconds on the bulk pool)."""

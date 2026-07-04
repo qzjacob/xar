@@ -10,6 +10,7 @@ import type {
   Signal,
 } from "../types";
 import type { ThesisBuildResult } from "../types-thesis";
+import type { AltData } from "../types-alt";
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(path, { headers: { Accept: "application/json" } });
@@ -38,4 +39,6 @@ export const api = {
     post<ThesisBuildResult>(
       `/api/thesis/${encodeURIComponent(cid)}/build?force=${force ? "true" : "false"}`,
     ),
+  /** Standalone alt-data refetch — same shape as the company payload's `alt` block. */
+  altCompany: (cid: string) => get<AltData>(`/api/alt/company/${encodeURIComponent(cid)}`),
 };
