@@ -15,11 +15,13 @@ Default routing = DeepSeek V4 (token); GLM/Kimi (subscription) carry bulk/search
 LiteLLM-supported model works — edit `registry.MODELS`."""
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import re
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from typing import Type, TypeVar
 
 import litellm
@@ -110,6 +112,30 @@ def _spent(run_id: str | None) -> float:
     return float(rows[0]["s"]) if rows else 0.0
 
 
+# ── 模型钉扎(subscription-only 工作负载的机制保证)────────────────────────────
+# pinned() 把上下文内的所有 LLM 调用限制为指定 registry 模型(按序)。钉扎链之外
+# 没有回退:额度耗尽 = 调用失败(由调用方决定等待),而不是悄悄落到按 token 计费的
+# 模型。GLM 常驻工人(orchestration/glm_worker.py)的成本承诺依赖这一点。
+_PIN: contextvars.ContextVar[tuple[str, ...] | None] = contextvars.ContextVar(
+    "xar_llm_pin", default=None)
+
+
+@contextmanager
+def pinned(model_ids: Sequence[str]):
+    token = _PIN.set(tuple(model_ids))
+    try:
+        yield
+    finally:
+        _PIN.reset(token)
+
+
+def _apply_pin(chain: list) -> list:
+    pin = _PIN.get()
+    if not pin:
+        return chain
+    return [spec for spec in (registry.get(mid) for mid in pin) if spec is not None]
+
+
 def _record(run_id, node, spec, usage, task_class: str, used_sub: bool) -> None:
     in_tok = getattr(usage, "prompt_tokens", 0) or 0
     out_tok = getattr(usage, "completion_tokens", 0) or 0
@@ -190,7 +216,7 @@ def complete(
     _ensure_keys()
     s = get_settings()
     tc = router.as_task(task, tier)
-    chain = router.resolve(tc)
+    chain = _apply_pin(router.resolve(tc))
     if not chain:
         raise RuntimeError(f"no model candidates for task {tc.value}")
     want_strong = router.POLICIES[tc].capability in (Capability.STRONG, Capability.REASONING)
@@ -275,7 +301,7 @@ def complete_stream(
     _ensure_keys()
     s = get_settings()
     tc = router.as_task(task, "strong")
-    chain = router.resolve(tc)
+    chain = _apply_pin(router.resolve(tc))
     if not chain:
         yield {"type": "error", "message": f"no model candidates for task {tc.value}"}
         return

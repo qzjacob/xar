@@ -545,6 +545,13 @@ CREATE TABLE IF NOT EXISTS thesis_evidence (
 );
 CREATE INDEX IF NOT EXISTS idx_thesis_evidence ON thesis_evidence(thesis_id);
 
+-- GLM 常驻工人状态(额度治理 + 回填游标 + 节拍;orchestration/glm_worker.py)
+CREATE TABLE IF NOT EXISTS glm_worker_state (
+    key        TEXT PRIMARY KEY,
+    value      JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS holdings (
     id          BIGSERIAL PRIMARY KEY,
     company_id  TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,

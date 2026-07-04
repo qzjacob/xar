@@ -115,10 +115,18 @@ MODELS: list[ModelSpec] = [
     # GLM (Zhipu) — SUBSCRIPTION / Coding Plan: the bulk + search default pool.
     # price_in/out = the per-token LIST rate, used ONLY if the call falls back to the
     # metered key (no sub key configured); on the flat plan the recorded usd is 0.
+    # GLM-5.2 = the current Coding Plan model (5h-window/weekly quota, NO overage bill);
+    # the quota-aware resident worker (orchestration/glm_worker.py) pins to it.
+    ModelSpec("glm-5.2-sub", "zhipu", "openai/glm-5.2",
+              (Capability.CHEAP_BULK, Capability.FAST, Capability.STRONG, Capability.REASONING),
+              Billing.SUBSCRIPTION, 0.60, 2.20, context_window=200_000,
+              supports_reasoning=True, preferred=True, released="2026-06",
+              notes="GLM Coding Plan flat-rate (GLM-5.2); quota-windowed, zero overage risk"),
     ModelSpec("glm-4.6-sub", "zhipu", "openai/glm-4.6",
               (Capability.CHEAP_BULK, Capability.FAST, Capability.STRONG), Billing.SUBSCRIPTION,
-              0.60, 2.20, context_window=200_000, supports_reasoning=True, preferred=True,
-              released="2026-01", notes="GLM Coding Plan flat-rate; bulk/search default"),
+              0.60, 2.20, context_window=200_000, supports_reasoning=True,
+              released="2026-01",
+              notes="GLM Coding Plan legacy model; fallback behind glm-5.2-sub"),
     # Kimi (Moonshot) — SUBSCRIPTION: bulk fallback + long-context
     ModelSpec("kimi-k2-sub", "moonshot", "openai/kimi-k2-0905-preview",
               (Capability.CHEAP_BULK, Capability.FAST, Capability.STRONG, Capability.LONG_CONTEXT),

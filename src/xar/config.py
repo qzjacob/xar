@@ -108,6 +108,12 @@ class Settings(BaseSettings):
     daily_news_lookback_days: int = 7  # default Finnhub/FMP news pull window
     daily_kg_doc_limit: int = 800      # cap KG-extraction docs per run/shard (cost guard)
 
+    # --- GLM 常驻抽取工人 (orchestration/glm_worker.py) ---
+    glm_worker_cycle_seconds: int = 180    # normal cadence between cycles
+    glm_worker_probe_seconds: int = 900    # probe cadence while quota exhausted (15 min)
+    glm_worker_batch_docs: int = 25        # KG-extraction docs per cycle
+    glm_worker_backfill_units: int = 4     # (company,source,year) history units per cycle
+
     # --- Posture / politeness ---
     data_posture: str = "self_use"
     http_user_agent: str = "xar-research/0.1 (+research)"

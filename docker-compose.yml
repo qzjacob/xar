@@ -39,6 +39,23 @@ services:
   # nightly, extracts the semantic layer, and updates the KG — the whole universe
   # split into shards. UI + run history at http://localhost:3001. Only `app`
   # creates the schema (xar init); this container just runs the scheduler.
+  # GLM 订阅额度感知的常驻抽取工人:额度耗尽自动等待、恢复自动重启;
+  # 持续拉取 Twitter/微信/Finnhub 语义源 + 10 年历史回填 + 钉扎 GLM 的语义抽取。
+  glmworker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      XAR_DATABASE_URL: postgresql://xar:xar@db:5432/xar
+      XAR_OBJECT_STORE: file:///data/objects
+    volumes:
+      - xar_data:/data
+      - xar_models:/root/.cache
+    depends_on:
+      db:
+        condition: service_healthy
+    command: bash -lc "xar glm-worker run"
+
   dagster:
     build: .
     restart: unless-stopped

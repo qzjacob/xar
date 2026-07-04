@@ -407,6 +407,43 @@ def andy_status() -> None:
             pass
 
 
+# ── GLM 常驻抽取工人(订阅额度机制利用)─────────────────────────────────────────
+glm_app = typer.Typer(add_completion=False,
+                      help="GLM 订阅额度感知的常驻抽取工人(耗尽自动等待,恢复自动重启)")
+app.add_typer(glm_app, name="glm-worker")
+
+
+@glm_app.command("run")
+def glm_worker_run(
+    once: bool = typer.Option(False, "--once", help="run a single cycle and exit"),
+) -> None:
+    """常驻循环(默认)或单轮:语义源拉取 + 10 年历史回填 + 钉扎 GLM 的语义抽取。"""
+    from .orchestration import glm_worker
+
+    if once:
+        print(json.dumps(glm_worker.run_once(), ensure_ascii=False, indent=2, default=str))
+    else:
+        glm_worker.run_daemon()
+
+
+@glm_app.command("status")
+def glm_worker_status() -> None:
+    """额度状态 / 计数器 / 回填游标 / 抽取积压。"""
+    from .orchestration import glm_worker
+
+    print(json.dumps(glm_worker.status(), ensure_ascii=False, indent=2, default=str))
+
+
+@glm_app.command("probe")
+def glm_worker_probe() -> None:
+    """手动探针:GLM 订阅池当前是否可用。"""
+    from .orchestration import glm_worker
+
+    ok = glm_worker.probe()
+    print("[green]GLM quota OK[/green]" if ok else "[yellow]GLM quota exhausted[/yellow]")
+    raise typer.Exit(0 if ok else 1)
+
+
 # ── 投资论点(CompanyThesis)────────────────────────────────────────────────────
 thesis_app = typer.Typer(add_completion=False,
                          help="投资论点:生成/刷新/健康度(research/thesis.py)")

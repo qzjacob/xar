@@ -397,14 +397,14 @@ def test_llm_fallback_rotates_to_next_provider(monkeypatch):
 
     def fake(**kw):
         seen.append(kw["model"])
-        if kw["model"] == "openai/glm-4.6":     # first KG_EXTRACT candidate always fails
-            raise le.RateLimitError("rate", "zhipu", "glm-4.6")
+        if kw["model"] == "openai/glm-5.2":     # first KG_EXTRACT candidate always fails
+            raise le.RateLimitError("rate", "zhipu", "glm-5.2")
         return _FakeResp("ROTATED")
 
     monkeypatch.setattr(litellm, "completion", fake)
     out = llm.complete("hi", task="kg_extract", node="t", run_id=None, max_tokens=50)
     assert out == "ROTATED"
-    assert "openai/glm-4.6" in seen and any(m != "openai/glm-4.6" for m in seen)
+    assert "openai/glm-5.2" in seen and any(m != "openai/glm-5.2" for m in seen)
 
 
 def test_llm_subscription_rides_over_budget(monkeypatch):
@@ -477,7 +477,7 @@ def test_route_override_persists_and_reroutes():
         assert ops.set_route("cheap_bulk", "kimi-k2-sub")["ok"] is True
         assert router.resolve(TaskClass.KG_EXTRACT)[0].id == "kimi-k2-sub"
         assert ops.set_route("cheap_bulk", "")["cleared"] is True
-        assert router.resolve(TaskClass.KG_EXTRACT)[0].id == "glm-4.6-sub"
+        assert router.resolve(TaskClass.KG_EXTRACT)[0].id == "glm-5.2-sub"
         assert ops.set_route("cheap_bulk", "nonexistent")["ok"] is False
     finally:  # never leak a live override into the shared DB, even on assertion failure
         db.execute("DELETE FROM route_overrides WHERE key='cheap_bulk'")
