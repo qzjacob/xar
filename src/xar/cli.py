@@ -446,6 +446,55 @@ def glm_worker_probe() -> None:
 
 # ── 投资论点(CompanyThesis)────────────────────────────────────────────────────
 # ── 微信多层级挖掘(mining/)────────────────────────────────────────────────────
+wechat_app = typer.Typer(add_completion=False, help="微信策展账号名册 + 挖掘目标")
+app.add_typer(wechat_app, name="wechat-account")
+
+
+@wechat_app.command("add")
+def wechat_account_add(
+    feed_id: str, name: str = typer.Option(""), theme: str = typer.Option(None),
+    company: str = typer.Option(None, help="绑定公司 id"), tier: int = typer.Option(2),
+) -> None:
+    """登记一个策展公众号 feed_id(先在 we-mp-rss UI 订阅该号)。"""
+    from .mining import roster
+
+    roster.register(feed_id, name=name, theme=theme, company_id=company, tier=tier)
+    print(f"[green]registered[/green] {feed_id}")
+
+
+@wechat_app.command("list")
+def wechat_account_list() -> None:
+    """列出策展名册。"""
+    from .mining import roster
+
+    t = Table("feed_id", "name", "theme", "company", "tier")
+    for r in roster.active_feeds():
+        t.add_row(r["feed_id"], r.get("name") or "", r.get("theme") or "",
+                  r.get("company_id") or "", str(r.get("tier")))
+    print(t)
+    print(json.dumps(roster.status(), ensure_ascii=False))
+
+
+@wechat_app.command("rm")
+def wechat_account_rm(feed_id: str) -> None:
+    from .mining import roster
+
+    roster.deactivate(feed_id)
+    print(f"[yellow]deactivated[/yellow] {feed_id}")
+
+
+@app.command("wechat-targets")
+def wechat_targets(limit: int = typer.Option(20)) -> None:
+    """当前挖掘目标(被挑战论点优先)+ 中文猎词。"""
+    from .mining import targeting
+
+    targets = targeting.build_targets(limit)
+    for t in targets:
+        flag = "🔴" if t.priority >= 1.0 else "  "
+        print(f"{flag} {t.company_id:16} {t.name[:24]:24} watch={list(t.watch_event_types)[:3]} "
+              f"猎词={list(t.hunt_terms_zh)[:4]}")
+
+
 @app.command("wechat-mine")
 def wechat_mine(
     once: bool = typer.Option(False, "--once", help="triage 一批待处理微信文档并打印统计"),

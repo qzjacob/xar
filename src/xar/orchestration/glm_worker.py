@@ -145,8 +145,21 @@ def _pull_fresh() -> dict:
 
     def _wechat():
         from ..ingestion import ingest_wechat, wechat
+        from ..mining import roster
 
-        return {"docs": len(ingest_wechat())} if wechat.available() else {"skipped": "no werss"}
+        if not wechat.available():
+            return {"skipped": "no werss"}
+        feeds = roster.active_feeds()
+        if not feeds:                       # 名册空 → 退回聚合 /rss
+            return {"docs": len(ingest_wechat()), "mode": "aggregated"}
+        n = 0
+        for f in feeds:                     # 策展名册:逐号拉,带公司绑定
+            try:
+                n += len(wechat.ingest_feed(f["feed_id"], company_id=f.get("company_id")))
+            except Exception as e:          # noqa: BLE001 — 单号失败不沉整轮
+                from ..logging import get_logger
+                get_logger("xar.glm_worker").warning("wechat feed %s: %s", f["feed_id"], e)
+        return {"docs": n, "mode": "roster", "feeds": len(feeds)}
 
     def _finnhub():
         from datetime import date, timedelta
