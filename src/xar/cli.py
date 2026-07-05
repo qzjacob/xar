@@ -651,6 +651,7 @@ def reembed(
                               help="fastembed 模型名(中英混合;e5 会自动加 query/passage 前缀)"),
     dim: int = typer.Option(1024, help="该模型维度"),
     batch: int = typer.Option(256, help="每批 chunk 数"),
+    max_seconds: int = typer.Option(0, help="到时干净退出并提交进度(0=跑到完;配合续跑分片推进)"),
 ) -> None:
     """全库重嵌入到新模型(中文检索升级)。ALTER chunks 维度 → 分批重嵌 → 重建索引。
     完成后请把 XAR_EMBED_MODEL/XAR_EMBED_DIM 写入 .env 并重启,使查询侧用同一模型。
@@ -696,7 +697,11 @@ def reembed(
         remaining = db.query("SELECT count(*) n FROM chunks WHERE embedding IS NULL "
                              "AND text IS NOT NULL")[0]["n"]
         print(f"[cyan]resuming[/cyan] vector({dim}) already in place; {remaining}/{total} left")
+    import time as _time
+
+    started = _time.monotonic()
     done = 0
+    hit_deadline = False
     while True:
         rows = db.query("SELECT id, text FROM chunks WHERE embedding IS NULL "
                         "AND text IS NOT NULL ORDER BY id LIMIT %s", (batch,))
@@ -708,8 +713,16 @@ def reembed(
                 conn.execute("UPDATE chunks SET embedding=%s::vector WHERE id=%s",
                              (str(v), r["id"]))
         done += len(rows)
-        if done % (batch * 8) == 0 or not rows:
+        if done % (batch * 4) == 0:
             print(f"  re-embedded {done}/{total}", flush=True)
+        if max_seconds and _time.monotonic() - started >= max_seconds:
+            hit_deadline = True
+            break
+    if hit_deadline:
+        left = db.query("SELECT count(*) n FROM chunks WHERE embedding IS NULL "
+                        "AND text IS NOT NULL")[0]["n"]
+        print(f"[yellow]时间片到[/yellow] 本片 {done} 块;剩 {left} 块,再次运行同命令续跑。")
+        raise typer.Exit(0)
     print(f"[green]re-embedded {done} chunks[/green]; rebuilding ANN index…")
     from .storage import db as _db
     _db.ensure_vector_index()
