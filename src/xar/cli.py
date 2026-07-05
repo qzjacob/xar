@@ -647,16 +647,18 @@ def thesis_status() -> None:
 
 @app.command()
 def reembed(
-    model: str = typer.Option("intfloat/multilingual-e5-large",
-                              help="fastembed 模型名(中英混合;e5 会自动加 query/passage 前缀)"),
-    dim: int = typer.Option(1024, help="该模型维度"),
+    model: str = typer.Option("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                              help="fastembed 模型名(默认多语 MiniLM 384d,快;中英混合"
+                                   "最高质量用 intfloat/multilingual-e5-large --dim 1024,CPU 上慢)"),
+    dim: int = typer.Option(384, help="该模型维度(必须与 --model 一致)"),
     batch: int = typer.Option(256, help="每批 chunk 数"),
     max_seconds: int = typer.Option(0, help="到时干净退出并提交进度(0=跑到完;配合续跑分片推进)"),
 ) -> None:
     """全库重嵌入到新模型(中文检索升级)。ALTER chunks 维度 → 分批重嵌 → 重建索引。
     完成后请把 XAR_EMBED_MODEL/XAR_EMBED_DIM 写入 .env 并重启,使查询侧用同一模型。
-    ~15 万 chunk 计算重(数十分钟);像回填一样可安全中断续跑(已嵌入的 dim 对不上会全表重来,
-    故建议一次跑完)。"""
+    可中断续跑(维度或模型变更 → 全表清空重嵌;否则续跑 WHERE NULL;--max-seconds 分片)。
+    注意:维度/模型变更会 DROP+ADD embedding 列,重嵌期间(可能数十分钟~数小时)向量检索返回空
+    —— 建议先停 app/glmworker 或择低峰,跑完设 .env 再一并重启。"""
     import os
 
     from .config import get_settings
@@ -667,8 +669,8 @@ def reembed(
     os.environ["XAR_EMBED_MODEL"] = model
     os.environ["XAR_EMBED_DIM"] = str(dim)
     get_settings.cache_clear()
-    embeddings._model.cache_clear()
-    print(f"[cyan]loading[/cyan] {model} (dim={dim}, multi-core)…")
+    print(f"[cyan]loading[/cyan] {model} (dim={dim})…")
+    _ = embeddings  # noqa: F401 — 保证 env 覆盖前模块已导入
 
     from fastembed import TextEmbedding
 
@@ -681,14 +683,19 @@ def reembed(
         payload = [f"passage: {t}" for t in texts] if _is_e5 else texts
         return [list(map(float, v)) for v in _emb.embed(payload, batch_size=32)]
 
+    from .storage.kvstate import get_state, save_state
+
     total = db.query("SELECT count(*) n FROM chunks")[0]["n"]
-    # 幂等/可续:仅当现列维度 != 目标维度时才 drop+add(清空),否则续跑 WHERE NULL。
     cur = db.query("SELECT atttypmod AS m FROM pg_attribute "
                    "WHERE attrelid='chunks'::regclass AND attname='embedding'")
     cur_dim = cur[0]["m"] if cur else -1  # pgvector: atttypmod == dim (-1 若无列)
-    if cur_dim != dim:
-        print(f"[cyan]migrating[/cyan] chunks.embedding {cur_dim} → vector({dim}); {total} rows "
-              "(维度变更,清空重嵌)")
+    stored_model = get_state("embed").get("model")
+    # 清空重嵌的触发:维度变更 **或** 同维换模型(否则 resume 只填 NULL=0 行,
+    # 库里留旧模型向量,查询侧却用新模型 → 两个不兼容向量空间静默混用)。
+    needs_full = cur_dim != dim or (stored_model not in (None, model))
+    if needs_full:
+        print(f"[cyan]migrating[/cyan] chunks.embedding {cur_dim}→{dim} model "
+              f"{stored_model}→{model}; {total} rows (清空重嵌)")
         with db.tx() as conn:
             conn.execute("DROP INDEX IF EXISTS idx_chunks_vec")
             conn.execute("ALTER TABLE chunks DROP COLUMN IF EXISTS embedding")
@@ -696,7 +703,8 @@ def reembed(
     else:
         remaining = db.query("SELECT count(*) n FROM chunks WHERE embedding IS NULL "
                              "AND text IS NOT NULL")[0]["n"]
-        print(f"[cyan]resuming[/cyan] vector({dim}) already in place; {remaining}/{total} left")
+        print(f"[cyan]resuming[/cyan] {model} vector({dim}); {remaining}/{total} left")
+    save_state("embed", {"model": model, "dim": dim})  # 供下次 resume/换模型判定
     import time as _time
 
     started = _time.monotonic()
@@ -718,13 +726,19 @@ def reembed(
         if max_seconds and _time.monotonic() - started >= max_seconds:
             hit_deadline = True
             break
+    from .storage import db as _db
+
     if hit_deadline:
         left = db.query("SELECT count(*) n FROM chunks WHERE embedding IS NULL "
                         "AND text IS NOT NULL")[0]["n"]
-        print(f"[yellow]时间片到[/yellow] 本片 {done} 块;剩 {left} 块,再次运行同命令续跑。")
+        if left == 0:                       # 恰好在本片补齐 → 补建索引(dim-change 已 DROP)
+            _db.ensure_vector_index()
+            print("[green]✓ reembed done[/green](末片)re-embedded 全部;索引已重建。")
+        else:
+            print(f"[yellow]时间片到[/yellow] 本片 {done} 块;剩 {left} 块,再次运行同命令续跑"
+                  f"(全部完成后自动重建 ANN 索引)。")
         raise typer.Exit(0)
     print(f"[green]re-embedded {done} chunks[/green]; rebuilding ANN index…")
-    from .storage import db as _db
     _db.ensure_vector_index()
     print(f"[green]✓ reembed done[/green]  →  在 .env 设 XAR_EMBED_MODEL={model} "
           f"XAR_EMBED_DIM={dim} 并重启应用/worker")

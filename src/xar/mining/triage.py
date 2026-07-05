@@ -99,8 +99,8 @@ def _blend(t: WechatTriage) -> float:
              + 0.20 * t.novelty + 0.20 * t.specificity)
     # 低传播高价值救回:新颖且具体则抬分(补微信无阅读数)
     score = max(score, 0.55 * t.novelty * t.specificity)
-    # 小作文地板
-    if t.is_xiaozuowen and t.credibility < 0.4:
+    # 小作文地板:一旦判为小作文即封顶(在救回之后钳制,救回不得让小作文越狱)
+    if t.is_xiaozuowen:
         score = min(score, 0.15)
     return round(min(max(score, 0.0), 1.0), 3)
 
@@ -131,17 +131,17 @@ def triage_one(doc: dict, aliases: list[tuple[str, str]], *, run_id: str | None 
         return {"score": _NOISE_FLOOR, "gated_out": True, "used_llm": False}
 
     theme = pre["themes"][0] if pre["themes"] else None
-    route = pre["routes"][0] if pre["routes"] else ""
     ctx = (f"命中主题: {','.join(pre['themes']) or '无'}\n命中路线: {','.join(pre['routes']) or '无'}\n"
            f"已知 KG 摘要:\n{_known_kg_digest(pre['company_id'], theme)}\n"
            f"{_thesis_watch(pre['company_id'])}")
     prompt = (f"{ctx}\n\n<文章>\n标题: {title}\n正文: {text[:1500]}\n</文章>")
-    try:
-        t = llm.complete_json(prompt, WechatTriage, system=_SYSTEM,
-                              task=TaskClass.WECHAT_TRIAGE, node="triage",
-                              run_id=run_id, max_tokens=800)
-    except Exception:
-        raise  # 额度/限流错误上抛给 _llm_stage 定性(不吞)
+    # 额度/限流错误必须上抛给 _llm_stage 定性(不吞);complete_json 本身对解析失败
+    # 返回全默认的空 WechatTriage —— 那不是"判为无关",而是 LLM 失败,不能盖戳,留待重试。
+    t = llm.complete_json(prompt, WechatTriage, system=_SYSTEM,
+                          task=TaskClass.WECHAT_TRIAGE, node="triage",
+                          run_id=run_id, max_tokens=800)
+    if not t.relevant and not t.entity and not t.reason_zh:
+        return {"score": None, "gated_out": False, "used_llm": True, "retry": True}
 
     score = _blend(t)
     verdict = t.model_dump()
@@ -155,8 +155,7 @@ def triage_one(doc: dict, aliases: list[tuple[str, str]], *, run_id: str | None 
         rid, conf = _resolve.resolve(t.entity)
         if rid and conf >= 0.62 and _is_company(rid):
             backfill_cid = rid
-    _store(doc["id"], score, verdict, company_id=backfill_cid, theme=backfill_theme,
-           route=route)
+    _store(doc["id"], score, verdict, company_id=backfill_cid, theme=backfill_theme)
     return {"score": score, "gated_out": score < _deep_min(), "used_llm": True}
 
 
@@ -173,39 +172,62 @@ def _deep_min() -> float:
 
 
 def _store(doc_id: str, score: float, verdict: dict, *, company_id: str | None,
-           theme: str | None, route: str = "") -> None:
-    # 只在 ingest 期为空时回填(不覆盖已有 company_id/theme)
+           theme: str | None) -> None:
+    # 只在 ingest 期为空时回填 company_id/theme(不覆盖已有值;triage 命中的 route/theme
+    # 已存于 triage JSONB,segment 不在 triage 阶段解析)
     db.execute(
         "UPDATE documents SET triage_score=%s, triaged_at=%s, triage=%s::jsonb, "
-        "company_id=COALESCE(company_id, %s), theme=COALESCE(theme, %s), "
-        "segment=COALESCE(segment, %s) WHERE id=%s",
+        "company_id=COALESCE(company_id, %s), theme=COALESCE(theme, %s) WHERE id=%s",
         (score, _now(), json.dumps(verdict, ensure_ascii=False, default=str),
-         company_id, theme, None, doc_id))
+         company_id, theme, doc_id))
 
 
 def wechat_pending_clause() -> str:
-    """深度抽取队列的 NULL 安全 WHERE 守卫片段:未 triage(NULL)照常流、低分微信排除、
-    非微信短路不受影响。deep_min 是可信 config 浮点,直接内联(无用户输入)。"""
-    return (f" AND (d.source <> 'wechat' OR d.triage_score IS NULL "
-            f"OR d.triage_score >= {float(_deep_min()):.4f})")
+    """深度抽取队列的 WHERE 守卫片段。miner 关闭 → 空(退回旧的无差别抽取,含未 triage);
+    miner 开启 → 只放 triage_score>=deep_min 的微信,**未 triage(NULL)不放行**(等 triage
+    评分,不让突发摄取绕过闸门);非微信一律短路不受影响。deep_min 是可信 config 浮点。"""
+    from ..config import get_settings
+
+    if not get_settings().wechat_miner_enabled:
+        return ""
+    return f" AND (d.source <> 'wechat' OR d.triage_score >= {float(_deep_min()):.4f})"
 
 
 def triage_pending(limit: int = 40, *, run_id: str | None = None) -> dict:
-    """triage 尚未 triage 的微信文档(每轮 glm_worker 调用)。"""
+    """triage 尚未 triage 的微信文档(每轮 glm_worker 调用)。limit 是本轮上限;
+    单文档失败(非额度类)记档跳过,不沉整批;额度/限流错误上抛给 _llm_stage 定性。"""
     from ..config import get_settings
 
     if not get_settings().wechat_miner_enabled:
         return {"skipped": "wechat_miner disabled"}
-    from ..ingestion.wechat import _alias_index
-
-    aliases = _alias_index()
     rows = db.query(
         "SELECT id, title, text, company_id FROM documents "
         "WHERE source='wechat' AND triaged_at IS NULL AND text IS NOT NULL "
         "ORDER BY ingested_at DESC LIMIT %s", (limit,))
-    stats = {"triaged": 0, "kept": 0, "gated_out": 0, "llm_calls": 0, "noise_floor": 0}
+    if not rows:
+        return {"triaged": 0, "kept": 0, "gated_out": 0, "llm_calls": 0, "noise_floor": 0}
+    from ..ingestion.wechat import _alias_index  # 有待处理文档才建全库别名索引
+
+    aliases = _alias_index()
+    stats = {"triaged": 0, "kept": 0, "gated_out": 0, "llm_calls": 0,
+             "noise_floor": 0, "retry": 0, "errors": 0}
     for doc in rows:
-        out = triage_one(doc, aliases, run_id=run_id)
+        try:
+            out = triage_one(doc, aliases, run_id=run_id)
+        except Exception as e:  # noqa: BLE001
+            from ..orchestration.glm_worker import is_quota_error
+
+            if is_quota_error(e):
+                raise                       # 额度耗尽:中止本批,由 _llm_stage 翻 exhausted
+            log.warning("triage %s failed — stamped noise & skipped: %s", doc["id"], str(e)[:160])
+            _store(doc["id"], _NOISE_FLOOR, {"error": str(e)[:200]},
+                   company_id=None, theme=None)  # 盖戳跳过(毒文档不阻塞队列头)
+            stats["errors"] += 1
+            stats["triaged"] += 1
+            continue
+        if out.get("retry"):               # LLM 失败(空判定):不盖戳,留待下轮重试
+            stats["retry"] += 1
+            continue
         stats["triaged"] += 1
         stats["llm_calls"] += int(out["used_llm"])
         stats["noise_floor"] += int(not out["used_llm"])
@@ -216,12 +238,14 @@ def triage_pending(limit: int = 40, *, run_id: str | None = None) -> dict:
 
 def stats() -> dict:
     """triage 库总览:保留率(vs 旧 3.75%)、噪音地板占比、均分。"""
+    dm = _deep_min()
     r = db.query(
         "SELECT count(*) FILTER (WHERE triaged_at IS NOT NULL) triaged, "
         "count(*) FILTER (WHERE triage_score >= %s) kept, "
-        "count(*) FILTER (WHERE triage_score <= %s) noise, "
+        "count(*) FILTER (WHERE triaged_at IS NOT NULL AND triage_score < %s) gated_out, "
+        "count(*) FILTER (WHERE triage_score <= %s) noise_floor, "
         "round(avg(triage_score)::numeric, 3) avg_score "
-        "FROM documents WHERE source='wechat'", (_deep_min(), _NOISE_FLOOR))
+        "FROM documents WHERE source='wechat'", (dm, dm, _NOISE_FLOOR))
     row = dict(r[0]) if r else {}
     tri = row.get("triaged") or 0
     row["keep_rate"] = round((row.get("kept") or 0) / tri, 4) if tri else None

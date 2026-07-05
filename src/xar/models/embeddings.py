@@ -2,8 +2,9 @@
 
 Pluggable: set XAR_EMBED_MODEL / XAR_EMBED_DIM. Defaults to bge-small-en (384d,
 fast turnkey). For a bilingual corpus (Chinese WeChat/cninfo + English filings) run
-`xar reembed` → jinaai/jina-embeddings-v2-base-zh (768d, mixed Chinese-English) —
-fastembed has no bge-m3, and this jina model is purpose-built for mixed CN-EN."""
+`xar reembed` → sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 (384d,
+多语含中文,快;推荐默认)。最高质量用 intfloat/multilingual-e5-large (1024d) —— e5
+自动加 query:/passage: 前缀,但 CPU 上全库重嵌很慢。fastembed 无 bge-m3。"""
 from __future__ import annotations
 
 import threading

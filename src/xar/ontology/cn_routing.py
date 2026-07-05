@@ -10,6 +10,8 @@ polymarket._THEME_KEYWORDS、registry._TECH_ROUTE_HINTS)都是英文/ASCII,只�
 """
 from __future__ import annotations
 
+import re as _re
+
 # ── 8 主题的中文关键词 ─────────────────────────────────────────────────────────
 CN_THEME_TERMS: dict[str, tuple[str, ...]] = {
     "ai_optical": ("光模块", "光通信", "光器件", "光芯片", "硅光", "数通光模块",
@@ -71,12 +73,22 @@ CN_ROUTE_TERMS: dict[str, tuple[str, ...]] = {
 }
 
 
+def _term_matches(term: str, low: str) -> bool:
+    """CJK 术语用子串;纯 ASCII 短词(如 RAG/SiC/HBM)用词边界,避免命中 storage/basic
+    等普通英文里的子串(否则噪音文档逃过零 LLM 地板、白烧 triage 额度)。"""
+    t = term.lower()
+    if t.isascii() and _re.fullmatch(r"[a-z0-9.]+", t):
+        # \b 对含 '.' 的词(1.6t)在点处失效 → 用非字母数字/串首尾边界
+        return _re.search(rf"(?<![a-z0-9]){_re.escape(t)}(?![a-z0-9])", low) is not None
+    return t in low  # 含 CJK 或含空格的术语:子串即可
+
+
 def _hits(text: str, table: dict[str, tuple[str, ...]]) -> list[str]:
     """text 中命中任一关键词的 key(去重,保持 table 声明序)。大小写不敏感。"""
     low = (text or "").lower()
     out: list[str] = []
     for key, terms in table.items():
-        if any(t.lower() in low for t in terms):
+        if any(_term_matches(t, low) for t in terms):
             out.append(key)
     return out
 

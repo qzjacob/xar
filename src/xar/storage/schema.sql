@@ -479,8 +479,10 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS kg_extracted_at TIMESTAMPTZ;
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS triage_score REAL;
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS triaged_at   TIMESTAMPTZ;
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS triage       JSONB;
+-- triage_pending 的热查询按 ingested_at DESC 取未 triage 的微信;partial 谓词已固定
+-- source='wechat' AND triaged_at IS NULL,故索引键放 ingested_at(而非常量 source)才有用。
 CREATE INDEX IF NOT EXISTS idx_docs_triage_pending
-    ON documents(source) WHERE source='wechat' AND triaged_at IS NULL;
+    ON documents(ingested_at DESC) WHERE source='wechat' AND triaged_at IS NULL;
 
 -- 策展微信账号名册(运营方在 we-mp-rss UI 订阅后在此登记 feed_id → 主题/公司)。
 CREATE TABLE IF NOT EXISTS wechat_accounts (

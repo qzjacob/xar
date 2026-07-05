@@ -91,19 +91,34 @@ def test_noise_floor_skips_llm(wechat_docs, monkeypatch):
     assert noise_score <= 0.05 and sig_score >= 0.4
 
 
-def test_where_guards_select_correctly(wechat_docs):
-    """两条 WHERE 守卫:低分微信被排除,高分/未 triage 微信保留,非微信不受影响。"""
+def test_where_guards_select_correctly(wechat_docs, monkeypatch):
+    """用 SHIPPED 的 triage.wechat_pending_clause()(而非硬编码副本)验证守卫:
+    miner 开启 → 高分微信留、低分/未 triage 微信排除;miner 关闭 → 全放行。"""
+    from xar.mining import triage
     from xar.storage import db
 
-    # set explicit scores
     db.execute("UPDATE documents SET triage_score=0.9, triaged_at=now() WHERE id=%s",
                (wechat_docs["signal"],))
     db.execute("UPDATE documents SET triage_score=0.02, triaged_at=now() WHERE id=%s",
                (wechat_docs["noise"],))
-    deep_min = 0.4
-    guard = ("SELECT id FROM documents WHERE source='wechat' "
-             "AND (source <> 'wechat' OR triage_score IS NULL OR triage_score >= %s) "
-             "AND id = ANY(%s)")
-    kept = {r["id"] for r in db.query(guard, (deep_min, list(wechat_docs.values())))}
-    assert wechat_docs["signal"] in kept
-    assert wechat_docs["noise"] not in kept
+    # signal 有分、noise 有分、再造一篇未 triage(triage_score NULL)
+    from xar.ingestion.base import Doc, save
+    untriaged = save(Doc(company_id=None, source="wechat", doc_type="mp_article",
+                         title="未评分号", text="未评分号\n\n某些内容",
+                         permission="grey", license_tag="wechat-extracted-facts-self-use"))
+    ids = list(wechat_docs.values()) + [untriaged]
+    try:
+        monkeypatch.setattr(triage, "_deep_min", lambda: 0.4)
+        # miner 默认开启 → 守卫 = triage_score>=deep_min(未 triage 的 NULL 被排除)
+        clause = triage.wechat_pending_clause()
+        assert clause and "triage_score" in clause
+        kept = {r["id"] for r in db.query(
+            f"SELECT d.id FROM documents d WHERE d.id = ANY(%s){clause}", (ids,))}
+        assert wechat_docs["signal"] in kept          # 高分留
+        assert wechat_docs["noise"] not in kept       # 低分排除
+        assert untriaged not in kept                  # 未 triage 排除(不再绕过闸门)
+        # miner 关闭 → 守卫为空,全放行(退回旧的无差别抽取)
+        monkeypatch.setattr(triage, "wechat_pending_clause", lambda: "")
+        assert triage.wechat_pending_clause() == ""
+    finally:
+        db.execute("DELETE FROM documents WHERE id=%s", (untriaged,))
