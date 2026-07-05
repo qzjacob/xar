@@ -25,6 +25,10 @@ services:
     environment:
       XAR_DATABASE_URL: postgresql://xar:xar@db:5432/xar
       XAR_OBJECT_STORE: file:///data/objects
+    # Reach a Futu OpenD gateway running on the host (only used when XAR_ENABLE_FUTU=true
+    # + FUTU_OPEND_HOST=host.docker.internal in .env); inert otherwise.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
@@ -48,6 +52,8 @@ services:
     environment:
       XAR_DATABASE_URL: postgresql://xar:xar@db:5432/xar
       XAR_OBJECT_STORE: file:///data/objects
+    extra_hosts:                              # Futu OpenD on the host (see `app`)
+      - "host.docker.internal:host-gateway"
     volumes:
       - xar_data:/data
       - xar_models:/root/.cache

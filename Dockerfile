@@ -23,7 +23,9 @@ COPY src ./src
 # Include [market]: Yahoo/yfinance is the only no-key structured provider
 # (free global prices + fundamentals, incl. CN A-shares) and powers the backtest,
 # so it ships turnkey. Keyed providers (Finnhub/FMP/Polygon) need no extra deps.
-RUN pip install --upgrade pip && pip install ".[market]"
+# [futu]: futu-api client — inert unless XAR_ENABLE_FUTU=true + OpenD reachable
+# (point FUTU_OPEND_HOST at the host, e.g. host.docker.internal).
+RUN pip install --upgrade pip && pip install ".[market,futu]"
 
 # Pre-download the default embedding model so first run is fast/offline.
 RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5')" || true

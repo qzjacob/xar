@@ -29,7 +29,7 @@
 **蓝图之外、新增实现的能力**（详见 §2/§4/§5）：
 
 1. **结构化数据层** —— 八张表（`fundamentals/estimates/analyst_ratings/prices/insider_trades/prediction_markets/social_posts/holdings`，另有前瞻 `event_calendar`），多 provider 数据按 `source`+`as_of` 共存。
-2. **多 provider 行情/另类数据套件（共 12 个 provider）** —— Finnhub · FMP · Polygon · Yahoo(yfinance) · Wind · AIFINmarket(万得 MCP-over-HTTP) · Polymarket · X · Reddit · arXiv · Journals · **RSS（16 条精选行业源，公开无 key）**，key-gated 的缺失自动跳过（`providers.status()` 一览）。
+2. **多 provider 行情/另类数据套件（共 13 个 provider）** —— Finnhub · FMP · Polygon · Yahoo(yfinance) · Wind · AIFINmarket(万得 MCP-over-HTTP) · **Futu(富途/moomoo，本地 OpenD 网关：HK+A股+US 估值/资金流/板块)** · Polymarket · X · Reddit · arXiv · Journals · **RSS（16 条精选行业源，公开无 key）**，key/网关-gated 的缺失自动跳过（`providers.status()` 一览）。
 3. **本体标准锚定 + 规范财务词表** —— 领域本体锚定 FIBO/schema.org；`FinMetric` 规范词表统一各 provider 字段命名。
 4. **结构化→本体信号桥** —— 估计修正/内部人集群/预测市场异动蒸馏为 `kg_events` 催化剂。
 5. **微信公众号接入** —— 经 we-mp-rss 公开 feed 把公众号文章纳入非结构化→本体管线。
@@ -44,6 +44,7 @@
 14. **每日自动增量链 + Finnhub/FMP 新闻源** —— `orchestration/daily.py run_daily(stages=('pull','extract'))`：按公司分片的逐源增量 PULL（隔离失败）→ 解析/嵌入 → `build_kg` → expert → signals → `resolve_forward_claims`（extract 全局只跑一次，LLM 阶段有预算上限、廉价 DB 阶段照常跑）；`storage/runlog.py` + 新表 `ingest_runs` = run 日志 + 逐源增量游标（`last_success_ts`），幂等可续（内容哈希 + NOT-EXISTS 游标）；CLI `xar daily`。`providers/finnhub.pull_news`(+`pull_general_news`)/`providers/fmp.pull_news` 把公司新闻落 `documents`（source=finnhub/fmp，permission=grey，自用摘要、内容哈希去重），`api/ops.py` 注册 `finnhub_news` 源，`kg/expert.ALT_SOURCES` 纳入 finnhub/fmp（新闻同入 build_kg 与专家层）。
 15. **公司 360 / 投资论点层（2026-07）** —— 类型化 `CompanyThesis`（`ontology/thesis.py`，证据类型化外键 + `validate_thesis` 纪律 + conviction–证据耦合）+ 生成管线（`research/thesis.py`：dossier→build→版本化 `company_thesis`/`thesis_evidence`→零 LLM 健康度）+ **16 维覆盖度**（`ontology/coverage360.py`→`/ops/coverage`）+ **五路数据纵深**（Finnhub 财报日历/篮扫、Yahoo 纵深、EDGAR XBRL+13F、CN 补齐、RSS 框架）+ Company 360 前端；Dagster 调度改默认 RUNNING。详见 §5.9。
 16. **微信多层级挖掘系统（2026-07）** —— 在深度抽取**之前**插入一层廉价、GLM 订阅钉扎的 **SNR triage 闸**（`mining/triage.py`），把微信「值不值得深抽」的判断前移：零 LLM 中文预筛（`ontology/cn_routing.py` 8 主题 + 33 tr_\* 中文关键词，补齐此前全英文关键词表的中文缺口）→ 一次 `WECHAT_TRIAGE` 短调用 → 可审计融合 + 小作文地板 + 新颖度救回 → `documents.triage_score`；两条 NULL 安全 WHERE 守卫（`build_kg`/`expert`）按 `triage_score >= 0.4` 门控（未 triage 照旧全流，向后兼容），把「每篇微信 2 次满额 GLM、保留率 3.75%、~96% 额度烧噪音」压到高信噪比文章才耗深度额度。含 T0 论点驱动目标化（`mining/targeting.py`）+ T1 策展名册（`mining/roster.py` + `wechat_accounts`，非关键词搜索）+ 中英嵌入升级（`xar reembed`→e5-large 1024d）。详见 §5.10。
+17. **富途 OpenAPI 接入（2026-07）** —— 经本地 **OpenD 网关**（`providers/futu.py`，镜像 Wind 的本地守护进程姿态：`XAR_ENABLE_FUTU=true` + 可达 OpenD 才 arm、否则整源 graceful-skip）补齐 FMP/finnhub 缺失的 **港股 + A 股 + 美股（带中文名）广度**：市场快照→规范估值（PE/PB/市值/EPS/股息率→`FinMetric`）+ 价格 bar、`get_search_news`→`documents(source=futu, permission=grey，仅标题+链接自用)`、`get_owner_plate`→`futu_plates` 表 + `plate_theme_gaps()` 本体缺口发现器；资金流 alt-signal `alt.futu_main_capital_flow`（`providers/alt/futu_flow.py`，主力净流入，绑定任何带 HK/CN/US ticker 的公司 ~436 家）；板块→本体经 `ontology/futu_plates.py` **复用 `cn_routing`**（无新映射表）；`scripts/futu_universe_gen.py` 从主题板块生成 HK/A 股候选供**人工复核**（不自动并入，防概念板块污染本体）。详见 §5.11。
 
 ---
 
@@ -222,7 +223,7 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 
 ### 4.1 结构化 / 另类 / 前沿数据 provider（As-Built，`providers/`）
 
-> 全部 **key-gated**：缺 Key 即 `available()=False`、`pull()`/`fetch()` 返回空，**不报错**（交钥匙路径零 provider Key 也能跑）。`providers.status()` 统一上报 **11 个 key-gated provider** 状态；第 12 个 provider **`rss`** 公开无 key、恒可用（如 polymarket）。各结构化 provider 字段归一到 `FinMetric` 规范词表（§5.1），落 `fundamentals/estimates/...` 表，多源按 `source`+`as_of` 共存。
+> 全部 **key-gated**（Wind/富途为**本地网关-gated**）：缺 Key/网关即 `available()=False`、`pull()`/`fetch()` 返回空，**不报错**（交钥匙路径零 provider Key 也能跑）。`providers.status()` 统一上报 **12 个 provider** 状态；第 13 个 provider **`rss`** 公开无 key、恒可用（如 polymarket）。各结构化 provider 字段归一到 `FinMetric` 规范词表（§5.1），落 `fundamentals/estimates/...` 表，多源按 `source`+`as_of` 共存。
 
 | 类别 | provider | 取数 | 姿态/说明 |
 |---|---|---|---|
@@ -232,6 +233,7 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 | 免费全球行情+快照 | **Yahoo (yfinance)** | 全球价格(含 A 股 300308.SZ)、`.info` 基本面快照 | **无 Key**；`.[market]`；仅自用原型 |
 | CN-A 深度基本面 | **Wind 万得** | WindPy 取 A 股报表指标 | 默认关；需本地授权终端；守护降级 |
 | CN-A 专业源 | **AIFINmarket(万得)** | A 股基本面(→`FinMetric`) + 公告/资讯(→`documents`→本体) | **MCP-over-HTTP**(base url + token) 或本地 WindPy；`enable_aifinmarket` gated |
+| HK/A/US 多市场 | **Futu 富途/moomoo** | 快照估值(PE/PB/市值/EPS/股息率→`FinMetric`) + 资讯(→`documents`) + 主力资金流(→`alt.futu_main_capital_flow`) + 板块(→`futu_plates`，cn_routing 映主题) | **本地 OpenD 网关**(127.0.0.1:11111，SDK↔OpenD↔富途)；`enable_futu` gated，默认关(镜像 Wind)；详见 §5.11 |
 | 预测市场 | **Polymarket** | Gamma 公开 API：AI/算力/加速器相关市场的远期概率 | **公开无 Key**；最早的需求侧催化信号 |
 | 社媒情绪 / X 专家 | **X (Twitter)** | 经 TwitterAPI.io `advanced_search`：观察标的帖 + 前沿专家账号声音 + 轻量情绪 | 灰/自用；`TWITTERAPI_TOKEN` 或官方 `X_BEARER_TOKEN` |
 | 社媒情绪 | **Reddit** | 提及观察标的的帖子 + 轻量词典情绪打分 | 灰/自用；公开回退 |
