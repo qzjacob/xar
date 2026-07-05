@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     moonshot_sub_api_base: str = Field(default="", validation_alias="MOONSHOT_SUB_API_BASE")
 
     # --- Embeddings ---
+    # 默认英文 bge-small(turnkey);中英混合部署设 XAR_EMBED_MODEL=
+    # sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2(384d,多语含中文)
+    # 后 xar reembed 全库重嵌;最高质量可用 intfloat/multilingual-e5-large(1024d,慢)。
     embed_model: str = "BAAI/bge-small-en-v1.5"
     embed_dim: int = 384
 
