@@ -43,6 +43,7 @@
 13. **前瞻声明解析生命周期** —— `kg/resolve_claims.py resolve_forward_claims()` 闭合"预期→兑现"环：一条有方向的 `forward_looking` 催化剂在窗口内出现同公司 `backward_looking` 兑现型事件时解析为 **hit/miss**（极性一致=hit、相反=miss；按 `COALESCE(event_date, observed_at)` 定时），否则 **stale**（可复查）；**仅** mutate forward 行，经 `semantic_facts.resolution` 暴露；CLI `xar resolve-claims`（详见 §5.6）。
 14. **每日自动增量链 + Finnhub/FMP 新闻源** —— `orchestration/daily.py run_daily(stages=('pull','extract'))`：按公司分片的逐源增量 PULL（隔离失败）→ 解析/嵌入 → `build_kg` → expert → signals → `resolve_forward_claims`（extract 全局只跑一次，LLM 阶段有预算上限、廉价 DB 阶段照常跑）；`storage/runlog.py` + 新表 `ingest_runs` = run 日志 + 逐源增量游标（`last_success_ts`），幂等可续（内容哈希 + NOT-EXISTS 游标）；CLI `xar daily`。`providers/finnhub.pull_news`(+`pull_general_news`)/`providers/fmp.pull_news` 把公司新闻落 `documents`（source=finnhub/fmp，permission=grey，自用摘要、内容哈希去重），`api/ops.py` 注册 `finnhub_news` 源，`kg/expert.ALT_SOURCES` 纳入 finnhub/fmp（新闻同入 build_kg 与专家层）。
 15. **公司 360 / 投资论点层（2026-07）** —— 类型化 `CompanyThesis`（`ontology/thesis.py`，证据类型化外键 + `validate_thesis` 纪律 + conviction–证据耦合）+ 生成管线（`research/thesis.py`：dossier→build→版本化 `company_thesis`/`thesis_evidence`→零 LLM 健康度）+ **16 维覆盖度**（`ontology/coverage360.py`→`/ops/coverage`）+ **五路数据纵深**（Finnhub 财报日历/篮扫、Yahoo 纵深、EDGAR XBRL+13F、CN 补齐、RSS 框架）+ Company 360 前端；Dagster 调度改默认 RUNNING。详见 §5.9。
+16. **微信多层级挖掘系统（2026-07）** —— 在深度抽取**之前**插入一层廉价、GLM 订阅钉扎的 **SNR triage 闸**（`mining/triage.py`），把微信「值不值得深抽」的判断前移：零 LLM 中文预筛（`ontology/cn_routing.py` 8 主题 + 33 tr_\* 中文关键词，补齐此前全英文关键词表的中文缺口）→ 一次 `WECHAT_TRIAGE` 短调用 → 可审计融合 + 小作文地板 + 新颖度救回 → `documents.triage_score`；两条 NULL 安全 WHERE 守卫（`build_kg`/`expert`）按 `triage_score >= 0.4` 门控（未 triage 照旧全流，向后兼容），把「每篇微信 2 次满额 GLM、保留率 3.75%、~96% 额度烧噪音」压到高信噪比文章才耗深度额度。含 T0 论点驱动目标化（`mining/targeting.py`）+ T1 策展名册（`mining/roster.py` + `wechat_accounts`，非关键词搜索）+ 中英嵌入升级（`xar reembed`→e5-large 1024d）。详见 §5.10。
 
 ---
 
@@ -242,7 +243,7 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 
 | 类别 | 来源 | 工具 | 姿态/说明 |
 |---|---|---|---|
-| 公众号文章（国内最快非结构化情报） | 自建 [we-mp-rss](https://github.com/rachelos/we-mp-rss)（登录微信→抓订阅号→暴露公开 feed） | 连接器消费 `{base}/feed/{id}.json|.rss` 与聚合 `/rss`，**零鉴权、stdlib 解析**，无新增依赖 | **灰/自用**：落 `Doc(source=wechat, permission=grey)`，存事实+原文链接做引用、不转载；按中文别名或 `feed→company` 映射归属 |
+| 公众号文章（国内最快非结构化情报） | 自建 [we-mp-rss](https://github.com/rachelos/we-mp-rss)（登录微信→抓订阅号→暴露公开 feed） | 连接器消费 `{base}/feed/{id}.json|.rss` 与聚合 `/rss`，**零鉴权、stdlib 解析**，无新增依赖 | **灰/自用**：落 `Doc(source=wechat, permission=grey)`，存事实+原文链接做引用、不转载；按中文别名或 `feed→company` 映射归属；**抽取前经多层级 SNR triage 门控深度额度，见 §5.10** |
 
 ### 4.3 采集源（ingestion，非结构化→本体）
 
@@ -396,6 +397,23 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 
 **前端（Company 360）**：`CompanyPage` 新增 **ThesisSection**（立场/信念度/支柱带证据 chip + 证伪框 + 健康度灯、多空/风险/估值/watch 时间线/缺口/质量条 + 就地 build/rebuild）、**CoverageRing**（16 维径向环）、**CompanyDataPanels**（预期/持仓/日历面板）；`/ops/coverage` = **CoveragePage** 主题×维度热力（枚举访问 crash-proof，敌意 payload SSR 冒烟 11/11）。
 
+### 5.10 微信多层级挖掘（As-Built，2026-07，`mining/` + `ontology/cn_routing.py`）
+
+**意图**：公众号是国内产业链最快的非结构化情报源，但信噪比极低。旧管线对**每篇**微信文章无差别发**两次满额 GLM 调用**（`build_kg` + `expert`），SNR 判断在昂贵调用**内部**、事后才丢弃——实测保留率 **3.75%**、约 **96% 的 GLM 订阅额度烧在噪音上**。本模块把「值不值得深抽」的判断**前移到深度抽取之前**，插入一层廉价、GLM 订阅钉扎的 **SNR triage 闸**，形成 **T0→T4 分层**：
+
+- **T0 目标化（`mining/targeting.py`，零 LLM）**：从**被信号/事件挑战的活跃论点**（`thesis_signals.challenged_companies`）反推挖掘目标——被挑战公司优先，每个 `MiningTarget` 带中文别名、主题/技术路线、论点 `watch_event_types`/`what_to_watch` 中文盯盘项与派生的中文猎词（别名 + 主题词 + 路线词，经 `cn_routing`）。供名册采集优先级 / triage 队列重排 / ops 可见性 / 未来搜索查询源。
+- **T1 策展采集（`mining/roster.py` + `wechat_accounts` 表）**：运营方在 we-mp-rss UI 订阅垂直号后登记 `feed_id → theme/segment/company_id/tier`；`glm_worker._wechat` 逐号拉取并带公司绑定（单号失败不沉整轮），**名册空则退回聚合 `/rss`**。**决策：策展名册而非关键词搜索**——公众号搜索不可靠且会触发账号限流/封禁，故 deliberately not built。
+- **T2 抽取前 SNR 闸（`mining/triage.py`，`WechatTriage` schema）**：① **零 LLM 确定性预筛**——中文路由（theme/route）命中 / 别名命中 / 可解析到覆盖公司，**全不命中即打噪音地板分 `_NOISE_FLOOR=0.03` 并跳过 LLM**（免费滤掉盲目名册的闲聊，不耗额度）；② 幸存者 → **一次** `WECHAT_TRIAGE` 短 prompt 调用，注入命中主题/路线 + **已知 KG 摘要**（`graphrag.semantic`，供新颖度对照）+ 公司活跃论点 `watch_event_types`（支柱命中）；③ **可审计融合**：`0.35·priority + 0.25·credibility·(¬is_xiaozuowen) + 0.20·novelty + 0.20·specificity`，叠 **小作文地板**（`is_xiaozuowen ∧ credibility<0.4 → ≤0.15`）与 **novelty·specificity 救回**（`max(score, 0.55·novelty·specificity)`，补微信无阅读数、救回冷门号扎实一手信息）→ 写 `documents.triage_score/triaged_at/triage`；ingest 期 `company_id` 为空时按 triage 解析结果**回填**（`resolve` 阈值 0.62）。
+- **T3/T4 深度抽取（`kg/extract.build_kg` + `kg/expert.process`）= 原来的两次 GLM 调用**：现由**两条 NULL 安全 WHERE 守卫**（`mining.triage.wechat_pending_clause`：`d.source <> 'wechat' OR d.triage_score IS NULL OR d.triage_score >= wechat_deep_min`）门控——`triage_score >= 0.4` 才进队列，**未 triage（NULL）照旧全流、非微信短路完全不受影响**（加性、向后兼容；关 `wechat_miner_enabled` 即退回旧的无差别抽取）。
+
+**同周期排序不变量**：`glm_worker._llm_stage` 在 `llm.pinned(GLM_PIN)` 内**先 `triage_pending` 后 `build_kg`**——同一轮新拉进来的微信文档必须先打分，才能被本轮的深抽守卫正确门控。**GLM 订阅纪律**：triage 走新 `TaskClass.WECHAT_TRIAGE`（`CHEAP_BULK` + `SUBSCRIPTION` 优先，链外**永不回退计量 token**，见 §6.1），与夜间批量抽取共享同一封顶订阅池。
+
+**中文路由表（`ontology/cn_routing.py`，code-as-truth）**：此前所有关键词表（`agents/nodes._THEME_TERMS`、`providers/twitter.DOMAIN_TERMS`、`polymarket`、`registry._TECH_ROUTE_HINTS`）都是英文/ASCII，只有公司**别名**是中文——中文微信文章若不点名公司又不含英文技术词就无法路由。本表补齐这一层：**8 主题 + 33 tr_\*** 的中文关键词；`theme_hits`/`route_hits`/`route_themes` 供 T0/T2 消费；`tests/test_cn_routing.py` 断言每个 key ∈ `registry.THEMES`/合法路线（镜像 `ROUTE_THEMES` 合法性不变式，防本表与本体漂移）。
+
+**Schema（加性、幂等）**：`documents.triage_score/triaged_at/triage(JSONB)` + 部分索引 `idx_docs_triage_pending`；`wechat_accounts`（策展名册）。**Config**：`wechat_miner_enabled`（默认开）/ `wechat_deep_min=0.4` / `glm_worker_triage_docs=40`。**入口**：CLI `xar wechat-mine [--once|--stats]` · `xar wechat-account {add,list,rm}` · `xar wechat-targets`；API `GET /api/ops/wechat-mining`（triage 保留率 vs 旧 3.75% + 名册 + 猎取目标）。
+
+**中文嵌入升级**：中英混合语料（中文公众号/cninfo + 英文 filing）的检索质量可经 `xar reembed` 全库重嵌——fastembed 无 bge-m3，故升级路径为 `intfloat/multilingual-e5-large`（1024d），`models/embeddings.py` 对 e5 系列自动加 `query:`/`passage:` 不对称前缀；config 默认仍 bge-small（384d，交钥匙），部署经 `.env`（`XAR_EMBED_MODEL`/`XAR_EMBED_DIM`）切换，`reembed` 就地 ALTER `chunks` 维度 + 分批重嵌 + 重建 ANN 索引。
+
 ---
 
 ## 6. 多 Agent 报告流水线
@@ -468,14 +486,15 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 ├── .env.example                # 一个 LLM Key 必填（默认 DeepSeek V4）；其余 provider Key 全可选
 ├── src/xar/
 │   ├── config.py               # pydantic-settings（XAR_ 前缀 + provider 别名）；默认 model_fast=deepseek-v4-flash / model_strong=deepseek-v4-pro / model_effort=high
-│   ├── cli.py                  # Typer: init/ingest/ingest-wechat/parse/build-kg/report/pull/pull-rss/providers-status/backtest/eval/status/explore/serve + daily/resolve-claims + thesis(build/show/status) + andy(init/ingest/identify/evaluate/sync-events/status)
-│   ├── ontology/               # nodes/edges/catalysts + cycle(经济周期维度) + sectors + metric_packs + schema(抽取) + standards(FIBO/schema.org + FinMetric) + macro_links(【新, 2026-07】勾稽：43/43 指标↔主题/环节/技术路线 + 9 OVERCLAIM_LINKS) + thesis(【新, 2026-07】类型化 CompanyThesis + validate_thesis 纪律) + coverage360(【新, 2026-07】16 维覆盖度评分器)
-│   ├── storage/                # db(pgvector 池) + schema.sql(含 semantic_facts 视图 / kg_events 语义扩列 / ingest_runs / frontier_fronts / frontier_domain_state / company_thesis / thesis_evidence / holdings) + structured(结构化 upsert) + runlog(run 日志+游标) + objects
+│   ├── cli.py                  # Typer: init/ingest/ingest-wechat/parse/build-kg/report/pull/pull-rss/providers-status/backtest/eval/status/explore/serve + daily/resolve-claims + thesis(build/show/status) + andy(init/ingest/identify/evaluate/sync-events/status) + wechat-mine/wechat-account(add/list/rm)/wechat-targets + reembed(中英嵌入升级)
+│   ├── ontology/               # nodes/edges/catalysts + cycle(经济周期维度) + sectors + metric_packs + schema(抽取) + standards(FIBO/schema.org + FinMetric) + macro_links(【新, 2026-07】勾稽：43/43 指标↔主题/环节/技术路线 + 9 OVERCLAIM_LINKS) + thesis(【新, 2026-07】类型化 CompanyThesis + validate_thesis 纪律) + coverage360(【新, 2026-07】16 维覆盖度评分器) + cn_routing(【新, 2026-07】中文关键词→8 主题/33 tr_* 路由表, code-as-truth, 微信 triage 零 LLM 预筛)
+│   ├── storage/                # db(pgvector 池) + schema.sql(含 semantic_facts 视图 / kg_events 语义扩列 / ingest_runs / frontier_fronts / frontier_domain_state / company_thesis / thesis_evidence / holdings / documents.triage_score+triaged_at+triage / wechat_accounts) + structured(结构化 upsert) + runlog(run 日志+游标) + objects
 │   ├── ingestion/              # base + registry(8 主题/947 公司/59 细分) + universe(扩展名单，scripts/universe_build.py 生成) + edgar/cninfo/news/jobs/wechat + macro_bridge(【新, 2026-07】宏观印字/判定跃迁→kg_events(macro_print)，dedup_key 幂等) + xbrl(【新, 2026-07】EDGAR company-facts 8 季度→fundamentals) + holdings13f(【新, 2026-07】29 管理人 13F→holdings) + feeds(【新, 2026-07】16 条精选 RSS 源注册表)
 │   ├── providers/              # base + finnhub/fmp/polygon/yahoo/wind/aifinmarket + polymarket/twitter/reddit + arxiv/journals + rss(【新, 2026-07】精选行业 RSS) + sentiment（12 个 provider）
 │   ├── parsing/                # parse(分块/嵌入/索引) + tie_out(数值对账闸)
 │   ├── kg/                     # store(双时态) + resolve(实体消解) + extract(主题感知 LLM 抽取, _focus_for, 填 narrative/time_orientation/drivers) + resolve_claims(前瞻声明 hit/miss/stale) + expert(专家加工) + signals(结构化→事件) + repair(【新, 2026-07】孤儿事件重指+锚回填)
 │   ├── research/               # 【新, 2026-07】thesis(dossier→build→版本化 company_thesis/thesis_evidence + 零 LLM 健康度)
+│   ├── mining/                 # 【新, 2026-07】微信多层级挖掘：targeting(T0 论点驱动目标, 零 LLM) + roster(T1 策展名册/wechat_accounts, 名册空退回 /rss) + triage(T2 抽取前 SNR 闸→documents.triage_score + WECHAT_TRIAGE + wechat_pending_clause 两条 NULL 安全守卫)
 │   ├── chathy/                   # 【新, 2026-07】tools(工具注册表) + sessions(chat_sessions/messages) + agent(≤8 轮工具循环)——Chathy 流式工具调用分析师
 │   ├── fenny/                  # 【新, 2026-07】blotter_pg(PgBlotterStore→fenny_blotter)——Fenny Postgres blotter
 │   ├── exploration/            # 【新】domains(6 前沿领域) + ingest(arxiv/journals/voices→documents) + synthesis(研究前沿合成→frontier_fronts/_state)

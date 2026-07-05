@@ -647,9 +647,9 @@ def thesis_status() -> None:
 
 @app.command()
 def reembed(
-    model: str = typer.Option("jinaai/jina-embeddings-v2-base-zh",
-                              help="fastembed 模型名(中英混合推荐 jina-v2-base-zh)"),
-    dim: int = typer.Option(768, help="该模型维度"),
+    model: str = typer.Option("intfloat/multilingual-e5-large",
+                              help="fastembed 模型名(中英混合;e5 会自动加 query/passage 前缀)"),
+    dim: int = typer.Option(1024, help="该模型维度"),
     batch: int = typer.Option(256, help="每批 chunk 数"),
 ) -> None:
     """全库重嵌入到新模型(中文检索升级)。ALTER chunks 维度 → 分批重嵌 → 重建索引。
