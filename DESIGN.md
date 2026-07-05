@@ -416,6 +416,26 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 
 **中文嵌入升级**：中英混合语料（中文公众号/cninfo + 英文 filing）的检索质量可经 `xar reembed` 全库重嵌——fastembed 无 bge-m3，故升级路径为 `intfloat/multilingual-e5-large`（1024d），`models/embeddings.py` 对 e5 系列自动加 `query:`/`passage:` 不对称前缀；config 默认仍 bge-small（384d，交钥匙），部署经 `.env`（`XAR_EMBED_MODEL`/`XAR_EMBED_DIM`）切换，`reembed` 就地 ALTER `chunks` 维度 + 分批重嵌 + 重建 ANN 索引。
 
+### 5.11 富途 OpenAPI 接入（As-Built，2026-07，`providers/futu.py` + `providers/alt/futu_flow.py` + `ontology/futu_plates.py`）
+
+**意图**：补齐 FMP/finnhub 缺失的 **港股 + A 股 + 美股（带中文名）广度**——估值、资金流、板块/产业链分类，喂同一条 parse→embed→triage→KG 管线与 alt-signal 论点修正引擎。
+
+**本地网关姿态（镜像 Wind）**：`futu` Python SDK 只与本地 **OpenD 网关守护进程**（默认 `127.0.0.1:11111`）对话，OpenD 用账号登录、代 SDK 访问富途服务器；SDK 从不直连。**默认关**——`XAR_ENABLE_FUTU=true` + 可达 OpenD 才 arm（`_quote_ctx()` 惰性 import + 缓存持久 socket，缺 OpenD/SDK 即 graceful-skip 返回空、不报错；`available()` 以 `get_global_state()` 探活）。docker 内 OpenD 跑在宿主，故 `FUTU_OPEND_HOST=host.docker.internal`。
+
+**三个数据面（`providers/futu.py`）**：
+- **市场快照 → 规范估值 + 价格**：`get_market_snapshot` 经 `FUTU_SNAPSHOT_MAP`（`ontology/standards.py`）把 `pe_ttm_ratio`/`pb_ratio`/`total_market_val`/`earning_per_share`/`dividend_ratio_ttm` 归一到 `FinMetric`（PE/PB/MARKET_CAP/EPS_DILUTED/DIVIDEND_YIELD），落 `fundamentals(source=futu, freq=snapshot)` + 最新价格 bar 落 `prices`（按代码前缀定币种 HK→HKD / SH·SZ→CNY / US→USD）。
+- **资讯 → documents**：`get_search_news` → `Doc(source=futu, doc_type=news, permission=grey, license_tag='futu-news-extracted-facts-self-use')`，**仅标题 + 规范链接**（无正文可取，自用姿态；`futu_news_per_stock` 每股上限），经 `cn_routing.theme_hits` 从中文标题打主题标（仅填空）。
+- **板块 → 本体缺口**：`get_owner_plate` → `futu_plates` 表（公司↔板块成员 + 映射主题 + `plate_type`）；板块名（中文）经 `ontology/futu_plates.py` **直接复用 `cn_routing`**（无新建映射表，天然继承 code-as-truth 守卫：命中 key 必 ∈ `THEMES`/合法路线）映到 8 主题；`plate_theme_gaps()` = 纯 DB **本体缺口发现器**（富途板块暗示主题 vs 公司当前策展主题的差集，供 ops/复核）。
+- **ticker↔富途代码（`code_from_tickers`）**：HK 5 位零填充（`HK.00700`）、`SH.`/`SZ.`、`US.SYM`；优先 HK/CN（富途长板），回退 US；富途无法寻址的名字返回 `None`。
+
+**资金流 alt-signal（`providers/alt/futu_flow.py`）**：`alt.futu_main_capital_flow`（`ontology/altdata.py`，company-scope、daily、`good_when=rising`、支柱 demand/valuation、`min_history=10`）——主力（超大单+大单）日度净流入 = 机构资金盘面足迹。经 `altdata._futu_code`（复用 provider 的 `code_from_tickers`）**派生绑定**到任何带 HK/CN/US ticker 的公司（**~436 家**）、无需策展；主力优先 `main_in_flow`，港股常 N/A → 回退 `super_in_flow + big_in_flow`。随既有 `alt.pull_all` 节律运行（`get_capital_flow` 日度、`futu_flow_lookback_days` 窗口）。
+
+**板块→ontology 复用不变量**：富途板块名本就是中文（人工智能/芯片股/光模块/机器人概念股…），与本体中文路由表**同域**，故 `futu_plates.name_themes` 直接复用 `cn_routing` 而非另建映射表——落在 8 主题之外的板块（白酒/换电概念）空命中，合理（那些公司本不在本体范围）。
+
+**Universe 扩容（`scripts/futu_universe_gen.py`，零 LLM，仅复核）**：从主题相关板块（concept + industry across HK/SH/SZ）经 `cn_routing` 映射 → `get_plate_stock` 取成员 → `get_market_snapshot` 批量取市值/名 → 按市值排序每主题 top-N、剔除已在册 → 写 `docs/futu/futu_universe_candidates.py`（与 `universe.py` 同形）供**人工复核**。**决策：不自动并入 `COMPANIES`**——概念板块是大杂烩（"人工智能"含中国移动/顺丰），直接注入会污染本体；promote 干净子集是人工策展步骤。
+
+**接线（加性，缺 OpenD 无副作用）**：`providers._MARKET`/`status()` 纳入 futu；`orchestration/daily.py` 加 `futu` 源（`available()` gated，快照+资讯+板块）；`glm_worker._pull_fresh._futu` 每 3h 拉一个轮转切片的富途资讯（快照/板块随夜批全量）；CLI `xar futu [id] [--gaps]`；`GET /api/ops/futu`（连通/资讯/资金流/板块/本体缺口，纯 DB 不强连 OpenD）；`config.py` `futu_host/futu_port/enable_futu/futu_news_per_stock/futu_flow_lookback_days`；`pyproject` `[futu]` extra（`futu-api>=9.0`）；`schema.sql` `futu_plates` 表；`.env.example` 富途块。
+
 ---
 
 ## 6. 多 Agent 报告流水线
