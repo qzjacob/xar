@@ -121,13 +121,17 @@ MODELS: list[ModelSpec] = [
     # they sit as a peer/fallback in the STRONG chains (prefer_billing=TOKEN keeps token leads).
     # Distinct litellm_model ("anthropic-max/…") avoids colliding with the token specs' index;
     # agentsdk derives the real model id from the part after "/".
-    ModelSpec("claude-opus-max", "anthropic", "anthropic-max/claude-opus-4-8",
+    # litellm_model bare name is the registry id ('claude-opus-max'), NOT the real Anthropic
+    # model — so the PRICES/_BY_LITELLM bare-name index can't collide with (and zero the price
+    # of) the metered claude-opus-4-8/sonnet specs. agentsdk._real_model() maps id → real model.
+    # No Capability.FAST: a 6.5s subprocess must never lead the FAST chains (analyst/judge/eval).
+    ModelSpec("claude-opus-max", "anthropic", "anthropic-max/claude-opus-max",
               (Capability.STRONG, Capability.REASONING, Capability.LONG_CONTEXT),
               Billing.SUBSCRIPTION, 0.0, 0.0, context_window=200_000, supports_reasoning=True,
               released="2026-07", executor="agent_sdk",
               notes="Claude Opus 4.8 on the Max subscription via Agent SDK; host-only, usd=0"),
-    ModelSpec("claude-sonnet-max", "anthropic", "anthropic-max/claude-sonnet-4-6",
-              (Capability.STRONG, Capability.FAST, Capability.LONG_CONTEXT),
+    ModelSpec("claude-sonnet-max", "anthropic", "anthropic-max/claude-sonnet-max",
+              (Capability.STRONG, Capability.LONG_CONTEXT),
               Billing.SUBSCRIPTION, 0.0, 0.0, context_window=200_000,
               released="2026-07", executor="agent_sdk",
               notes="Claude Sonnet on the Max subscription via Agent SDK; host-only, usd=0"),

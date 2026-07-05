@@ -45,7 +45,12 @@ async def _run(req: dict) -> dict:
             result = msg
     usage = getattr(result, "usage", None) if result is not None else None
     subtype = getattr(result, "subtype", "") if result is not None else ""
-    return {"ok": True, "text": "".join(text), "usage": usage, "subtype": subtype, "error": None}
+    # A single-shot result must be `success`; an error/limit/max-turns subtype (or no
+    # ResultMessage at all) is a failed completion, not a valid one — surface it so the
+    # caller rotates to GLM instead of accepting truncated/empty text as an answer.
+    ok = subtype == "success"
+    err = None if ok else f"agent result subtype={subtype or 'none'}"
+    return {"ok": ok, "text": "".join(text), "usage": usage, "subtype": subtype, "error": err}
 
 
 def main() -> int:
