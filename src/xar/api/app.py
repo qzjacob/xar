@@ -459,6 +459,31 @@ def alt_company(cid: str):
             "pillar_scores": thesis_signals.pillar_signal_scores(cid)}
 
 
+@app.get("/api/ops/wechat-mining")
+def ops_wechat_mining():
+    """微信挖掘面板:triage 保留率(vs 旧 3.75%)+ 策展名册 + 当前猎取目标。"""
+    from ..mining import roster, targeting, triage
+
+    try:
+        tstats = triage.stats()
+    except Exception:  # noqa: BLE001
+        tstats = {}
+    try:
+        rstatus = roster.status()
+    except Exception:  # noqa: BLE001
+        rstatus = {}
+    try:
+        targets = [{"company_id": t.company_id, "name": t.name,
+                    "priority": t.priority, "themes": list(t.themes),
+                    "hunt_terms": list(t.hunt_terms_zh)[:6],
+                    "watch_event_types": list(t.watch_event_types)[:4],
+                    "challenged": bool(t.challenged_pillars)}
+                   for t in targeting.build_targets(15)]
+    except Exception:  # noqa: BLE001
+        targets = []
+    return {"triage": tstats, "roster": rstatus, "targets": targets}
+
+
 @app.get("/api/ops/altdata/trackers")
 def ops_alt_trackers():
     """alt 追踪器覆盖 + 每信号库存(ops 面板)。"""
