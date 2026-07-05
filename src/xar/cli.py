@@ -681,12 +681,21 @@ def reembed(
         return [list(map(float, v)) for v in _emb.embed(payload, batch_size=32)]
 
     total = db.query("SELECT count(*) n FROM chunks")[0]["n"]
-    print(f"[cyan]migrating[/cyan] chunks.embedding → vector({dim}); {total} rows")
-    # 维度变更:384→768 不可原位,先 drop+add(清空向量),索引随之失效
-    with db.tx() as conn:
-        conn.execute("DROP INDEX IF EXISTS idx_chunks_vec")
-        conn.execute("ALTER TABLE chunks DROP COLUMN IF EXISTS embedding")
-        conn.execute(f"ALTER TABLE chunks ADD COLUMN embedding vector({dim})")
+    # 幂等/可续:仅当现列维度 != 目标维度时才 drop+add(清空),否则续跑 WHERE NULL。
+    cur = db.query("SELECT atttypmod AS m FROM pg_attribute "
+                   "WHERE attrelid='chunks'::regclass AND attname='embedding'")
+    cur_dim = cur[0]["m"] if cur else -1  # pgvector: atttypmod == dim (-1 若无列)
+    if cur_dim != dim:
+        print(f"[cyan]migrating[/cyan] chunks.embedding {cur_dim} → vector({dim}); {total} rows "
+              "(维度变更,清空重嵌)")
+        with db.tx() as conn:
+            conn.execute("DROP INDEX IF EXISTS idx_chunks_vec")
+            conn.execute("ALTER TABLE chunks DROP COLUMN IF EXISTS embedding")
+            conn.execute(f"ALTER TABLE chunks ADD COLUMN embedding vector({dim})")
+    else:
+        remaining = db.query("SELECT count(*) n FROM chunks WHERE embedding IS NULL "
+                             "AND text IS NOT NULL")[0]["n"]
+        print(f"[cyan]resuming[/cyan] vector({dim}) already in place; {remaining}/{total} left")
     done = 0
     while True:
         rows = db.query("SELECT id, text FROM chunks WHERE embedding IS NULL "
