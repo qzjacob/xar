@@ -347,9 +347,14 @@ def llm() -> dict:
     total = (_agg("SELECT count(*) calls, COALESCE(sum(input_tokens),0) in_tok, "
                   "COALESCE(sum(output_tokens),0) out_tok, COALESCE(sum(usd),0) usd FROM llm_usage")
              or [{"calls": 0, "in_tok": 0, "out_tok": 0, "usd": 0}])[0]
+    from ..models import agentsdk
     return {
         "vendors": vendors,
         "models": models,
+        # Claude Max subscription path (agent_sdk executor). available=True only on a host
+        # with the `claude` CLI + Max login; False (e.g. docker) → those specs skip → GLM.
+        "anthropicMax": {"enabled": s.anthropic_max_enabled, "available": agentsdk.available(),
+                         "model": s.anthropic_max_model, "effort": s.anthropic_max_effort},
         "routing": {"tasks": routing_tasks, "fast": s.model_fast, "strong": s.model_strong,
                     "bulk": s.model_bulk or "(registry subscription preferred)", "effort": s.model_effort,
                     "budgetUsdPerRun": s.llm_max_usd_per_run, "budgetUsdPerBatch": s.llm_max_usd_per_batch,
