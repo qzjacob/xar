@@ -65,6 +65,12 @@ ALT_SIGNALS: tuple[AltSignalSpec, ...] = (
     _S("alt.wiki_attention", "Wikipedia pageviews", "维基注意力", "weekly",
        "views", "company", None, ("demand",), "wiki_attention",
        rationale_zh="公司词条周浏览量——大众/投资者注意力代理;方向不定(暴涨可能是丑闻)。"),
+    # ── 资金流(富途):主力/机构净流入——盘面上的"聪明钱"代理(HK/A股/US)──────────
+    _S("alt.futu_main_capital_flow", "Futu main capital net inflow", "富途主力资金净流入",
+       "daily", "HKD", "company", "rising", ("demand", "valuation"), "futu_flow",
+       min_history=10,
+       rationale_zh="富途 OpenAPI 主力(超大单+大单)日度净流入——机构资金在盘面的直接足迹,"
+                    "覆盖港股/A股/美股;主力持续净流入=需求与估值支撑的高频代理。"),
 )
 
 SIGNALS_BY_KEY: dict[str, AltSignalSpec] = {s.key: s for s in ALT_SIGNALS}
@@ -84,6 +90,7 @@ class AltBinding:
     ats: tuple[str, str] | None = None    # ("greenhouse"|"lever", org_slug)
     pypi_packages: tuple[str, ...] = ()
     npm_packages: tuple[str, ...] = ()
+    futu_code: str | None = None          # 富途代码 HK./SH./SZ./US.(派生自 ticker)
 
     def signals(self) -> tuple[str, ...]:
         out = []
@@ -97,6 +104,8 @@ class AltBinding:
             out.append("alt.hiring_velocity")
         if self.wiki_title:
             out.append("alt.wiki_attention")
+        if self.futu_code:
+            out.append("alt.futu_main_capital_flow")
         return tuple(out)
 
 
@@ -107,6 +116,13 @@ def _tw_code(c: dict) -> str | None:
             if code.isdigit():
                 return code
     return None
+
+
+def _futu_code(c: dict) -> str | None:
+    """公司 ticker → 富途代码。复用 provider 的转换器,保证绑定与查询用同一格式。"""
+    from ..providers.futu import code_from_tickers
+
+    return code_from_tickers(c.get("tickers") or [])
 
 
 def _wiki_title(c: dict) -> str | None:
@@ -138,6 +154,7 @@ def bindings() -> dict[str, AltBinding]:
             ats=tuple(cur["ats"]) if cur.get("ats") else None,  # type: ignore[arg-type]
             pypi_packages=tuple(cur.get("pypi_packages", ())),
             npm_packages=tuple(cur.get("npm_packages", ())),
+            futu_code=_futu_code(c),
         )
         if b.signals():
             out[cid] = b

@@ -49,6 +49,9 @@ dependencies = [
 cn = ["akshare>=1.14", "adata>=2.0"]
 # Free global prices + fundamentals (Yahoo) and the catalyst backtest.
 market = ["yfinance>=0.2.40"]
+# Futu / moomoo OpenAPI (HK/US/CN quotes + news + capital flow + plates). Needs a
+# local OpenD gateway; lazy-imported, OFF unless XAR_ENABLE_FUTU=true.
+futu = ["futu-api>=9.0"]
 parse-deep = ["docling>=2.0"]
 graph = ["graphiti-core>=0.3", "neo4j>=5.20"]
 orchestration = ["dagster>=1.7", "dagster-webserver>=1.7"]

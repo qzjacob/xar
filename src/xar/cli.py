@@ -211,6 +211,29 @@ def providers_status() -> None:
 
 
 @app.command()
+def futu(
+    company: str = typer.Argument(None, help="company id; omit for status + gap report"),
+    gaps: bool = typer.Option(False, "--gaps", help="show Futu-plate ontology gaps"),
+) -> None:
+    """富途 (Futu/OpenD): pull one company's snapshot+news+plates, or show status/gaps.
+    Needs XAR_ENABLE_FUTU=true + a running OpenD gateway."""
+    from .providers import futu as ft
+
+    if not ft.available():
+        print("[yellow]Futu OpenD unreachable[/yellow] — set XAR_ENABLE_FUTU=true and run OpenD "
+              "(127.0.0.1:11111).")
+        raise typer.Exit(0)
+    if company:
+        print(json.dumps(ft.pull(company), indent=2, default=str))
+    if gaps or not company:
+        rows = ft.plate_theme_gaps(limit=30)
+        t = Table("company", "futu implies", "currently curated")
+        for r in rows:
+            t.add_row(r["company_id"], ",".join(r["futu_implied"]), ",".join(r["curated"] or []))
+        print(t)
+
+
+@app.command()
 def backtest() -> None:
     """Catalyst -> forward-return signal efficacy."""
     from .backtest import backtest as bt

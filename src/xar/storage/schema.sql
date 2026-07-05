@@ -484,6 +484,19 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS triage       JSONB;
 CREATE INDEX IF NOT EXISTS idx_docs_triage_pending
     ON documents(ingested_at DESC) WHERE source='wechat' AND triaged_at IS NULL;
 
+-- 富途板块成员(公司 ↔ 富途 板块/产业链;theme = 该板块名经 cn_routing 映射到的本体主题)。
+-- 富途行业分类的事实副本,加性;不覆盖策展的 companies.themes(re-seed 会重写 meta)。
+CREATE TABLE IF NOT EXISTS futu_plates (
+    company_id  TEXT REFERENCES companies(id) ON DELETE CASCADE,
+    plate_id    TEXT,
+    plate_name  TEXT,
+    plate_type  TEXT,                          -- INDUSTRY | CONCEPT | REGION | OTHER
+    themes      TEXT[] NOT NULL DEFAULT '{}',  -- cn_routing.theme_hits(plate_name)
+    observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (company_id, plate_id)
+);
+CREATE INDEX IF NOT EXISTS idx_futu_plates_themes ON futu_plates USING gin(themes);
+
 -- 策展微信账号名册(运营方在 we-mp-rss UI 订阅后在此登记 feed_id → 主题/公司)。
 CREATE TABLE IF NOT EXISTS wechat_accounts (
     feed_id    TEXT PRIMARY KEY,
