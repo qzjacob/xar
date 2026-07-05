@@ -646,6 +646,61 @@ def thesis_status() -> None:
 
 
 @app.command()
+def reembed(
+    model: str = typer.Option("jinaai/jina-embeddings-v2-base-zh",
+                              help="fastembed 模型名(中英混合推荐 jina-v2-base-zh)"),
+    dim: int = typer.Option(768, help="该模型维度"),
+    batch: int = typer.Option(256, help="每批 chunk 数"),
+) -> None:
+    """全库重嵌入到新模型(中文检索升级)。ALTER chunks 维度 → 分批重嵌 → 重建索引。
+    完成后请把 XAR_EMBED_MODEL/XAR_EMBED_DIM 写入 .env 并重启,使查询侧用同一模型。
+    ~15 万 chunk 计算重(数十分钟);像回填一样可安全中断续跑(已嵌入的 dim 对不上会全表重来,
+    故建议一次跑完)。"""
+    import os
+
+    from .config import get_settings
+    from .models import embeddings
+    from .storage import db
+
+    # 强制本进程用新模型(含 e5 前缀逻辑),与查询侧一致
+    os.environ["XAR_EMBED_MODEL"] = model
+    os.environ["XAR_EMBED_DIM"] = str(dim)
+    get_settings.cache_clear()
+    embeddings._model.cache_clear()
+    print(f"[cyan]loading[/cyan] {model} (dim={dim})…")
+
+    def _vecs(texts: list[str]) -> list[list[float]]:
+        return embeddings.embed_documents(texts)
+
+    total = db.query("SELECT count(*) n FROM chunks")[0]["n"]
+    print(f"[cyan]migrating[/cyan] chunks.embedding → vector({dim}); {total} rows")
+    # 维度变更:384→768 不可原位,先 drop+add(清空向量),索引随之失效
+    with db.tx() as conn:
+        conn.execute("DROP INDEX IF EXISTS idx_chunks_vec")
+        conn.execute("ALTER TABLE chunks DROP COLUMN IF EXISTS embedding")
+        conn.execute(f"ALTER TABLE chunks ADD COLUMN embedding vector({dim})")
+    done = 0
+    while True:
+        rows = db.query("SELECT id, text FROM chunks WHERE embedding IS NULL "
+                        "AND text IS NOT NULL ORDER BY id LIMIT %s", (batch,))
+        if not rows:
+            break
+        vecs = _vecs([r["text"] for r in rows])
+        with db.tx() as conn:
+            for r, v in zip(rows, vecs):
+                conn.execute("UPDATE chunks SET embedding=%s::vector WHERE id=%s",
+                             (str(v), r["id"]))
+        done += len(rows)
+        if done % (batch * 8) == 0 or not rows:
+            print(f"  re-embedded {done}/{total}", flush=True)
+    print(f"[green]re-embedded {done} chunks[/green]; rebuilding ANN index…")
+    from .storage import db as _db
+    _db.ensure_vector_index()
+    print(f"[green]✓ reembed done[/green]  →  在 .env 设 XAR_EMBED_MODEL={model} "
+          f"XAR_EMBED_DIM={dim} 并重启应用/worker")
+
+
+@app.command()
 def serve(host: str = "0.0.0.0", port: int = 8000) -> None:
     """Run the web UI + API."""
     import uvicorn
