@@ -1,7 +1,10 @@
 """Embeddings via fastembed (ONNX, CPU — no GPU, no extra service).
 
-Pluggable: set XAR_EMBED_MODEL / XAR_EMBED_DIM. Defaults to bge-small (384d,
-fast turnkey); set BAAI/bge-m3 (1024d) for best Chinese+English quality."""
+Pluggable: set XAR_EMBED_MODEL / XAR_EMBED_DIM. Defaults to bge-small-en (384d,
+fast turnkey). For a bilingual corpus (Chinese WeChat/cninfo + English filings) run
+`xar reembed` → sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 (384d,
+多语含中文,快;推荐默认)。最高质量用 intfloat/multilingual-e5-large (1024d) —— e5
+自动加 query:/passage: 前缀,但 CPU 上全库重嵌很慢。fastembed 无 bge-m3。"""
 from __future__ import annotations
 
 import threading
@@ -23,12 +26,21 @@ def _model():
     return TextEmbedding(model_name=s.embed_model)
 
 
+def _is_e5() -> bool:
+    """e5 系列(如 intfloat/multilingual-e5-large)必须给文档/查询加不对称前缀,
+    否则检索质量大幅下降。"""
+    return "e5" in get_settings().embed_model.lower()
+
+
 def embed_documents(texts: list[str]) -> list[list[float]]:
     if not texts:
         return []
+    payload = [f"passage: {t}" for t in texts] if _is_e5() else texts
     with _LOCK:  # fastembed model is not guaranteed thread-safe
-        return [list(map(float, v)) for v in _model().embed(texts)]
+        return [list(map(float, v)) for v in _model().embed(payload)]
 
 
 def embed_query(text: str) -> list[float]:
-    return embed_documents([text])[0]
+    payload = f"query: {text}" if _is_e5() else text
+    with _LOCK:
+        return list(map(float, next(iter(_model().embed([payload])))))

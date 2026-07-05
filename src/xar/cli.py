@@ -445,6 +445,77 @@ def glm_worker_probe() -> None:
 
 
 # ── 投资论点(CompanyThesis)────────────────────────────────────────────────────
+# ── 微信多层级挖掘(mining/)────────────────────────────────────────────────────
+wechat_app = typer.Typer(add_completion=False, help="微信策展账号名册 + 挖掘目标")
+app.add_typer(wechat_app, name="wechat-account")
+
+
+@wechat_app.command("add")
+def wechat_account_add(
+    feed_id: str, name: str = typer.Option(""), theme: str = typer.Option(None),
+    company: str = typer.Option(None, help="绑定公司 id"), tier: int = typer.Option(2),
+) -> None:
+    """登记一个策展公众号 feed_id(先在 we-mp-rss UI 订阅该号)。"""
+    from .mining import roster
+
+    roster.register(feed_id, name=name, theme=theme, company_id=company, tier=tier)
+    print(f"[green]registered[/green] {feed_id}")
+
+
+@wechat_app.command("list")
+def wechat_account_list() -> None:
+    """列出策展名册。"""
+    from .mining import roster
+
+    t = Table("feed_id", "name", "theme", "company", "tier")
+    for r in roster.active_feeds():
+        t.add_row(r["feed_id"], r.get("name") or "", r.get("theme") or "",
+                  r.get("company_id") or "", str(r.get("tier")))
+    print(t)
+    print(json.dumps(roster.status(), ensure_ascii=False))
+
+
+@wechat_app.command("rm")
+def wechat_account_rm(feed_id: str) -> None:
+    from .mining import roster
+
+    roster.deactivate(feed_id)
+    print(f"[yellow]deactivated[/yellow] {feed_id}")
+
+
+@app.command("wechat-targets")
+def wechat_targets(limit: int = typer.Option(20)) -> None:
+    """当前挖掘目标(被挑战论点优先)+ 中文猎词。"""
+    from .mining import targeting
+
+    targets = targeting.build_targets(limit)
+    for t in targets:
+        flag = "🔴" if t.priority >= 1.0 else "  "
+        print(f"{flag} {t.company_id:16} {t.name[:24]:24} watch={list(t.watch_event_types)[:3]} "
+              f"猎词={list(t.hunt_terms_zh)[:4]}")
+
+
+@app.command("wechat-mine")
+def wechat_mine(
+    once: bool = typer.Option(False, "--once", help="triage 一批待处理微信文档并打印统计"),
+    limit: int = typer.Option(40, help="本批 triage 的文档数"),
+    stats_only: bool = typer.Option(False, "--stats", help="只打印 triage 库总览"),
+) -> None:
+    """微信 SNR triage:给待抽取的微信文档打 triage_score(GLM 钉扎、订阅计费)。
+    高分文档才进深度抽取队列;--stats 看保留率(对比旧的 3.75%)。"""
+    from .mining import triage
+    from .models import llm
+    from .orchestration.glm_worker import GLM_PIN
+
+    if stats_only:
+        print(json.dumps(triage.stats(), ensure_ascii=False, indent=2, default=str))
+        return
+    with llm.pinned(GLM_PIN):
+        out = triage.triage_pending(limit=limit)
+    print(json.dumps(out, ensure_ascii=False, indent=2))
+    print(json.dumps(triage.stats(), ensure_ascii=False, indent=2, default=str))
+
+
 # ── 另类数据追踪(alt-data)────────────────────────────────────────────────────
 alt_app = typer.Typer(add_completion=False,
                       help="另类数据:追踪器拉取 / 阈值信号→事件 / 论点信号快照")
@@ -572,6 +643,105 @@ def thesis_status() -> None:
                       "ORDER BY company_id, version DESC) x GROUP BY stance"):
         t.add_row(f"stance {r['stance']}", str(r["count"]))
     print(t)
+
+
+@app.command()
+def reembed(
+    model: str = typer.Option("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                              help="fastembed 模型名(默认多语 MiniLM 384d,快;中英混合"
+                                   "最高质量用 intfloat/multilingual-e5-large --dim 1024,CPU 上慢)"),
+    dim: int = typer.Option(384, help="该模型维度(必须与 --model 一致)"),
+    batch: int = typer.Option(256, help="每批 chunk 数"),
+    max_seconds: int = typer.Option(0, help="到时干净退出并提交进度(0=跑到完;配合续跑分片推进)"),
+) -> None:
+    """全库重嵌入到新模型(中文检索升级)。ALTER chunks 维度 → 分批重嵌 → 重建索引。
+    完成后请把 XAR_EMBED_MODEL/XAR_EMBED_DIM 写入 .env 并重启,使查询侧用同一模型。
+    可中断续跑(维度或模型变更 → 全表清空重嵌;否则续跑 WHERE NULL;--max-seconds 分片)。
+    注意:维度/模型变更会 DROP+ADD embedding 列,重嵌期间(可能数十分钟~数小时)向量检索返回空
+    —— 建议先停 app/glmworker 或择低峰,跑完设 .env 再一并重启。"""
+    import os
+
+    from .config import get_settings
+    from .models import embeddings
+    from .storage import db
+
+    # 强制本进程用新模型(含 e5 前缀逻辑),与查询侧一致
+    os.environ["XAR_EMBED_MODEL"] = model
+    os.environ["XAR_EMBED_DIM"] = str(dim)
+    get_settings.cache_clear()
+    print(f"[cyan]loading[/cyan] {model} (dim={dim})…")
+    _ = embeddings  # noqa: F401 — 保证 env 覆盖前模块已导入
+
+    from fastembed import TextEmbedding
+
+    # 单进程 + ONNX 全线程(threads=0=全部核):模型常驻,forward 多线程,
+    # 避免 parallel= 每次 embed() 重建进程池/重载模型的巨大开销。
+    _emb = TextEmbedding(model_name=model, threads=0)
+    _is_e5 = "e5" in model.lower()
+
+    def _vecs(texts: list[str]) -> list[list[float]]:
+        payload = [f"passage: {t}" for t in texts] if _is_e5 else texts
+        return [list(map(float, v)) for v in _emb.embed(payload, batch_size=32)]
+
+    from .storage.kvstate import get_state, save_state
+
+    total = db.query("SELECT count(*) n FROM chunks")[0]["n"]
+    cur = db.query("SELECT atttypmod AS m FROM pg_attribute "
+                   "WHERE attrelid='chunks'::regclass AND attname='embedding'")
+    cur_dim = cur[0]["m"] if cur else -1  # pgvector: atttypmod == dim (-1 若无列)
+    stored_model = get_state("embed").get("model")
+    # 清空重嵌的触发:维度变更 **或** 同维换模型(否则 resume 只填 NULL=0 行,
+    # 库里留旧模型向量,查询侧却用新模型 → 两个不兼容向量空间静默混用)。
+    needs_full = cur_dim != dim or (stored_model not in (None, model))
+    if needs_full:
+        print(f"[cyan]migrating[/cyan] chunks.embedding {cur_dim}→{dim} model "
+              f"{stored_model}→{model}; {total} rows (清空重嵌)")
+        with db.tx() as conn:
+            conn.execute("DROP INDEX IF EXISTS idx_chunks_vec")
+            conn.execute("ALTER TABLE chunks DROP COLUMN IF EXISTS embedding")
+            conn.execute(f"ALTER TABLE chunks ADD COLUMN embedding vector({dim})")
+    else:
+        remaining = db.query("SELECT count(*) n FROM chunks WHERE embedding IS NULL "
+                             "AND text IS NOT NULL")[0]["n"]
+        print(f"[cyan]resuming[/cyan] {model} vector({dim}); {remaining}/{total} left")
+    save_state("embed", {"model": model, "dim": dim})  # 供下次 resume/换模型判定
+    import time as _time
+
+    started = _time.monotonic()
+    done = 0
+    hit_deadline = False
+    while True:
+        rows = db.query("SELECT id, text FROM chunks WHERE embedding IS NULL "
+                        "AND text IS NOT NULL ORDER BY id LIMIT %s", (batch,))
+        if not rows:
+            break
+        vecs = _vecs([r["text"] for r in rows])
+        with db.tx() as conn:
+            for r, v in zip(rows, vecs):
+                conn.execute("UPDATE chunks SET embedding=%s::vector WHERE id=%s",
+                             (str(v), r["id"]))
+        done += len(rows)
+        if done % (batch * 4) == 0:
+            print(f"  re-embedded {done}/{total}", flush=True)
+        if max_seconds and _time.monotonic() - started >= max_seconds:
+            hit_deadline = True
+            break
+    from .storage import db as _db
+
+    if hit_deadline:
+        left = db.query("SELECT count(*) n FROM chunks WHERE embedding IS NULL "
+                        "AND text IS NOT NULL")[0]["n"]
+        if left == 0:                       # 恰好在本片补齐 → 补建索引(dim-change 已 DROP)
+            _db.ensure_vector_index()
+            print("[green]✓ reembed done[/green](末片)re-embedded 全部;索引已重建。")
+        else:
+            print(f"[yellow]时间片到[/yellow] 本片 {done} 块;剩 {left} 块,再次运行同命令续跑"
+                  f"(全部完成后自动重建 ANN 索引)。")
+        raise typer.Exit(0)
+    print(f"[green]re-embedded {done} chunks[/green]; rebuilding ANN index…")
+    _db.ensure_vector_index()
+    print(f"[green]✓ reembed done[/green]  →  在 .env 设 XAR_EMBED_MODEL={model} "
+          f"XAR_EMBED_DIM={dim} 并重启应用/worker")
 
 
 @app.command()

@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     moonshot_sub_api_base: str = Field(default="", validation_alias="MOONSHOT_SUB_API_BASE")
 
     # --- Embeddings ---
+    # 默认英文 bge-small(turnkey);中英混合部署设 XAR_EMBED_MODEL=
+    # sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2(384d,多语含中文)
+    # 后 xar reembed 全库重嵌;最高质量可用 intfloat/multilingual-e5-large(1024d,慢)。
     embed_model: str = "BAAI/bge-small-en-v1.5"
     embed_dim: int = 384
 
@@ -115,6 +118,10 @@ class Settings(BaseSettings):
     glm_worker_backfill_units: int = 4     # (company,source,year) history units per cycle
     glm_worker_alt_limit: int = 120        # alt-tracker company slice per cycle (wiki/github pacing)
     glm_worker_thesis_rebuilds: int = 2    # signal-challenged theses rebuilt per cycle (LLM)
+    # --- 微信多层级挖掘系统 (mining/) ---
+    wechat_miner_enabled: bool = True      # T2 triage 预筛闸门(关闭=退回旧的无差别抽取)
+    wechat_deep_min: float = 0.4           # triage_score >= 此值才进深度抽取(精度优先)
+    glm_worker_triage_docs: int = 40       # 每轮 triage 的微信文档数(短 prompt,便宜)
 
     # --- Posture / politeness ---
     data_posture: str = "self_use"

@@ -41,6 +41,7 @@ class TaskClass(str, Enum):
     ADHOC_STRONG = "adhoc_strong"  # default for tier="strong"
     CHAT = "chat"                 # Chathy: interactive tool-calling chat (strong, token)
     THESIS = "thesis"             # bulk: company-thesis generation (research/thesis.py)
+    WECHAT_TRIAGE = "wechat_triage"  # bulk: cheap pre-extraction SNR triage (mining/triage.py)
 
 
 @dataclass(frozen=True)
@@ -71,6 +72,8 @@ POLICIES: dict[TaskClass, RoutePolicy] = {
     # 947-name thesis batch → subscription-first bounded cost, same shape as KG_EXTRACT;
     # flagship names get a separate EDITOR-tier quality pass in research/thesis.py.
     TaskClass.THESIS:       RoutePolicy(Capability.CHEAP_BULK, Billing.SUBSCRIPTION.value, "bulk"),
+    # 微信 triage 是抽取前的廉价预筛(短 prompt),与 EXPERT 同策略:订阅池优先、成本有界。
+    TaskClass.WECHAT_TRIAGE: RoutePolicy(Capability.CHEAP_BULK, Billing.SUBSCRIPTION.value, "bulk"),
 }
 
 
