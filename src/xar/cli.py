@@ -667,10 +667,18 @@ def reembed(
     os.environ["XAR_EMBED_DIM"] = str(dim)
     get_settings.cache_clear()
     embeddings._model.cache_clear()
-    print(f"[cyan]loading[/cyan] {model} (dim={dim})…")
+    print(f"[cyan]loading[/cyan] {model} (dim={dim}, multi-core)…")
+
+    from fastembed import TextEmbedding
+
+    # 单进程 + ONNX 全线程(threads=0=全部核):模型常驻,forward 多线程,
+    # 避免 parallel= 每次 embed() 重建进程池/重载模型的巨大开销。
+    _emb = TextEmbedding(model_name=model, threads=0)
+    _is_e5 = "e5" in model.lower()
 
     def _vecs(texts: list[str]) -> list[list[float]]:
-        return embeddings.embed_documents(texts)
+        payload = [f"passage: {t}" for t in texts] if _is_e5 else texts
+        return [list(map(float, v)) for v in _emb.embed(payload, batch_size=32)]
 
     total = db.query("SELECT count(*) n FROM chunks")[0]["n"]
     print(f"[cyan]migrating[/cyan] chunks.embedding → vector({dim}); {total} rows")
