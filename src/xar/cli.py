@@ -445,6 +445,28 @@ def glm_worker_probe() -> None:
 
 
 # ── 投资论点(CompanyThesis)────────────────────────────────────────────────────
+# ── 微信多层级挖掘(mining/)────────────────────────────────────────────────────
+@app.command("wechat-mine")
+def wechat_mine(
+    once: bool = typer.Option(False, "--once", help="triage 一批待处理微信文档并打印统计"),
+    limit: int = typer.Option(40, help="本批 triage 的文档数"),
+    stats_only: bool = typer.Option(False, "--stats", help="只打印 triage 库总览"),
+) -> None:
+    """微信 SNR triage:给待抽取的微信文档打 triage_score(GLM 钉扎、订阅计费)。
+    高分文档才进深度抽取队列;--stats 看保留率(对比旧的 3.75%)。"""
+    from .mining import triage
+    from .models import llm
+    from .orchestration.glm_worker import GLM_PIN
+
+    if stats_only:
+        print(json.dumps(triage.stats(), ensure_ascii=False, indent=2, default=str))
+        return
+    with llm.pinned(GLM_PIN):
+        out = triage.triage_pending(limit=limit)
+    print(json.dumps(out, ensure_ascii=False, indent=2))
+    print(json.dumps(triage.stats(), ensure_ascii=False, indent=2, default=str))
+
+
 # ── 另类数据追踪(alt-data)────────────────────────────────────────────────────
 alt_app = typer.Typer(add_completion=False,
                       help="另类数据:追踪器拉取 / 阈值信号→事件 / 论点信号快照")
