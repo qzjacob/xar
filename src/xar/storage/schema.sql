@@ -475,6 +475,24 @@ CREATE INDEX IF NOT EXISTS idx_ingest_runs_started ON ingest_runs(started_at DES
 -- KG 抽取尝试戳:build_kg 每次尝试后盖戳(含零产出/毒文档),pending 口径即
 -- kg_extracted_at IS NULL —— 取代 kg_edges/kg_events 反连接(见 kg/extract.py)。
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS kg_extracted_at TIMESTAMPTZ;
+-- 微信挖掘 SNR 闸门:triage_score(NULL=未 triage,向后兼容);低分微信不进深度抽取队列。
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS triage_score REAL;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS triaged_at   TIMESTAMPTZ;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS triage       JSONB;
+CREATE INDEX IF NOT EXISTS idx_docs_triage_pending
+    ON documents(source) WHERE source='wechat' AND triaged_at IS NULL;
+
+-- 策展微信账号名册(运营方在 we-mp-rss UI 订阅后在此登记 feed_id → 主题/公司)。
+CREATE TABLE IF NOT EXISTS wechat_accounts (
+    feed_id    TEXT PRIMARY KEY,
+    name       TEXT,
+    theme      TEXT,
+    segment    TEXT,
+    company_id TEXT REFERENCES companies(id) ON DELETE SET NULL,
+    tier       INT NOT NULL DEFAULT 2,        -- 1=核心垂直号 2=一般
+    active     BOOLEAN NOT NULL DEFAULT TRUE,
+    added_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 -- 迁移回填(幂等):已产出过边/事件的文档视为已抽取
 UPDATE documents SET kg_extracted_at = now()
  WHERE kg_extracted_at IS NULL
