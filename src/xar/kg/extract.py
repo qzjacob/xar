@@ -229,8 +229,9 @@ def build_kg(limit: int | None = None, run_id: str | None = None) -> dict:
              "WHEN 'social' THEN 1 ELSE 3 END")
     # pending = 未盖戳(kg_extracted_at):每次尝试后盖戳(含零产出与毒文档),
     # 取代旧的 kg_edges/kg_events 反连接 —— 零产出文档不再被永久重抽。
+    from ..mining.triage import wechat_pending_clause
     sql = f"""SELECT d.id FROM documents d
-              WHERE d.permission <> 'red' AND d.kg_extracted_at IS NULL
+              WHERE d.permission <> 'red' AND d.kg_extracted_at IS NULL{wechat_pending_clause()}
               ORDER BY {order}, d.published_at DESC NULLS LAST"""
     if limit:
         sql += f" LIMIT {int(limit)}"

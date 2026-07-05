@@ -188,13 +188,19 @@ def _llm_stage(batch_docs: int, q: dict) -> tuple[dict, dict]:
     """钉扎 GLM 的抽取批次:KG 语义抽取 + 专家洞见。build_kg 逐文档容错(毒文档
     盖戳跳过),但额度类错误(RateLimitError)与预算帽(BudgetExceeded)会中止
     整批上抛到这里 —— 额度错在此定性并翻转状态。"""
+    from ..config import get_settings
     from ..kg import expert
     from ..kg import extract as kg_extract
+    from ..mining import triage
 
     out: dict = {}
     run_id = llm.new_batch_run_id("kg")
     try:
         with llm.pinned(GLM_PIN):
+            # T2:微信 SNR triage 必须在 build_kg 之前(同周期新拉的微信文档先打分,
+            # 再由两条 WHERE 守卫筛队列 —— 消除"先抽后筛"的竞态与额度浪费)。
+            out["triage"] = triage.triage_pending(
+                limit=get_settings().glm_worker_triage_docs, run_id=run_id)
             out["kg"] = kg_extract.build_kg(limit=batch_docs, run_id=run_id)
             out["expert"] = expert.process(limit=max(batch_docs // 2, 5), run_id=run_id)
     except Exception as e:  # noqa: BLE001

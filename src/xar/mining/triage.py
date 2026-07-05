@@ -183,6 +183,13 @@ def _store(doc_id: str, score: float, verdict: dict, *, company_id: str | None,
          company_id, theme, None, doc_id))
 
 
+def wechat_pending_clause() -> str:
+    """深度抽取队列的 NULL 安全 WHERE 守卫片段:未 triage(NULL)照常流、低分微信排除、
+    非微信短路不受影响。deep_min 是可信 config 浮点,直接内联(无用户输入)。"""
+    return (f" AND (d.source <> 'wechat' OR d.triage_score IS NULL "
+            f"OR d.triage_score >= {float(_deep_min()):.4f})")
+
+
 def triage_pending(limit: int = 40, *, run_id: str | None = None) -> dict:
     """triage 尚未 triage 的微信文档(每轮 glm_worker 调用)。"""
     from ..config import get_settings
