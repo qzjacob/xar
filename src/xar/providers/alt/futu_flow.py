@@ -49,10 +49,14 @@ def _ccy(code: str) -> str:
     return "USD"
 
 
-def pull(limit: int | None = None) -> dict:
-    """拉取绑定公司的主力资金日度净流入,写 company-scope 信号。``limit`` = 本轮最多
-    处理的公司数(节流);None = 全量。返回统计。"""
-    from ..futu import _quote_ctx
+def pull(limit: int | None = None, *, days: int | None = None) -> dict:
+    """拉取绑定公司的主力资金日度净流入,写 company-scope 信号。``limit`` = 本轮最多处理的
+    公司数(轮转游标,跨轮覆盖全部);None = 全量。``days`` = 回看窗口(默认近 7 天;显式传
+    futu_flow_lookback_days 做一次性回填)。返回统计。"""
+    import time
+
+    from ...storage.kvstate import get_state, save_state
+    from ..futu import _quote_ctx, close
 
     ctx = _quote_ctx()
     if ctx is None:
@@ -62,18 +66,41 @@ def pull(limit: int | None = None) -> dict:
     spec = SIGNALS_BY_KEY[_KEY]
     bound = [(cid, b.futu_code) for cid, b in bindings().items() if b.futu_code]
     s = get_settings()
-    start = (date.today() - timedelta(days=s.futu_flow_lookback_days)).isoformat()
+    # Routine window = a SHORT recent span, not the full lookback: capital flow for a settled
+    # past day never changes, and upsert_signal bumps observed_at=now() on conflict, so
+    # re-writing 90 days every run would corrupt the PIT knowledge-time of frozen days. Recent
+    # days are still mutable; older history accumulates naturally as the daily cycle advances.
+    # Pass days=futu_flow_lookback_days explicitly for a one-off backfill.
+    win = days if days is not None else min(s.futu_flow_lookback_days, 7)
+    start = (date.today() - timedelta(days=win)).isoformat()
     end = date.today().isoformat()
     stats: dict = {"bound_companies": len(bound), "companies": set(),
                    "rows": 0, "failed": 0}
-    todo = bound[: limit] if limit else bound
-    for cid, code in todo:
+    # Rotating cursor: under a per-cycle `limit`, cover ALL ~436 companies across successive
+    # runs (a plain bound[:limit] would only ever refresh the first N). Full run (limit=None)
+    # ignores the cursor.
+    if limit and bound:
+        off = int(get_state("cursor").get("futu_flow", 0)) % len(bound)
+        todo = bound[off:off + limit]
+        cur = get_state("cursor")
+        cur["futu_flow"] = (off + len(todo)) % len(bound)
+        save_state("cursor", cur)
+    else:
+        todo = bound
+    for i, (cid, code) in enumerate(todo):
+        if i:
+            time.sleep(0.35)                 # throttle: stay under OpenD's request-frequency cap
         try:
             r, df = ctx.get_capital_flow(code, period_type=PeriodType.DAY,
                                          start=start, end=end)
-        except Exception as e:  # noqa: BLE001 — 单公司失败不沉整篮
+        except Exception as e:  # noqa: BLE001 — 单公司失败不沉整篮;掉线则弃缓存以便下轮重建
             stats["failed"] += 1
-            log.warning("futu_flow %s: %s", code, str(e)[:100])
+            _ctx_err = str(e)[:100]
+            log.warning("futu_flow %s: %s", code, _ctx_err)
+            close()                          # likely a dropped socket → drop cached ctx (self-heal)
+            ctx = _quote_ctx()
+            if ctx is None:
+                break
             continue
         if r != RET_OK or df is None or not len(df):
             continue

@@ -188,7 +188,9 @@ def _pull_fresh() -> dict:
         if not futu.available():
             return {"skipped": "futu OpenD unavailable"}
         n = get_settings().glm_worker_alt_limit
-        ids = [c["id"] for c in COMPANIES if futu.futu_code(c["id"])]
+        # code_from_tickers(c["tickers"]) directly — futu_code(c["id"]) re-scans all COMPANIES
+        # via company_by_id per company (O(n²) over ~1000 names).
+        ids = [c["id"] for c in COMPANIES if futu.code_from_tickers(c.get("tickers"))]
         if not ids:
             return {"skipped": "no futu-addressable companies"}
         off = int(get_state("cursor").get("futu", 0)) % len(ids)

@@ -350,7 +350,9 @@ def ops_sources() -> dict:
 
 @app.get("/api/ops/futu")
 def ops_futu() -> dict:
-    """富途接入总览:连通性、资讯/资金流/板块覆盖、本体缺口(纯 DB,不强连 OpenD)。"""
+    """富途接入总览:资讯/资金流/板块覆盖 + 本体缺口(DB),外加一次 OpenD 连通性探测
+    (opend_reachable=futu.available() —— enable_futu 时会连一次 OpenD 并缓存连接;
+    管理页,低频)。"""
     from ..config import get_settings
     from ..ontology.altdata import bindings
     from ..providers import futu

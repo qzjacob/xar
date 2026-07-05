@@ -60,6 +60,14 @@ def close() -> None:
             _CTX = None
 
 
+def _ctx_error(label: str, e: Exception) -> None:
+    """An OpenD call raised — most often a dropped socket. Log + drop the cached context so
+    the NEXT call rebuilds a fresh one, instead of reusing a dead connection forever (the
+    alt/futu_flow path never calls available(), so it can't self-heal otherwise)."""
+    log.warning("futu %s (%s): %s", label, type(e).__name__, str(e)[:120])
+    close()
+
+
 def available() -> bool:
     ctx = _quote_ctx()
     if ctx is None:
@@ -82,15 +90,15 @@ def futu_code(company_id: str) -> str | None:
     c = company_by_id(company_id)
     if not c:
         return None
-    return code_from_tickers(c.get("tickers", []))
+    return code_from_tickers(c.get("tickers") or [])   # None-safe (mirror altdata._futu_code)
 
 
-def code_from_tickers(tickers: list[str]) -> str | None:
+def code_from_tickers(tickers: list[str] | None) -> str | None:
     # Prefer HK/CN (Futu's edge); fall back to US so the provider can enrich US too.
+    tickers = tickers or []
     for t in tickers:
         if t.endswith(".HK"):
-            num = t.split(".")[0].lstrip("0") or "0"
-            return f"HK.{int(num):05d}"
+            return f"HK.{int(t.split('.')[0]):05d}"      # int() already drops leading zeros
         if t.endswith((".SS", ".SH")):
             return f"SH.{t.split('.')[0]}"
         if t.endswith(".SZ"):
@@ -123,27 +131,37 @@ def pull_snapshot(company_id: str) -> int:
 
         r, df = ctx.get_market_snapshot([code])
     except Exception as e:  # noqa: BLE001
-        log.warning("futu snapshot %s: %s", code, str(e)[:120])
+        _ctx_error(f"snapshot {code}", e)
         return 0
     if r != RET_OK or df is None or not len(df):
         return 0
     row = df.iloc[0]
     ccy = "HKD" if code.startswith("HK.") else "CNY" if code.startswith(("SH.", "SZ.")) else "USD"
+    from ..ontology.standards import FinMetric
+
     n = 0
     for field, canon in FUTU_SNAPSHOT_MAP.items():
         val = _num(row.get(field))
         if val is None:
             continue
+        # Futu dividend_ratio_ttm is a PERCENT (e.g. 1.23 = 1.23%); the DIVIDEND_YIELD
+        # convention (yahoo/fmp) is a fraction — normalize /100 to be comparable by source.
+        if canon == FinMetric.DIVIDEND_YIELD.value:
+            val = val / 100.0
         unit = "ratio" if canon in RATIO_METRICS else ccy
         structured.upsert_fundamental(company_id, canon, val, period="snapshot",
                                       freq="snapshot", unit=unit, source="futu",
                                       meta={"code": code, "as_of": str(row.get("update_time"))})
         n += 1
-    # latest price bar (idempotent on ticker,d,source)
+    # latest price bar — key by the REGISTRY ticker (like yahoo/fmp/polygon), not the Futu
+    # code, so a company's price series isn't split across '0700.HK' and 'HK.00700'.
     last = _num(row.get("last_price"))
     d = _snap_date(row.get("update_time"))
     if last is not None and d:
-        structured.upsert_prices(company_id, code, [{
+        c = company_by_id(company_id)
+        reg_ticker = next((t for t in (c.get("tickers") or []) if code_from_tickers([t]) == code),
+                          code) if c else code
+        structured.upsert_prices(company_id, reg_ticker, [{
             "d": d, "open": _num(row.get("open_price")), "high": _num(row.get("high_price")),
             "low": _num(row.get("low_price")), "close": last, "volume": _num(row.get("volume")),
         }], source="futu")
@@ -175,16 +193,26 @@ def _parse_news_time(raw) -> str | None:
                                    ("%m-%d", False, False),
                                    ("%m/%d", False, False),
                                    ("%H:%M", False, True)):
+        # Parse no-year dates against a leap placeholder (2000) so a bare '02-29'/'2/29'
+        # doesn't ValueError on strptime's non-leap 1900 default and get silently dropped.
+        parse_s, parse_fmt = (f"2000 {s}", f"%Y {fmt}") if (not has_year and not is_time) else (s, fmt)
         try:
-            t = datetime.strptime(s, fmt)
+            t = datetime.strptime(parse_s, parse_fmt)
         except ValueError:
             continue
         if is_time:
-            t = t.replace(year=now.year, month=now.month, day=now.day)
-        elif not has_year:
-            t = t.replace(year=now.year)
-            if t > now:                       # 'M/D' in the future → it's last year's
-                t = t.replace(year=now.year - 1)
+            return t.replace(year=now.year, month=now.month, day=now.day).isoformat(sep=" ")
+        if not has_year:
+            # Assign the most recent past year that yields a valid date (Feb-29 only exists in
+            # leap years) and is not in the future.
+            for yr in (now.year, now.year - 1, now.year - 2, now.year - 3):
+                try:
+                    cand = t.replace(year=yr)
+                except ValueError:           # Feb-29 in a non-leap candidate year
+                    continue
+                if cand <= now:
+                    return cand.isoformat(sep=" ")
+            return None
         return t.isoformat(sep=" ")
     return None
 
@@ -280,11 +308,15 @@ def plate_theme_gaps(limit: int = 50) -> list[dict]:
              JOIN companies c ON c.id = fp.company_id
             WHERE NOT (t = ANY(c.themes))
             GROUP BY fp.company_id, c.themes
-            LIMIT %s""", (limit,))
+            ORDER BY fp.company_id
+            LIMIT %s""", (limit,))          # deterministic subset (LIMIT without ORDER BY = arbitrary)
 
 
 def pull(company_id: str) -> dict:
-    if not available():
+    # No available() probe here: the per-pull sub-calls already no-op when _quote_ctx() is
+    # None, and the batch drivers (daily 'futu', glm_worker) gate the whole loop on available()
+    # once — re-probing get_global_state() per company is a redundant OpenD round-trip.
+    if _quote_ctx() is None:
         return {}
     out = {"snapshot_metrics": pull_snapshot(company_id), "news": pull_news(company_id),
            "plates": pull_plates(company_id)}
