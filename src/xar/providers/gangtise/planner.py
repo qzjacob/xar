@@ -78,9 +78,9 @@ def fresh_sweep() -> dict:
         out["clues"] = {"targets": len(clue["targets"]), "counts": clue["counts"]}
     except Exception as e:  # noqa: BLE001
         out["clues"] = {"error": str(e)[:120]}
-    # ② 全局研报 + 纪要日期窗扫
-    out["broker"] = insight.pull_broker_reports(start_ms=start_ms, end_ms=end_ms,
-                                                max_pages=s.gangtise_insight_pages)
+    # ② 券商研报按核心公司拉(真机:全局 feed 的 securityList 为空,须 securities 过滤);纪要全局扫
+    out["broker"] = insight.pull_broker_reports_for(core_list(), start_ms=start_ms, end_ms=end_ms,
+                                                    max_pages=s.gangtise_insight_pages)
     out["minutes"] = insight.pull_minutes(start_ms=start_ms, end_ms=end_ms,
                                           max_pages=s.gangtise_insight_pages)
     # ③ 核心公司最新季度 MD&A
@@ -140,7 +140,12 @@ def backfill_step(units: int = 2) -> dict:
             active = [x for x in active if not st["exhausted"].get(x)]
             continue
         start_ms, end_ms = _month_window(mo)
-        pull = insight.pull_broker_reports if dt == "broker_report" else insight.pull_minutes
+        # 券商研报按核心公司拉(真机:全局 feed securityList 为空);纪要全局扫。
+        if dt == "broker_report":
+            def pull(**kw):
+                return insight.pull_broker_reports_for(core_list(), **kw)
+        else:
+            pull = insight.pull_minutes
         errored = False
         try:
             r = pull(start_ms=start_ms, end_ms=end_ms, max_pages=s.gangtise_insight_pages)

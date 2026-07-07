@@ -40,7 +40,7 @@ SUMMARY_LIST_URL = f"{_INSIGHT}/summary/v2/getList"
 CHIEF_OPINION_URL = f"{_INSIGHT}/chief-opinion/getList"
 MGMT_DISCUSS_ANN_URL = f"{_AI}/management_discuss/from-announcement"
 MGMT_DISCUSS_EC_URL = f"{_AI}/management_discuss/from-earningsCall"
-SECURITY_CLUE_URL = f"{_AI}/agent/security_clue"
+SECURITY_CLUE_URL = f"{_AI}/security-clue/getList"    # 真机核实:非 /agent/security_clue
 
 _LOCK = threading.Lock()
 _TOK: dict = {}          # {token, uid, tenant, product, at}

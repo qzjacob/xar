@@ -37,11 +37,11 @@ def test_month_window_newest_first():
 
 def test_backfill_empty_window_exhausts(monkeypatch):
     monkeypatch.setattr(planner.insight.client, "available", lambda: True)
-    monkeypatch.setattr(planner.insight, "pull_broker_reports",
-                        lambda **kw: {"saved": 0, "seen": 0})       # 恒空窗
+    monkeypatch.setattr(planner.insight, "pull_broker_reports_for",
+                        lambda cids, **kw: {"saved": 0, "seen": 0})   # 恒空窗
     monkeypatch.setattr(planner.insight, "pull_minutes", lambda **kw: {"saved": 0, "seen": 0})
     monkeypatch.setattr(planner.insight, "pull_mgmt_discussion", lambda cid, rd: 0)
-    monkeypatch.setattr(planner, "core_set", lambda: set())
+    monkeypatch.setattr(planner, "core_list", lambda: [])
     for _ in range(6):                   # 跑几轮 → 连续空窗应盖 exhausted
         planner.backfill_step(units=2)
     st = planner.backfill_status()
@@ -53,11 +53,11 @@ def test_backfill_empty_window_exhausts(monkeypatch):
 def test_backfill_poison_unit_survives(monkeypatch):
     monkeypatch.setattr(planner.insight.client, "available", lambda: True)
 
-    def boom(**kw):
+    def boom(cids, **kw):
         raise RuntimeError("api down")
-    monkeypatch.setattr(planner.insight, "pull_broker_reports", boom)
+    monkeypatch.setattr(planner.insight, "pull_broker_reports_for", boom)
     monkeypatch.setattr(planner.insight, "pull_minutes", lambda **kw: {"saved": 1})
     monkeypatch.setattr(planner.insight, "pull_mgmt_discussion", lambda cid, rd: 0)
-    monkeypatch.setattr(planner, "core_set", lambda: set())
+    monkeypatch.setattr(planner, "core_list", lambda: [])
     out = planner.backfill_step(units=2)          # 不抛
     assert "list_units" in out

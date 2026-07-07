@@ -136,7 +136,38 @@ def pull_broker_reports(*, start_ms: int, end_ms: int, max_pages: int = 2) -> di
                             "targetPrice": r.get("targetPrice") or r.get("target")})
                 saved += 1
     out = {"seen": seen, "saved": saved}
-    log.info("gangtise broker-reports: %s", out)
+    log.info("gangtise broker-reports(global): %s", out)
+    return out
+
+
+def pull_broker_reports_for(cids, *, start_ms: int, end_ms: int, max_pages: int = 1) -> dict:
+    """按公司拉券商研报(真机:broker-report/getList 用 securities 过滤才返回公司研报,
+    且响应 securityList 为空 → 直接归属被查询公司 cid,不依赖反解)。"""
+    from .__init__ import gts_code
+    seen = saved = 0
+    for cid in cids:
+        code = gts_code(cid)
+        if not code:
+            continue
+        payload = {"securities": [code], "startDate": _ymd(start_ms), "endDate": _ymd(end_ms),
+                   "keyword": "", "categoryList": [], "ratingList": []}
+        for page in client.pages(client.BROKER_REPORT_LIST_URL, payload, max_pages=max_pages):
+            for r in page:
+                seen += 1
+                vid = str(r.get("reportId") or r.get("id") or "")
+                if not vid:
+                    continue
+                pub = _pub(r.get("publishTime") or r.get("reportDate"))
+                title, brief = str(r.get("title") or ""), str(r.get("brief") or r.get("summary") or "")
+                _save(doc_type="broker_report", vendor_id=f"{vid}:{cid}", cid=cid, title=title,
+                      text=(title + "\n" + brief).strip(), pub=pub,
+                      meta={"reportId": vid, "publisher": r.get("publisher"),
+                            "category": r.get("category"), "llmTagList": r.get("llmTagList"),
+                            "rating": r.get("rating"), "ratingChange": r.get("ratingChange"),
+                            "targetPrice": r.get("targetPrice") or r.get("target")})
+                saved += 1
+    out = {"seen": seen, "saved": saved, "companies": len(list(cids))}
+    log.info("gangtise broker-reports(by-company): %s", out)
     return out
 
 
@@ -198,10 +229,10 @@ def pull_mgmt_discussion(company_id: str, report_date: str) -> int:
 
 
 # ── 投研线索(变更雷达,不落库)───────────────────────────────────────────────────
-def pull_clues(*, start_ms: int, end_ms: int, securities: list[str] | None = None) -> dict:
-    payload = {"queryMode": "bySecurity" if securities else "byIndustry",
-               "securities": securities or ["all"], "pageFrom": 0, "pageSize": 500,
-               "startTime": start_ms, "endTime": end_ms,
+def pull_clues(*, start_ms: int, end_ms: int, gts_codes: list[str] | None = None) -> dict:
+    # 真机字段:gtsCodeList / from / size(非 securities/pageFrom/pageSize);URL security-clue/getList。
+    payload = {"queryMode": "bySecurity", "gtsCodeList": gts_codes or ["all"],
+               "from": 0, "size": 500, "startTime": start_ms, "endTime": end_ms,
                "source": ["researchReport", "conference", "announcement", "view"]}
     data = client.post(client.SECURITY_CLUE_URL, payload)
     rows = client.rows(data) or ((data or {}).get("list") or [])

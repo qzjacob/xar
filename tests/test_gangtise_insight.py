@@ -51,6 +51,7 @@ def _clean(seeded_db):
     def wipe():
         db.execute("DELETE FROM documents WHERE source='gangtise' AND id LIKE 'gangtise:%%test%%'")
         db.execute("DELETE FROM documents WHERE id IN ('gangtise:report:RT1:innolight',"
+                   "'gangtise:report:RTF1:innolight',"
                    "'gangtise:summary:ST1:innolight','gangtise:summary:SE1:innolight')")
         db.execute("DELETE FROM analyst_ratings WHERE company_id=%s AND source='gangtise' "
                    "AND as_of >= '2099-01-01'", (_CID,))
@@ -70,6 +71,19 @@ def test_pull_broker_reports_saves_doc(_clean, monkeypatch):
                  "WHERE id='gangtise:report:RT1:innolight'")
     assert d and d[0]["company_id"] == _CID and d[0]["doc_type"] == "broker_report"
     assert "1.6T" in d[0]["text"]
+
+
+def test_pull_broker_reports_for_attributes_to_queried_company(_clean, monkeypatch):
+    # 真机:broker feed 的 securityList 为空 → 按公司查时直接归属被查询 cid(不靠反解)
+    row = {"reportId": "RTF1", "title": "中际旭创点评", "brief": "1.6T", "publishTime": _MS,
+           "securityList": [], "rating": "增持", "targetPrice": 200}
+    monkeypatch.setattr(client, "pages", _page([row]))
+    monkeypatch.setattr("xar.providers.gangtise.gts_code",
+                        lambda cid: "300308.SZ" if cid == _CID else None)
+    out = insight.pull_broker_reports_for([_CID], start_ms=_MS - 10**8, end_ms=_MS)
+    assert out["saved"] == 1
+    d = db.query("SELECT company_id, doc_type FROM documents WHERE id='gangtise:report:RTF1:innolight'")
+    assert d and d[0]["company_id"] == _CID and d[0]["doc_type"] == "broker_report"
 
 
 def test_non_covered_report_skipped(_clean, monkeypatch):
