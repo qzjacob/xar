@@ -224,9 +224,11 @@ def build_kg(limit: int | None = None, run_id: str | None = None) -> dict:
     sources (8-K, announcements, news) before bulk filings."""
     run_id = run_id or llm.new_batch_run_id("kg")  # so the batch budget cap applies
     store.bootstrap_seed()
+    # gangtise 研报/纪要按 research_docs 注册优先级升到 1(与 cninfo/news 平级),非注册类型留 3。
+    from ..ontology.research_docs import kg_priority_case
     order = ("CASE source WHEN 'edgar' THEN (CASE WHEN doc_type='8-K' THEN 0 ELSE 2 END) "
              "WHEN 'cninfo' THEN 1 WHEN 'news' THEN 1 WHEN 'wechat' THEN 1 "
-             "WHEN 'social' THEN 1 ELSE 3 END")
+             f"WHEN 'social' THEN 1 WHEN 'gangtise' THEN ({kg_priority_case()}) ELSE 3 END")
     # pending = 未盖戳(kg_extracted_at):每次尝试后盖戳(含零产出与毒文档),
     # 取代旧的 kg_edges/kg_events 反连接 —— 零产出文档不再被永久重抽。
     from ..mining.triage import wechat_pending_clause

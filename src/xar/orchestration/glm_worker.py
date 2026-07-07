@@ -213,10 +213,14 @@ def _pull_fresh() -> dict:
 
         if not gangtise.available():
             return {"skipped": "gangtise disabled"}
-        # CN universe = A-share tickers OR region==CN (matches what gts_code() can resolve).
-        cn = [c["id"] for c in COMPANIES
-              if c.get("region") == "CN"
-              or any(str(t).endswith((".SS", ".SH", ".SZ")) for t in (c.get("tickers") or []))]
+        # 核心公司优先序(种子∩CN → 覆盖度 → 注册表);游标是偏移量,名单日内稳定。
+        try:
+            from ..providers.gangtise import planner
+            cn = planner.cn_priority_order()
+        except Exception:  # noqa: BLE001 —— 规划器不可用时退回注册表原序
+            cn = [c["id"] for c in COMPANIES
+                  if c.get("region") == "CN"
+                  or any(str(t).endswith((".SS", ".SH", ".SZ")) for t in (c.get("tickers") or []))]
         if not cn:
             return {"skipped": "no CN names"}
         limit = min(get_settings().glm_worker_gangtise_limit, len(cn))
@@ -234,6 +238,36 @@ def _pull_fresh() -> dict:
         save_state("cursor", cur)
         return {"attempted": len(todo), "ok": ok, "off": off}
 
+    def _gangtise_insight():
+        # 非标语义抓取(券商研报/纪要/MD&A)——核心优先 + 每日刷新;零 LLM。
+        from ..providers.gangtise import planner
+        return planner.fresh_sweep()
+
+    def _gangtise_backfill():
+        from ..config import get_settings
+        from ..providers.gangtise import planner
+        return planner.backfill_step(get_settings().gangtise_backfill_units)
+
+    def _wind_edb():
+        from ..ingestion import alt
+        return alt.pull_source("wind_edb")
+
+    def _aifin_theme():
+        # 修 pull_theme_news 孤儿:遍历主题拉行业资讯(company_id=None)。
+        from ..ingestion.registry import THEMES
+        from ..providers import aifinmarket
+        if not aifinmarket.available():
+            return {"skipped": "aifinmarket disabled"}
+        n = 0
+        for tid, t in THEMES.items():
+            try:
+                n += aifinmarket.pull_theme_news(f"{t.get('nameCn') or tid} 产业链 业绩 需求")
+            except Exception as e:  # noqa: BLE001
+                log.warning("aifin theme %s: %s", tid, str(e)[:120])
+        return {"themes": len(THEMES), "docs": n}
+
+    from ..config import get_settings
+    s = get_settings()
     _run("twitter", 3600, _twitter)
     _run("wechat", 3600, _wechat)
     _run("finnhub_news", 4 * 3600, _finnhub)
@@ -241,6 +275,10 @@ def _pull_fresh() -> dict:
     _run("alt", 6 * 3600, _alt)
     _run("futu_news", 3 * 3600, _futu)
     _run("gangtise", 12 * 3600, _gangtise)
+    _run("gangtise_insight", s.gangtise_insight_hours * 3600, _gangtise_insight)
+    _run("gangtise_backfill", 6 * 3600, _gangtise_backfill)
+    _run("wind_edb", 24 * 3600, _wind_edb)
+    _run("aifinmarket_theme", 24 * 3600, _aifin_theme)
     return out
 
 
@@ -362,6 +400,17 @@ def run_once(*, batch_docs: int | None = None, backfill_units: int | None = None
 
     # 另类数据高频校正闭环(零 LLM 的信号→事件 每轮做;论点重建仅在额度 ok 时)
     out["alt_correct"] = _alt_correction(q, s.glm_worker_thesis_rebuilds)
+
+    # 独立抓取审计(每日):TaskClass.AUDIT 强 token 模型,**在 pinned 与 quota 门之外**——
+    # 验收模型 ≠ 生产 GLM,GLM 耗尽也不影响审计(独立性的另一半)。
+    if _due("research_audit", 24 * 3600):
+        try:
+            from ..orchestration import research_audit
+            out["research_audit"] = research_audit.run_audit()
+            _stamp("research_audit", 24 * 3600, ok=True)
+        except Exception as e:  # noqa: BLE001
+            out["research_audit"] = {"error": str(e)[:160]}
+            _stamp("research_audit", 24 * 3600, ok=False)
 
     counters = get_state("counters")
     counters["cycles"] = int(counters.get("cycles", 0)) + 1

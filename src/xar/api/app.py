@@ -518,6 +518,25 @@ def ops_wechat_mining():
     return {"triage": tstats, "roster": rstatus, "targets": targets}
 
 
+@app.get("/api/ops/research-crawl")
+def ops_research_crawl():
+    """CN 非标语义抓取面板:各 doc_type 完整性 + 最近独立审计 + 回填态。"""
+    from ..orchestration import research_audit
+    from ..providers.gangtise import planner
+    from ..storage import kvstate
+
+    try:
+        integrity = research_audit.integrity_report()
+    except Exception as e:  # noqa: BLE001
+        integrity = {"error": str(e)[:160]}
+    try:
+        backfill = planner.backfill_status()
+    except Exception:  # noqa: BLE001
+        backfill = {}
+    return {"integrity": integrity, "backfill": backfill,
+            "lastAudit": kvstate.get_state("research_audit")}
+
+
 @app.get("/api/ops/altdata/trackers")
 def ops_alt_trackers():
     """alt 追踪器覆盖 + 每信号库存(ops 面板)。"""

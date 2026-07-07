@@ -104,6 +104,13 @@ class Settings(BaseSettings):
     gts_secret_key: str = Field(default="", validation_alias="GTS_SECRET_KEY")
     enable_gangtise: bool = False
     gangtise_forecast_years: int = 3       # analyst-consensus fiscal-year horizon to pull
+    # 非标语义抓取(open-insight 研报/纪要 + MD&A;保守只存摘要,零下载信用)
+    gangtise_insight_pages: int = 2        # list 端点每次翻页数(页≤50)
+    gangtise_insight_hours: int = 24       # fresh_sweep 节拍(每日刷新)
+    gangtise_backfill_units: int = 2       # 每轮回填的 (doc_type,月窗) 单元数
+    gangtise_history_months: int = 12      # 研报/纪要回填目标深度(受账户可见窗自适应)
+    gangtise_history_quarters: int = 8     # MD&A 历史季度深度(不受账户窗限制)
+    gangtise_core_size: int = 30           # 核心公司数(种子∩CN ∪ 覆盖度 top-N)
 
     # --- AIFINmarket (万得终端) — CN A-share professional source ---------------
     # REST gateway to a Wind/AIFINmarket terminal (base url + token); or set

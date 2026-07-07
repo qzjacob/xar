@@ -43,6 +43,7 @@ class TaskClass(str, Enum):
     THESIS = "thesis"             # bulk: company-thesis generation (research/thesis.py)
     WECHAT_TRIAGE = "wechat_triage"  # bulk: cheap pre-extraction SNR triage (mining/triage.py)
     THESIS_LINK = "thesis_link"   # bulk: claim-relative evidence→debate/pillar classification
+    AUDIT = "audit"               # single, strong TOKEN — INDEPENDENT crawl/archival verifier
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,8 @@ POLICIES: dict[TaskClass, RoutePolicy] = {
     TaskClass.WECHAT_TRIAGE: RoutePolicy(Capability.CHEAP_BULK, Billing.SUBSCRIPTION.value, "bulk"),
     # 证据→争论/支柱的相对主张分类(短 prompt、每公司一批),与 EXPERT/THESIS 同策略:订阅池优先。
     TaskClass.THESIS_LINK:  RoutePolicy(Capability.CHEAP_BULK, Billing.SUBSCRIPTION.value, "bulk"),
+    # 独立抓取审计:强 TOKEN 模型 —— 刻意**不落 GLM 订阅池**,验收模型≠生产模型,量小成本有界。
+    TaskClass.AUDIT:        RoutePolicy(Capability.STRONG, Billing.TOKEN.value, "normal"),
 }
 
 

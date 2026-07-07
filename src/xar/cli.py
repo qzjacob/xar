@@ -764,6 +764,52 @@ def thesis_status() -> None:
     print(t)
 
 
+research_app = typer.Typer(add_completion=False,
+                           help="CN 非标语义抓取:券商研报/纪要/MD&A 抓取 + 回填 + 独立审计")
+app.add_typer(research_app, name="research")
+
+
+@research_app.command("crawl")
+def research_crawl() -> None:
+    """跑一次每日增量抓取(clue 雷达 + 研报/纪要日期窗扫 + 核心 MD&A + 评级第二遍)。"""
+    from .providers.gangtise import planner
+
+    print(json.dumps(planner.fresh_sweep(), ensure_ascii=False, indent=2, default=str))
+
+
+@research_app.command("backfill")
+def research_backfill(
+    units: int = typer.Option(2, help="本次回填的 (doc_type,月窗) 单元数"),
+    reset: bool = typer.Option(False, "--reset", help="清游标/exhausted 戳,从最新月重新向深挖"),
+) -> None:
+    """历史回填一步(月窗最新先行,自适应空窗停机;MD&A 走季度序)。"""
+    from .providers.gangtise import planner
+
+    if reset:
+        planner.reset_backfill()
+    print(json.dumps({"step": planner.backfill_step(units), "status": planner.backfill_status()},
+                     ensure_ascii=False, indent=2, default=str))
+
+
+@research_app.command("audit")
+def research_audit_cmd(no_llm: bool = typer.Option(False, "--no-llm", help="只跑零 LLM 完整性对账")) -> None:
+    """独立审计:完整性对账 + (可选)强 token 模型抽样复核 → 失败重排队。"""
+    from .orchestration import research_audit
+
+    print(json.dumps(research_audit.run_audit(no_llm=no_llm), ensure_ascii=False, indent=2, default=str))
+
+
+@research_app.command("status")
+def research_status() -> None:
+    """非标语义抓取库总览:各 doc_type 计数 + 回填态 + EDB 新鲜度。"""
+    from .orchestration import research_audit
+    from .providers.gangtise import planner
+
+    print(json.dumps({"integrity": research_audit.integrity_report(),
+                      "backfill": planner.backfill_status()},
+                     ensure_ascii=False, indent=2, default=str))
+
+
 indicators_app = typer.Typer(add_completion=False,
                              help="衍生追踪指标:从 fundamentals 计算同比/增速二阶导/趋势(零 LLM)")
 app.add_typer(indicators_app, name="indicators")

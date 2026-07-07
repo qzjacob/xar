@@ -42,9 +42,14 @@ class Doc:
     license_tag: str | None = None
     raw: bytes | None = None   # original artifact -> object store
     meta: dict = field(default_factory=dict)
+    doc_id: str | None = None  # explicit stable id for sources with a native primary key
+                               # (e.g. gangtise summaryId/reportId) — lets a brief→full body
+                               # update land on the SAME row instead of forking a new hash id.
 
     @property
     def id(self) -> str:
+        if self.doc_id:
+            return self.doc_id
         basis = (self.url or "") + (self.title or "") + (self.text[:200] if self.text else "")
         return f"{self.source}:{hashlib.sha256(basis.encode()).hexdigest()[:20]}"
 

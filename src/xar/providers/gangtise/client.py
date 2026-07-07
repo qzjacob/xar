@@ -33,6 +33,15 @@ MAIN_BUSINESS_URL = f"{_FUND}/main-business"
 TOP_HOLDERS_URL = f"{_FUND}/capital-structure/top-holders"
 AGENT_URL = f"{_AI}/agent"                                          # + /one-pager|/investment-logic|/peer-comparison
 
+# ── open-insight 非标语义域(券商研报 / 会议·业绩会·专家纪要 / 首席观点)+ MD&A + 线索 ──
+_INSIGHT = "https://openapi.gangtise.com/application/open-insight"
+BROKER_REPORT_LIST_URL = f"{_INSIGHT}/broker-report/getList"
+SUMMARY_LIST_URL = f"{_INSIGHT}/summary/v2/getList"
+CHIEF_OPINION_URL = f"{_INSIGHT}/chief-opinion/getList"
+MGMT_DISCUSS_ANN_URL = f"{_AI}/management_discuss/from-announcement"
+MGMT_DISCUSS_EC_URL = f"{_AI}/management_discuss/from-earningsCall"
+SECURITY_CLUE_URL = f"{_AI}/agent/security_clue"
+
 _LOCK = threading.Lock()
 _TOK: dict = {}          # {token, uid, tenant, product, at}
 _TOKEN_TTL = 50 * 60     # pre-emptive refresh; post() also re-auths on a 1008 (real expiry)
@@ -122,6 +131,23 @@ def rows(data: dict | None) -> list[dict]:
         elif isinstance(row, (list, tuple)) and fields:
             out.append(dict(zip(fields, row)))
     return out
+
+
+def pages(url: str, payload: dict, *, page_size: int = 50, max_pages: int = 2):
+    """按 from/size 翻页,逐页 yield 行列表(最多 max_pages 页)。空页或不足一页即停。
+
+    open-insight list 端点用 from/size 分页(页 ≤50,默认帽 100)。行结构可能是
+    {fieldList,list}(经 rows() 拉平)或直接 {list:[dicts]}——两者都容忍。"""
+    for i in range(max_pages):
+        data = post(url, {**payload, "from": i * page_size, "size": page_size})
+        rs = rows(data)
+        if not rs and isinstance(data, dict):
+            rs = [r for r in (data.get("list") or []) if isinstance(r, dict)]
+        if not rs:
+            return
+        yield rs
+        if len(rs) < page_size:
+            return
 
 
 def resolve_security(keyword: str) -> str | None:

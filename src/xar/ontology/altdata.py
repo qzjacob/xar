@@ -71,6 +71,28 @@ ALT_SIGNALS: tuple[AltSignalSpec, ...] = (
        min_history=10,
        rationale_zh="富途 OpenAPI 主力(超大单+大单)日度净流入——机构资金在盘面的直接足迹,"
                     "覆盖港股/A股/美股;主力持续净流入=需求与估值支撑的高频代理。"),
+    # ── 数据追踪:Wind EDB 宏观/行业指标时序(theme 级需求真值;固定问题见 wind_edb.EDB_QUESTIONS)──
+    _S("alt.edb_semi_sales", "Global semiconductor sales", "全球半导体月度销售额", "monthly",
+       "USD", "theme", "rising", ("demand", "cyclical"), "wind_edb", themes=("ai_chip",),
+       rationale_zh="WSTS/SIA 全球半导体销售额——AI 芯片链总需求的权威月频刻度。"),
+    _S("alt.edb_ic_output", "China IC output", "中国集成电路产量当月值", "monthly",
+       "亿块", "theme", "rising", ("demand", "supply_chain"), "wind_edb", themes=("ai_chip",),
+       rationale_zh="国家统计局集成电路产量当月值——国产芯片产能与需求的实体刻度。"),
+    _S("alt.edb_optical_export", "China optical device export", "中国光电子器件出口金额", "monthly",
+       "USD", "theme", "rising", ("demand", "cyclical"), "wind_edb", themes=("ai_optical",),
+       rationale_zh="海关光电子器件出口——光模块链外需景气的月频代理。"),
+    _S("alt.edb_robot_output", "China industrial robot output", "工业机器人产量当月值", "monthly",
+       "台", "theme", "rising", ("demand",), "wind_edb", themes=("humanoid_robotics",),
+       rationale_zh="国统局工业机器人产量当月值——本体/零部件链需求的实体刻度。"),
+    _S("alt.edb_catering", "China catering retail", "社零餐饮收入当月值", "monthly",
+       "亿元", "theme", "rising", ("demand", "cyclical"), "wind_edb", themes=("restaurants",),
+       rationale_zh="社会消费品零售总额:餐饮收入当月值——餐饮链需求周期的官方月频刻度。"),
+    _S("alt.edb_retail_total", "China retail sales YoY", "社零总额当月同比", "monthly",
+       "%", "theme", "rising", ("demand", "cyclical"), "wind_edb", themes=("retail",),
+       rationale_zh="社会消费品零售总额当月同比——线下零售链需求的宏观刻度。"),
+    _S("alt.edb_online_retail", "China online physical retail YoY", "实物商品网上零售额累计同比",
+       "monthly", "%", "theme", "rising", ("demand",), "wind_edb", themes=("internet",),
+       rationale_zh="实物商品网上零售额累计同比——电商/互联网平台 GMV 的宏观刻度。"),
 )
 
 SIGNALS_BY_KEY: dict[str, AltSignalSpec] = {s.key: s for s in ALT_SIGNALS}
