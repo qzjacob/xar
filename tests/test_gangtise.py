@@ -154,7 +154,11 @@ def test_pull_research_saves_docs(monkeypatch):
 
 
 def test_available_is_cheap_config_check(monkeypatch):
-    # available() must NOT hit the network — it's a pure enable+keys probe. Disabled by default.
+    # available() must NOT hit the network — it's a pure enable+keys probe. Force-disable so the
+    # test is deterministic regardless of an ambient armed .env (XAR_ENABLE_GANGTISE on the host).
+    from xar.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "enable_gangtise", False, raising=False)
     monkeypatch.setattr(g.client, "_auth",
                         lambda force=False: pytest.fail("available() must not call _auth"))
     assert g.available() is False

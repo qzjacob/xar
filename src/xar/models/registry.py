@@ -68,7 +68,7 @@ class ModelSpec:
     preferred: bool = False        # the chosen model for its (provider, primary capability)
     released: str = ""             # ISO date — audit + 换代 ordering
     notes: str = ""
-    executor: str = "litellm"      # "litellm" (HTTP) | "agent_sdk" (Claude Max via Agent SDK)
+    executor: str = "litellm"      # "litellm" (HTTP) | "agent_sdk" (Claude Max) | "codex_cli" (ChatGPT/Codex sub)
 
 
 # --- Providers -------------------------------------------------------------
@@ -135,6 +135,21 @@ MODELS: list[ModelSpec] = [
               Billing.SUBSCRIPTION, 0.0, 0.0, context_window=200_000,
               released="2026-07", executor="agent_sdk",
               notes="Claude Sonnet on the Max subscription via Agent SDK; host-only, usd=0"),
+    # OpenAI — CHATGPT/CODEX SUBSCRIPTION via the Codex CLI (executor="codex_cli").
+    # Single-shot completions via `codex exec` on the ChatGPT Plus/Pro OAuth (~/.codex/auth.json),
+    # zero per-token bill — same "subscription, never metered" discipline as Claude-Max. A peer
+    # candidate in the STRONG/REASONING chains (deep-research tasks) alongside claude-opus-max;
+    # prefer_billing=TOKEN keeps token models leading, so it sits as a subscription peer/fallback
+    # (pin CODEX_PIN to force it). Host-only + OFF by default (codex_enabled; ToS-sensitive) →
+    # codex_cli.available() gates it, docker/undialed falls back to GLM/DeepSeek. No Capability.FAST:
+    # a slow subprocess must never lead the FAST chains. litellm_model bare name = registry id
+    # ('codex-sub'), NOT the real model — so the PRICES bare-name index can't collide with an
+    # openai/ token spec; codex_cli._real_model() maps id → real model (config codex_model).
+    ModelSpec("codex-sub", "openai", "codex-cli/codex-sub",
+              (Capability.STRONG, Capability.REASONING, Capability.LONG_CONTEXT),
+              Billing.SUBSCRIPTION, 0.0, 0.0, context_window=256_000, supports_reasoning=True,
+              released="2026-07", executor="codex_cli",
+              notes="GPT-5.x on the ChatGPT/Codex subscription via `codex exec`; host-only, usd=0"),
     # GLM (Zhipu) — SUBSCRIPTION / Coding Plan: the bulk + search default pool.
     # price_in/out = the per-token LIST rate, used ONLY if the call falls back to the
     # metered key (no sub key configured); on the flat plan the recorded usd is 0.

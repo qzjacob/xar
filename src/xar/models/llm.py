@@ -124,6 +124,8 @@ _PIN: contextvars.ContextVar[tuple[str, ...] | None] = contextvars.ContextVar(
 # 用法:with llm.pinned(llm.CLAUDE_MAX_PIN): report/thesis 综合...  —— 只有该上下文内
 # 才用 Claude Max;默认路由仍是 peer/fallback(不改全局默认)。
 CLAUDE_MAX_PIN: tuple[str, ...] = ("claude-opus-max", "glm-5.2-sub", "glm-4.6-sub")
+# 同理钉扎 ChatGPT/Codex 订阅(深度研究候选);订阅/宿主不可用则降级 Claude-Max → GLM。
+CODEX_PIN: tuple[str, ...] = ("codex-sub", "claude-opus-max", "glm-5.2-sub")
 
 
 @contextmanager
@@ -140,6 +142,19 @@ def _apply_pin(chain: list) -> list:
     if not pin:
         return chain
     return [spec for spec in (registry.get(mid) for mid in pin) if spec is not None]
+
+
+def _executor_module(name: str):
+    """Non-litellm executor name → module (subprocess-on-subscription paths). None for litellm."""
+    if name == "agent_sdk":
+        from . import agentsdk
+
+        return agentsdk
+    if name == "codex_cli":
+        from . import codex_cli
+
+        return codex_cli
+    return None
 
 
 def _record(run_id, node, spec, usage, task_class: str, used_sub: bool) -> None:
@@ -238,24 +253,24 @@ def complete(
     # the budget cap and over-cap token candidates are skipped below — but spend accelerates
     # while the preferred provider is down. (Subscription/flat-plan candidates record usd=0.)
     for spec in chain:
-        # Claude Max via the Agent SDK: a distinct executor (subprocess on the subscription,
-        # never litellm/metered). Host-only → skip when unavailable so the chain rotates to
-        # GLM/DeepSeek (e.g. in docker). Subscription billing: recorded usd=0.
-        if getattr(spec, "executor", "litellm") == "agent_sdk":
-            from . import agentsdk
-
-            if not agentsdk.available():
-                last_err = RuntimeError(f"{spec.id}: agent sdk unavailable (host-only)")
+        # Subscription executors (Claude Max via Agent SDK, ChatGPT via Codex CLI): distinct
+        # subprocess-on-subscription paths, never litellm/metered. Host-only → skip when
+        # unavailable so the chain rotates to GLM/DeepSeek (e.g. in docker). Billing: usd=0.
+        executor = getattr(spec, "executor", "litellm")
+        mod = _executor_module(executor)
+        if mod is not None:
+            if not mod.available():
+                last_err = RuntimeError(f"{spec.id}: {executor} unavailable (host-only)")
                 continue
             try:
-                text, usage = agentsdk.complete(spec, system=system, prompt=prompt,
-                                                max_tokens=max_tokens, want_strong=want_strong)
+                text, usage = mod.complete(spec, system=system, prompt=prompt,
+                                           max_tokens=max_tokens, want_strong=want_strong)
             except Exception as e:  # noqa: BLE001 — quota/timeout/failure → rotate to next candidate
                 last_err = e
-                log.warning("llm %s agent_sdk %s failed: %s", node, spec.id, str(e)[:160])
+                log.warning("llm %s %s %s failed: %s", node, executor, spec.id, str(e)[:160])
                 continue
             _record(run_id, node, spec, usage, tc.value, used_sub=True)   # subscription, usd=0
-            log.info("route %s -> %s [subscription/agent_sdk]", tc.value, spec.id)
+            log.info("route %s -> %s [subscription/%s]", tc.value, spec.id, executor)
             return text
         base, key_env, used_sub = _endpoint(spec, s)
         if key_env and not os.environ.get(key_env):   # skip unconfigured provider — no wasted call
@@ -336,10 +351,11 @@ def complete_stream(
     last_err: Exception | None = None
 
     for spec in chain:
-        if getattr(spec, "executor", "litellm") == "agent_sdk":
-            # The Agent-SDK executor is single-shot (no streaming/tool-calling loop); skip it
-            # here so the streaming chat chain rotates to a litellm candidate.
-            last_err = RuntimeError(f"{spec.id}: agent_sdk not supported for streaming")
+        executor = getattr(spec, "executor", "litellm")
+        if executor != "litellm":
+            # Subscription executors (agent_sdk/codex_cli) are single-shot (no streaming/tool
+            # loop); skip here so the streaming chat chain rotates to a litellm candidate.
+            last_err = RuntimeError(f"{spec.id}: {executor} not supported for streaming")
             continue
         base, key_env, used_sub = _endpoint(spec, s)
         if key_env and not os.environ.get(key_env):

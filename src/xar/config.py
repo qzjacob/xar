@@ -42,6 +42,19 @@ class Settings(BaseSettings):
     anthropic_max_effort: str = "high"         # Agent SDK effort for quality tasks
     anthropic_max_timeout_s: int = 180         # per-call subprocess timeout (single-shot)
 
+    # --- OpenAI Codex CLI subscription (executor="codex_cli") ---
+    # The `codex-sub` spec runs single-shot completions via the Codex CLI (`codex exec`) on the
+    # ChatGPT Plus/Pro subscription OAuth (~/.codex/auth.json) — zero per-token bill, same
+    # "subscription only, never metered" discipline as Claude-Max/GLM. Host-only (needs the
+    # `codex` CLI + login); codex_cli.available() gates it → docker falls back to GLM/token.
+    # OFF by default: the ChatGPT subscription is intended for interactive Codex use, so driving
+    # it as a headless research-model backend is off-label (low-volume, quality tasks only) — arm
+    # deliberately with XAR_CODEX_ENABLED=true. See [[deployment-provider-arming]].
+    codex_enabled: bool = False                # off → codex-sub never routes (opt-in, ToS-sensitive)
+    codex_model: str = "gpt-5.5"               # model id passed to `codex exec -m` (subscription)
+    codex_effort: str = "high"                 # model_reasoning_effort for quality tasks
+    codex_timeout_s: int = 600                 # per-call subprocess timeout (gpt-5.5 xhigh is slow)
+
     # --- Embeddings ---
     # 默认英文 bge-small(turnkey);中英混合部署设 XAR_EMBED_MODEL=
     # sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2(384d,多语含中文)
