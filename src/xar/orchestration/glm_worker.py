@@ -188,23 +188,26 @@ def _pull_fresh() -> dict:
 
         if not gangtise.available():
             return {"skipped": "gangtise disabled"}
+        # CN universe = A-share tickers OR region==CN (matches what gts_code() can resolve).
         cn = [c["id"] for c in COMPANIES
-              if any(str(t).endswith((".SS", ".SH", ".SZ")) for t in (c.get("tickers") or []))]
+              if c.get("region") == "CN"
+              or any(str(t).endswith((".SS", ".SH", ".SZ")) for t in (c.get("tickers") or []))]
         if not cn:
             return {"skipped": "no CN names"}
-        limit = get_settings().glm_worker_gangtise_limit
+        limit = min(get_settings().glm_worker_gangtise_limit, len(cn))
         off = int(get_state("cursor").get("gangtise", 0)) % len(cn)
-        todo = cn[off:off + limit]
-        cur = get_state("cursor")
-        cur["gangtise"] = (off + len(todo)) % len(cn)
-        save_state("cursor", cur)
-        pulled = {}
+        todo = (cn + cn)[off:off + limit]          # wrap-around so tail cycles still get `limit`
+        ok = 0
         for cid in todo:
             try:
-                pulled[cid] = gangtise.pull(cid)
+                gangtise.pull(cid)
+                ok += 1
             except Exception as e:  # noqa: BLE001 — 单公司失败不沉整轮
                 log.warning("gangtise %s: %s", cid, str(e)[:120])
-        return {"companies": len(todo), "off": off}
+        cur = get_state("cursor")                  # advance cursor AFTER the slice runs
+        cur["gangtise"] = (off + len(todo)) % len(cn)
+        save_state("cursor", cur)
+        return {"attempted": len(todo), "ok": ok, "off": off}
 
     _run("twitter", 3600, _twitter)
     _run("wechat", 3600, _wechat)

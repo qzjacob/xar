@@ -162,6 +162,7 @@ FIN_METRICS = list(dict.fromkeys([m.value for m in FinMetric] + metric_packs.ALL
 RATIO_METRICS = {
     FinMetric.GROSS_MARGIN.value, FinMetric.OPERATING_MARGIN.value,
     FinMetric.NET_MARGIN.value, FinMetric.PE.value, FinMetric.PS.value,
+    FinMetric.PB.value, FinMetric.DIVIDEND_YIELD.value,
     FinMetric.ROE.value, FinMetric.ROIC.value, FinMetric.CURRENT_RATIO.value,
     FinMetric.EPS_DILUTED.value, FinMetric.REVENUE_GROWTH.value,
     FinMetric.EARNINGS_GROWTH.value,

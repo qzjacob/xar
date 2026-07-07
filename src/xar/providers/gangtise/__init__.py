@@ -13,6 +13,8 @@ Field maps grounded in the live API's real (short) field names.
 """
 from __future__ import annotations
 
+import re
+
 from ...ingestion.registry import company_by_id
 from ...logging import get_logger
 from ...ontology.standards import FinMetric as FM
@@ -88,19 +90,35 @@ def _num(v):
 
 def gts_code(company_id: str) -> str | None:
     """Registry company → Gangtise gtsCode. CN A-shares only (.SS/.SH/.SZ ticker, else name).
-    Cached; None for names Gangtise can't resolve (non-CN)."""
+    Caches genuine resolutions AND genuine no-matches, but NOT transient call failures — a
+    company disabled by one auth/network blip re-attempts on the next pull."""
     if company_id in _CODE_CACHE:
         return _CODE_CACHE[company_id]
     c = company_by_id(company_id)
-    code = None
+    keyword, numeric = None, None
     if c:
         cn = next((t for t in (c.get("tickers") or [])
-                   if t.endswith((".SS", ".SH", ".SZ"))), None)
-        if cn:                                    # 600519.SS → resolve to canonical gtsCode
-            code = client.resolve_security(cn.split(".")[0])
-        elif c.get("region") == "CN":             # fall back to the Chinese name
-            code = client.resolve_security((c.get("name") or "").split(" ")[0])
-    _CODE_CACHE[company_id] = code
+                   if str(t).endswith((".SS", ".SH", ".SZ"))), None)
+        if cn:
+            numeric = str(cn).split(".")[0]       # 600519.SS → keyword '600519'
+            keyword = numeric
+        elif c.get("region") == "CN":
+            keyword = (c.get("name") or "").split(" ")[0]
+    if not keyword:
+        _CODE_CACHE[company_id] = None            # genuinely non-CN → permanent skip
+        return None
+    data = client.post(client.SECURITIES_SEARCH_URL,
+                       {"keyword": keyword, "top": 10, "category": ["stock", "dr"]})
+    if data is None:                              # transient call failure → do NOT cache
+        return None
+    lst = data.get("list") or []
+    code = lst[0].get("gtsCode") if lst else None
+    if numeric and lst:                           # resolving by ticker: prefer an EXACT code match
+        want = numeric.lstrip("0")
+        exact = next((x.get("gtsCode") for x in lst
+                      if str(x.get("gtsCode", "")).split(".")[0].lstrip("0") == want), None)
+        code = exact or code
+    _CODE_CACHE[company_id] = code                # cache genuine resolution / no-match
     return code
 
 
@@ -130,8 +148,11 @@ def _write_statement(company_id: str, url: str, fmap: dict, *, extras=None) -> i
         val = next((_num(row.get(f)) for f in candidates if _num(row.get(f)) is not None), None)
         if val is None:
             continue
-        structured.upsert_fundamental(company_id, metric, val, period="latest", period_end=pend,
-                                      freq=freq, unit=ccy, source="gangtise",
+        # period = period_end (not "latest") — the ON CONFLICT key is (company,metric,period,
+        # source); "latest" would collapse every quarter onto one row and lose history.
+        unit = f"{ccy}/share" if metric == FM.EPS_DILUTED.value else ccy
+        structured.upsert_fundamental(company_id, metric, val, period=pend, period_end=pend,
+                                      freq=freq, unit=unit, source="gangtise",
                                       meta={"code": _CODE_CACHE.get(company_id), "fiscalYear": row.get("fiscalYear")})
         n += 1
     if extras:
@@ -139,29 +160,35 @@ def _write_statement(company_id: str, url: str, fmap: dict, *, extras=None) -> i
     return n
 
 
+def _up(company_id, metric, val, pend, freq, unit) -> None:
+    structured.upsert_fundamental(company_id, metric, val, period=pend, period_end=pend,
+                                  freq=freq, unit=unit, source="gangtise")
+
+
 def _income_extras(company_id, row, pend, ccy, freq) -> int:
     n = 0
-    sga = sum(v for f in _SGA_FIELDS if (v := _num(row.get(f))) is not None)
-    if any(_num(row.get(f)) is not None for f in _SGA_FIELDS):
-        structured.upsert_fundamental(company_id, FM.SGA_EXPENSE.value, sga, period="latest",
-                                      period_end=pend, freq=freq, unit=ccy, source="gangtise")
+    # SG&A only when BOTH 销售费用 + 管理费用 are present — a partial sum silently understates.
+    sales, admin = _num(row.get("salesExp")), _num(row.get("totalAdminExp"))
+    if sales is not None and admin is not None:
+        _up(company_id, FM.SGA_EXPENSE.value, sales + admin, pend, freq, ccy)
         n += 1
-    rev, cost = _num(row.get("opRev")), _num(row.get("opCost"))
-    if rev and cost is not None:                  # gross profit + margin (API omits them)
-        gp = rev - cost
-        structured.upsert_fundamental(company_id, FM.GROSS_PROFIT.value, gp, period="latest",
-                                      period_end=pend, freq=freq, unit=ccy, source="gangtise")
-        structured.upsert_fundamental(company_id, FM.GROSS_MARGIN.value, gp / rev, period="latest",
-                                      period_end=pend, freq=freq, unit="ratio", source="gangtise")
-        n += 2
+    # Gross profit/margin (API omits them) ONLY for 一般企业: banks/insurers/brokers report
+    # 营业支出/利息支出 as opCost, where a gross-margin concept doesn't exist.
+    if str(row.get("companyType") or "") in ("", "一般企业"):
+        rev, cost = _num(row.get("opRev")), _num(row.get("opCost"))
+        if rev is not None and cost is not None:
+            _up(company_id, FM.GROSS_PROFIT.value, rev - cost, pend, freq, ccy)
+            n += 1
+            if rev:                               # margin needs a non-zero denominator
+                _up(company_id, FM.GROSS_MARGIN.value, (rev - cost) / rev, pend, freq, "ratio")
+                n += 1
     return n
 
 
 def _balance_extras(company_id, row, pend, ccy, freq) -> int:
-    debt = sum(v for f in _DEBT_FIELDS if (v := _num(row.get(f))) is not None)
     if any(_num(row.get(f)) is not None for f in _DEBT_FIELDS):
-        structured.upsert_fundamental(company_id, FM.TOTAL_DEBT.value, debt, period="latest",
-                                      period_end=pend, freq=freq, unit=ccy, source="gangtise")
+        debt = sum(v for f in _DEBT_FIELDS if (v := _num(row.get(f))) is not None)
+        _up(company_id, FM.TOTAL_DEBT.value, debt, pend, freq, ccy)
         return 1
     return 0
 
@@ -169,9 +196,7 @@ def _balance_extras(company_id, row, pend, ccy, freq) -> int:
 def _cashflow_extras(company_id, row, pend, ccy, freq) -> int:
     ocf, capex = _num(row.get("netOpCashFlows")), _num(row.get("cashPaidAcqConstructAssets"))
     if ocf is not None and capex is not None:     # free cash flow
-        structured.upsert_fundamental(company_id, FM.FREE_CASH_FLOW.value, ocf - capex,
-                                      period="latest", period_end=pend, freq=freq,
-                                      unit=ccy, source="gangtise")
+        _up(company_id, FM.FREE_CASH_FLOW.value, ocf - capex, pend, freq, ccy)
         return 1
     return 0
 
@@ -261,10 +286,11 @@ def pull_research(company_id: str) -> int:
         text = (data or {}).get("content") if isinstance(data, dict) else None
         if not text or not str(text).strip():
             continue
+        raw_date = str((data or {}).get("date") or "")
+        pub = raw_date if re.match(r"^\d{4}-\d{2}-\d{2}", raw_date) else None  # guard bad dates
         save(Doc(company_id=company_id, source="gangtise", doc_type=doc_type,
                  title=f"{name} · {doc_type}", text=str(text),
-                 url=f"gangtise://agent/{doc_type}/{code}",
-                 published_at=(data or {}).get("date") or None,
+                 url=f"gangtise://agent/{doc_type}/{code}", published_at=pub,
                  permission="grey", license_tag="gangtise-research-extracted-facts-self-use",
                  meta={"code": code, "agent": doc_type}))
         n += 1

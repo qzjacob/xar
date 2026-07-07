@@ -53,11 +53,18 @@ def captured(monkeypatch):
     return {"funds": funds, "ests": ests, "docs": docs}
 
 
+def _income(company_type="一般企业", **over):
+    base = {"opRev": 100.0, "opCost": 60.0, "opProfit": 30.0, "netProfitAttrParent": 25.0,
+            "dilutedEPS": 5.0, "rdExp": 8.0, "salesExp": 4.0, "totalAdminExp": 6.0}
+    base.update(over)
+    fields = ["endDate", "category", "companyType", "currency", *base.keys()]
+    row = ["20260331", "2026年一季报", company_type, "人民币", *base.values()]
+    return {"fieldList": fields, "list": [row]}
+
+
 def test_pull_financials_maps_income_and_defends_currency_swap(monkeypatch, captured):
-    # income currency correct; BALANCE has companyType/currency SWAPPED (real Gangtise quirk)
-    income = {"fieldList": ["endDate", "category", "currency", "opRev", "opCost", "opProfit",
-                            "netProfitAttrParent", "dilutedEPS", "rdExp", "salesExp", "totalAdminExp"],
-              "list": [["20260331", "2026年一季报", "人民币", 100.0, 60.0, 30.0, 25.0, 5.0, 8.0, 4.0, 6.0]]}
+    income = _income()
+    # BALANCE has companyType/currency SWAPPED (real Gangtise quirk): currency position holds '一般企业'
     balance = {"fieldList": ["endDate", "category", "companyType", "currency", "totalAssets",
                              "totalLiab", "totalEquity", "monetaryAssets", "inventory"],
                "list": [["20260331", "2026年一季报", "人民币", "一般企业", 500.0, 200.0, 300.0, 50.0, 40.0]]}
@@ -70,6 +77,7 @@ def test_pull_financials_maps_income_and_defends_currency_swap(monkeypatch, capt
     m = {name: (val, unit, freq) for name, val, unit, freq in captured["funds"]}
     assert m["revenue"][0] == 100.0 and m["cost_of_revenue"][0] == 60.0
     assert m["operating_income"][0] == 30.0 and m["net_income"][0] == 25.0
+    assert m["eps_diluted"][1] == "CNY/share"                # per-share, not a currency total
     assert m["gross_profit"][0] == 40.0                      # opRev-opCost computed
     assert m["gross_margin"] == (0.4, "ratio", "quarter")
     assert m["sga_expense"][0] == 10.0                       # salesExp+totalAdminExp
@@ -77,6 +85,34 @@ def test_pull_financials_maps_income_and_defends_currency_swap(monkeypatch, capt
     # currency-swap defense: balance 'currency' position holds '一般企业' → still CNY
     assert m["total_assets"][1] == "CNY" and m["cash_and_equivalents"][1] == "CNY"
     assert m["revenue"][2] == "quarter"
+
+
+def test_gross_margin_skipped_for_financial_firm(monkeypatch, captured):
+    monkeypatch.setattr(client, "post",
+                        lambda url, payload, **k: _income(company_type="银行") if url == client.INCOME_URL else None)
+    g.pull_financials("z")
+    names = {name for name, *_ in captured["funds"]}
+    assert "gross_margin" not in names and "gross_profit" not in names   # banks have no COGS/gross
+    assert "revenue" in names                                            # other metrics still land
+
+
+def test_sga_requires_both_components(monkeypatch, captured):
+    # only salesExp present → a partial sum would understate SG&A → skip entirely
+    monkeypatch.setattr(client, "post",
+                        lambda url, payload, **k: _income(totalAdminExp=None) if url == client.INCOME_URL else None)
+    g.pull_financials("z")
+    assert "sga_expense" not in {name for name, *_ in captured["funds"]}
+
+
+def test_period_is_period_end_not_latest(monkeypatch, captured):
+    # period must be the report date (history preserved), not the literal "latest"
+    caught = []
+    monkeypatch.setattr(g.structured, "upsert_fundamental",
+                        lambda cid, m, v, **k: caught.append(k.get("period")))
+    monkeypatch.setattr(client, "post",
+                        lambda url, payload, **k: _income() if url == client.INCOME_URL else None)
+    g.pull_financials("z")
+    assert caught and all(p == "2026-03-31" for p in caught)
 
 
 def test_pull_valuation_writes_multiple_and_percentile(monkeypatch, captured):
@@ -117,7 +153,21 @@ def test_pull_research_saves_docs(monkeypatch):
     assert all(d.source == "gangtise" and d.permission == "grey" for d in saved)
 
 
-def test_available_false_when_disabled(monkeypatch):
-    monkeypatch.setattr(g.client, "_auth", lambda force=False: None)
+def test_available_is_cheap_config_check(monkeypatch):
+    # available() must NOT hit the network — it's a pure enable+keys probe. Disabled by default.
+    monkeypatch.setattr(g.client, "_auth",
+                        lambda force=False: pytest.fail("available() must not call _auth"))
     assert g.available() is False
     assert g.pull("z") == {}
+
+
+def test_gts_code_does_not_cache_transient_failure(monkeypatch):
+    # a transient resolve failure (client.post → None) must NOT be cached as a permanent miss
+    g._CODE_CACHE.pop("tz", None)
+    monkeypatch.setattr(g, "company_by_id", lambda cid: {"tickers": ["600519.SS"], "region": "CN"})
+    monkeypatch.setattr(client, "post", lambda url, payload, **k: None)   # transient failure
+    assert g.gts_code("tz") is None and "tz" not in g._CODE_CACHE
+    # API recovers → resolves + caches
+    monkeypatch.setattr(client, "post",
+                        lambda url, payload, **k: {"list": [{"gtsCode": "600519.SH"}]})
+    assert g.gts_code("tz") == "600519.SH" and g._CODE_CACHE["tz"] == "600519.SH"

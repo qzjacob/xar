@@ -35,7 +35,8 @@ AGENT_URL = f"{_AI}/agent"                                          # + /one-pag
 
 _LOCK = threading.Lock()
 _TOK: dict = {}          # {token, uid, tenant, product, at}
-_TOKEN_TTL = 50 * 60     # re-auth well inside the token lifetime
+_TOKEN_TTL = 50 * 60     # pre-emptive refresh; post() also re-auths on a 1008 (real expiry)
+_UA = "XAR/0.1 (+gangtise-provider)"
 
 
 class GangtiseError(RuntimeError):
@@ -43,40 +44,47 @@ class GangtiseError(RuntimeError):
 
 
 def _auth(force: bool = False) -> dict | None:
-    """Fetch (and cache) the accessToken + uid/tenant/product from AK/SK. None on failure."""
+    """Fetch (and cache) the accessToken + uid/tenant/product from AK/SK. Returns a SNAPSHOT
+    copy (callers read it lock-free while a concurrent re-auth may mutate _TOK). None on
+    missing keys or a failed login. The network call runs OUTSIDE the lock so a cold/slow
+    login doesn't serialize every caller behind it."""
     s = get_settings()
     if not (s.gts_access_key and s.gts_secret_key):
         return None
     with _LOCK:
         if not force and _TOK.get("token") and (time.monotonic() - _TOK.get("at", 0)) < _TOKEN_TTL:
-            return _TOK
-        try:
-            r = requests.post(_AUTH_URL, json={"accessKey": s.gts_access_key,
-                                               "secretKey": s.gts_secret_key}, timeout=30)
-            d = (r.json() or {}).get("data") or {}
-            if not d.get("accessToken"):
-                log.warning("gangtise auth failed: %s", str(r.text)[:120])
-                return None
-            _TOK.update({"token": d["accessToken"], "uid": str(d.get("uid", "")),
-                         "tenant": str(d.get("tenantId", "")),
-                         "product": str(d.get("productCode", 10018)), "at": time.monotonic()})
-            return _TOK
-        except Exception as e:  # noqa: BLE001 — network/SDK issue → graceful skip
-            log.warning("gangtise auth error (%s): %s", type(e).__name__, str(e)[:120])
+            return dict(_TOK)
+    try:
+        r = requests.post(_AUTH_URL, json={"accessKey": s.gts_access_key,
+                                           "secretKey": s.gts_secret_key},
+                          headers={"User-Agent": _UA}, timeout=30)
+        d = (r.json() or {}).get("data") or {}
+        if not d.get("accessToken"):
+            log.warning("gangtise auth failed: %s", str(r.text)[:120])
             return None
+        tok = {"token": d["accessToken"], "uid": str(d.get("uid", "")),
+               "tenant": str(d.get("tenantId", "")),
+               "product": str(d.get("productCode", 10018)), "at": time.monotonic()}
+    except Exception as e:  # noqa: BLE001 — network/SDK issue → graceful skip
+        log.warning("gangtise auth error (%s): %s", type(e).__name__, str(e)[:120])
+        return None
+    with _LOCK:
+        _TOK.update(tok)
+        return dict(_TOK)
 
 
 def _headers(tok: dict) -> dict:
     # RAW token (no 'Bearer ' — the fundamental endpoints reject a prefixed token).
-    return {"Authorization": tok["token"], "uid": tok["uid"],
-            "tenantid": tok["tenant"], "productcode": tok["product"]}
+    return {"Authorization": tok["token"], "uid": tok["uid"], "tenantid": tok["tenant"],
+            "productcode": tok["product"], "User-Agent": _UA}
 
 
 def available() -> bool:
-    """enable_gangtise + keys + a live token. Docker/host both work if keys are set."""
-    if not get_settings().enable_gangtise:
-        return False
-    return _auth() is not None
+    """CHEAP config check (enable + keys present) — no network, matching the provider
+    convention that available() is a pure key/config probe. The token is acquired lazily on
+    the first post(); a bad key surfaces there (graceful None), not here."""
+    s = get_settings()
+    return bool(s.enable_gangtise and s.gts_access_key and s.gts_secret_key)
 
 
 def post(url: str, payload: dict, *, _retry: bool = True) -> dict | None:
