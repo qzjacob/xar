@@ -30,8 +30,9 @@ from ..storage.kvstate import get_state, save_state
 
 log = get_logger("xar.glm_worker")
 
-# 钉扎链:只允许 GLM 订阅池(5.2 优先,4.6 兜底)。没有 kimi/deepseek —— 那是
-# 夜批的回退语义;本工人的存在意义就是"额度内白嫖到底,额度外分文不花"。
+# 钉扎链:只允许 GLM 订阅池(5.2 优先,4.6 兜底)。z.ai 国际版月度订阅**支持 GLM-5.2**;
+# 它是推理模型,极小 token 预算会把额度耗在 reasoning 上、content 为空 —— 见 probe() 的
+# max_tokens 说明。没有 kimi/deepseek —— 那是夜批的回退;本工人"额度内白嫖到底,额度外分文不花"。
 GLM_PIN: tuple[str, ...] = ("glm-5.2-sub", "glm-4.6-sub")
 
 # 精确额度识别:类型优先(litellm.RateLimitError),文案兜底。刻意不含 'exceed'/'429'
@@ -63,10 +64,13 @@ def _sub_ready() -> bool:
 
 # ── 额度治理器 ─────────────────────────────────────────────────────────────────
 def probe() -> bool:
-    """极小探针(≤8 token,订阅计费=0 成本):GLM 池当前是否可用。"""
+    """探针(订阅计费=0 成本):GLM 池当前是否可用。max_tokens 必须够大 —— GLM-5.2 是推理
+    模型,极小预算(如 8)会把额度全耗在 reasoning 上、content 为空,llm.complete 判空后会
+    误判失败并轮转,导致对主模型的探测永远假阴。256 足够越过 reasoning 吐出可见内容。"""
     try:
         with llm.pinned(GLM_PIN):
-            llm.complete("reply: ok", task="adhoc_fast", node="glm_worker", max_tokens=8)
+            llm.complete("Reply with exactly: ok", task="adhoc_fast", node="glm_worker",
+                         max_tokens=256)
         return True
     except Exception as e:  # noqa: BLE001
         if is_quota_error(e):

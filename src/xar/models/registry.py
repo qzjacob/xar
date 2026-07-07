@@ -144,7 +144,7 @@ MODELS: list[ModelSpec] = [
               (Capability.CHEAP_BULK, Capability.FAST, Capability.STRONG, Capability.REASONING),
               Billing.SUBSCRIPTION, 0.60, 2.20, context_window=200_000,
               supports_reasoning=True, preferred=True, released="2026-06",
-              notes="GLM Coding Plan flat-rate (GLM-5.2); quota-windowed, zero overage risk"),
+              notes="GLM Coding Plan flat-rate (GLM-5.2); z.ai 国际版订阅支持;quota-windowed, zero overage risk"),
     ModelSpec("glm-4.6-sub", "zhipu", "openai/glm-4.6",
               (Capability.CHEAP_BULK, Capability.FAST, Capability.STRONG), Billing.SUBSCRIPTION,
               0.60, 2.20, context_window=200_000, supports_reasoning=True,
