@@ -200,6 +200,35 @@ def _pull_fresh() -> dict:
         cur["futu"] = (off + len(sl)) % len(ids)
         save_state("cursor", cur)
         return {"news": docs, "companies": len(sl), "offset": off}
+    def _gangtise():
+        # 富途/万得之外的深度投研:CN 名单轮转切片拉 Gangtise 财报/估值/一致预期/投研文本
+        # (零 LLM;文本随后走 triage→build_kg 喂 thesis)。未启用/无 key = 跳过。
+        from ..config import get_settings
+        from ..ingestion.registry import COMPANIES
+        from ..providers import gangtise
+
+        if not gangtise.available():
+            return {"skipped": "gangtise disabled"}
+        # CN universe = A-share tickers OR region==CN (matches what gts_code() can resolve).
+        cn = [c["id"] for c in COMPANIES
+              if c.get("region") == "CN"
+              or any(str(t).endswith((".SS", ".SH", ".SZ")) for t in (c.get("tickers") or []))]
+        if not cn:
+            return {"skipped": "no CN names"}
+        limit = min(get_settings().glm_worker_gangtise_limit, len(cn))
+        off = int(get_state("cursor").get("gangtise", 0)) % len(cn)
+        todo = (cn + cn)[off:off + limit]          # wrap-around so tail cycles still get `limit`
+        ok = 0
+        for cid in todo:
+            try:
+                gangtise.pull(cid)
+                ok += 1
+            except Exception as e:  # noqa: BLE001 — 单公司失败不沉整轮
+                log.warning("gangtise %s: %s", cid, str(e)[:120])
+        cur = get_state("cursor")                  # advance cursor AFTER the slice runs
+        cur["gangtise"] = (off + len(todo)) % len(cn)
+        save_state("cursor", cur)
+        return {"attempted": len(todo), "ok": ok, "off": off}
 
     _run("twitter", 3600, _twitter)
     _run("wechat", 3600, _wechat)
@@ -207,6 +236,7 @@ def _pull_fresh() -> dict:
     _run("rss", 2 * 3600, _rss)
     _run("alt", 6 * 3600, _alt)
     _run("futu_news", 3 * 3600, _futu)
+    _run("gangtise", 12 * 3600, _gangtise)
     return out
 
 

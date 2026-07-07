@@ -459,6 +459,14 @@ def ops_altdata_process(bg: BackgroundTasks) -> dict:
     return {"status": "started"}
 
 
+@app.get("/api/ops/gangtise")
+def ops_gangtise() -> dict:
+    """Gangtise 投研接入总览:连通性 + 财报/估值/一致预期/投研文本覆盖(DB)。"""
+    from . import ops
+
+    return ops.gangtise()
+
+
 @app.get("/api/ops/selftest")
 def ops_selftest() -> dict:
     from . import ops

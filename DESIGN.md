@@ -223,7 +223,7 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 
 ### 4.1 结构化 / 另类 / 前沿数据 provider（As-Built，`providers/`）
 
-> 全部 **key-gated**（Wind/富途为**本地网关-gated**）：缺 Key/网关即 `available()=False`、`pull()`/`fetch()` 返回空，**不报错**（交钥匙路径零 provider Key 也能跑）。`providers.status()` 统一上报 **12 个 provider** 状态；第 13 个 provider **`rss`** 公开无 key、恒可用（如 polymarket）。各结构化 provider 字段归一到 `FinMetric` 规范词表（§5.1），落 `fundamentals/estimates/...` 表，多源按 `source`+`as_of` 共存。
+> 全部 **key-gated**（Wind/富途为**本地网关-gated**）：缺 Key/网关即 `available()=False`、`pull()`/`fetch()` 返回空，**不报错**（交钥匙路径零 provider Key 也能跑）。`providers.status()` 统一上报 **13 个 provider** 状态（含**富途**与 **Gangtise 投研**）；另有 **`rss`** 公开无 key、恒可用（如 polymarket）。各结构化 provider 字段归一到 `FinMetric` 规范词表（§5.1），落 `fundamentals/estimates/...` 表，多源按 `source`+`as_of` 共存。
 
 | 类别 | provider | 取数 | 姿态/说明 |
 |---|---|---|---|
@@ -234,6 +234,7 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 | CN-A 深度基本面 | **Wind 万得** | WindPy 取 A 股报表指标 | 默认关；需本地授权终端；守护降级 |
 | CN-A 专业源 | **AIFINmarket(万得)** | A 股基本面(→`FinMetric`) + 公告/资讯(→`documents`→本体) | **MCP-over-HTTP**(base url + token) 或本地 WindPy；`enable_aifinmarket` gated |
 | HK/A/US 多市场 | **Futu 富途/moomoo** | 快照估值(PE/PB/市值/EPS/股息率→`FinMetric`) + 资讯(→`documents`) + 主力资金流(→`alt.futu_main_capital_flow`) + 板块(→`futu_plates`，cn_routing 映主题) | **本地 OpenD 网关**(127.0.0.1:11111，SDK↔OpenD↔富途)；`enable_futu` gated，默认关(镜像 Wind)；详见 §5.11 |
+| CN 卖方投研 | **Gangtise 投研** | 财报/估值分位/**券商一致预期**(→`FinMetric`/`estimates`) + **投研文本**(一页通/投资逻辑/同业对比→`documents(grey)`→triage/KG→thesis) | **Open API**(AK/SK→loginV2 raw token；`open.gangtise.com`)；CN-only、`enable_gangtise` gated；净新增=卖方一致预期与叙事研究。数据端点用**裸 token**(带 `Bearer` 前缀即 0000001008)；防御资产负债表 companyType/currency 位错 |
 | 预测市场 | **Polymarket** | Gamma 公开 API：AI/算力/加速器相关市场的远期概率 | **公开无 Key**；最早的需求侧催化信号 |
 | 社媒情绪 / X 专家 | **X (Twitter)** | 经 TwitterAPI.io `advanced_search`：观察标的帖 + 前沿专家账号声音 + 轻量情绪 | 灰/自用；`TWITTERAPI_TOKEN` 或官方 `X_BEARER_TOKEN` |
 | 社媒情绪 | **Reddit** | 提及观察标的的帖子 + 轻量词典情绪打分 | 灰/自用；公开回退 |

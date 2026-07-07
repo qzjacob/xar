@@ -599,6 +599,27 @@ def process_altdata(sources: tuple[str, ...] | None = None) -> dict:
     return expert.process(sources or expert.ALT_SOURCES)
 
 
+def gangtise() -> dict:
+    """Gangtise 投研覆盖总览:连通性 + 结构化(财报/估值/一致预期)与投研文本落库计数。"""
+    from ..config import get_settings
+    from ..providers import gangtise as gts
+    from ..storage import db
+
+    funds = db.query("SELECT count(*) n, count(DISTINCT company_id) c FROM fundamentals "
+                     "WHERE source='gangtise'")[0]
+    ests = db.query("SELECT count(*) n, count(DISTINCT company_id) c FROM estimates "
+                    "WHERE source='gangtise'")[0]
+    docs = db.query("SELECT doc_type, count(*) n FROM documents WHERE source='gangtise' "
+                    "GROUP BY doc_type ORDER BY n DESC")
+    return {
+        "enabled": get_settings().enable_gangtise,
+        "reachable": gts.available(),
+        "fundamentals": funds["n"], "fundamentals_companies": funds["c"],
+        "estimates": ests["n"], "estimates_companies": ests["c"],
+        "research_docs": {r["doc_type"]: r["n"] for r in docs},
+    }
+
+
 # ===========================================================================
 # 7) SELF-TEST — run through every ontology type + data source
 # ===========================================================================
