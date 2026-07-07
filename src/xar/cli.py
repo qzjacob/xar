@@ -148,6 +148,30 @@ def pull(
     print(json.dumps(out, indent=2, default=str))
 
 
+@app.command()
+def gangtise(
+    company: str = typer.Argument(None, help="company id; omit for a rotating CN slice"),
+    limit: int = typer.Option(10, help="companies to pull when no id is given"),
+) -> None:
+    """Pull Gangtise 投研 (financials/valuation/一致预期 → canonical metrics + 投研文本 →
+    documents) for a CN A-share name, or a slice of the CN basket. Needs GTS keys +
+    XAR_ENABLE_GANGTISE."""
+    from .ingestion.registry import COMPANIES
+    from .providers import gangtise as gts
+
+    if not gts.available():
+        print("[yellow]gangtise unavailable[/yellow] — set GTS_ACCESS_KEY/GTS_SECRET_KEY + "
+              "XAR_ENABLE_GANGTISE=true")
+        raise typer.Exit(1)
+    if company:
+        ids = [company]
+    else:
+        ids = [c["id"] for c in COMPANIES
+               if any(str(t).endswith((".SS", ".SH", ".SZ")) for t in (c.get("tickers") or []))][:limit]
+    out = {cid: gts.pull(cid) for cid in ids}
+    print(json.dumps(out, indent=2, default=str))
+
+
 @app.command("pull-rss")
 def pull_rss(
     feed: str = typer.Argument(None, help="feed id (see --list); omit for all curated feeds"),

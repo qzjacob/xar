@@ -79,6 +79,15 @@ class Settings(BaseSettings):
     # X (Twitter) expert handles to follow (CSV of @handles); blank = keyword-only.
     x_expert_handles: str = Field(default="", validation_alias="X_EXPERT_HANDLES")
 
+    # --- Gangtise 投研 Open API (open.gangtise.com) — CN sell-side research -----
+    # AccessKey/SecretKey → temporary Bearer token (loginV2). Deep fundamental research:
+    # financials/valuation/一致预期/主营构成/股东 + 投研文本 (one-pager/线索/KB/研报).
+    # OFF unless keys set + enable_gangtise (turnkey-safe). Apply at open-platform.gangtise.com.
+    gts_access_key: str = Field(default="", validation_alias="GTS_ACCESS_KEY")
+    gts_secret_key: str = Field(default="", validation_alias="GTS_SECRET_KEY")
+    enable_gangtise: bool = False
+    gangtise_forecast_years: int = 3       # analyst-consensus fiscal-year horizon to pull
+
     # --- AIFINmarket (万得终端) — CN A-share professional source ---------------
     # REST gateway to a Wind/AIFINmarket terminal (base url + token); or set
     # XAR_ENABLE_AIFINMARKET + a local WindPy terminal. Blank -> skipped.
@@ -117,6 +126,7 @@ class Settings(BaseSettings):
     glm_worker_batch_docs: int = 25        # KG-extraction docs per cycle
     glm_worker_backfill_units: int = 4     # (company,source,year) history units per cycle
     glm_worker_alt_limit: int = 120        # alt-tracker company slice per cycle (wiki/github pacing)
+    glm_worker_gangtise_limit: int = 15    # Gangtise CN research slice per cycle (rotating cursor)
     glm_worker_thesis_rebuilds: int = 2    # signal-challenged theses rebuilt per cycle (LLM)
     # --- 微信多层级挖掘系统 (mining/) ---
     wechat_miner_enabled: bool = True      # T2 triage 预筛闸门(关闭=退回旧的无差别抽取)

@@ -140,6 +140,8 @@ class FinMetric(str, Enum):
     # Valuation / returns
     PE = "pe_ratio"
     PS = "ps_ratio"
+    PB = "pb_ratio"
+    DIVIDEND_YIELD = "dividend_yield"
     ROE = "roe"
     ROIC = "roic"
     CURRENT_RATIO = "current_ratio"
