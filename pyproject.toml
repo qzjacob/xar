@@ -53,6 +53,9 @@ market = ["yfinance>=0.2.40"]
 # Host-only — needs the `claude` CLI + a Max login (~/.claude/.credentials.json);
 # agentsdk.available() gates it, so an install without them falls back to GLM/DeepSeek.
 agentsdk = ["claude-agent-sdk>=0.2"]
+# Futu / moomoo OpenAPI (HK/US/CN quotes + news + capital flow + plates). Needs a
+# local OpenD gateway; lazy-imported, OFF unless XAR_ENABLE_FUTU=true.
+futu = ["futu-api>=9.0"]
 parse-deep = ["docling>=2.0"]
 graph = ["graphiti-core>=0.3", "neo4j>=5.20"]
 orchestration = ["dagster>=1.7", "dagster-webserver>=1.7"]

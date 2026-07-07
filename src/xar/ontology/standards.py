@@ -140,6 +140,8 @@ class FinMetric(str, Enum):
     # Valuation / returns
     PE = "pe_ratio"
     PS = "ps_ratio"
+    PB = "pb_ratio"
+    DIVIDEND_YIELD = "dividend_yield"
     ROE = "roe"
     ROIC = "roic"
     CURRENT_RATIO = "current_ratio"
@@ -160,6 +162,7 @@ FIN_METRICS = list(dict.fromkeys([m.value for m in FinMetric] + metric_packs.ALL
 RATIO_METRICS = {
     FinMetric.GROSS_MARGIN.value, FinMetric.OPERATING_MARGIN.value,
     FinMetric.NET_MARGIN.value, FinMetric.PE.value, FinMetric.PS.value,
+    FinMetric.PB.value, FinMetric.DIVIDEND_YIELD.value,
     FinMetric.ROE.value, FinMetric.ROIC.value, FinMetric.CURRENT_RATIO.value,
     FinMetric.EPS_DILUTED.value, FinMetric.REVENUE_GROWTH.value,
     FinMetric.EARNINGS_GROWTH.value,
@@ -225,6 +228,17 @@ YAHOO_INFO_MAP: dict[str, str] = {
 }
 
 
+# Futu get_market_snapshot fields -> canonical (point-in-time valuation snapshot,
+# like Yahoo .info). Populated across HK/US/CN — the HK+A-share coverage FMP/finnhub lack.
+FUTU_SNAPSHOT_MAP: dict[str, str] = {
+    "pe_ttm_ratio": FinMetric.PE.value,
+    "pb_ratio": FinMetric.PB.value,
+    "total_market_val": FinMetric.MARKET_CAP.value,
+    "earning_per_share": FinMetric.EPS_DILUTED.value,
+    "dividend_ratio_ttm": FinMetric.DIVIDEND_YIELD.value,
+}
+
+
 def canonical_metric(provider: str, field: str) -> str | None:
     """Map a raw provider field name to a canonical FinMetric value (or None)."""
     if provider == "fmp":
@@ -233,6 +247,8 @@ def canonical_metric(provider: str, field: str) -> str | None:
         return FINNHUB_METRIC_MAP.get(field)
     if provider == "yahoo":
         return YAHOO_INFO_MAP.get(field)
+    if provider == "futu":
+        return FUTU_SNAPSHOT_MAP.get(field)
     return field if field in FIN_METRICS else None
 
 

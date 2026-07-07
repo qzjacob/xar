@@ -14,13 +14,13 @@ from __future__ import annotations
 
 from ..ingestion.registry import COMPANIES
 from ..logging import get_logger
-from . import (aifinmarket, arxiv, finnhub, fmp, journals, polygon, polymarket, reddit,
-               twitter, wind, yahoo)
+from . import (aifinmarket, arxiv, finnhub, fmp, futu, journals, polygon, polymarket,
+               reddit, twitter, wind, yahoo)
 
 log = get_logger("xar.providers")
 
 # Structured market-data providers in preference order (all that are available run).
-_MARKET = [fmp, finnhub, polygon, yahoo, wind, aifinmarket]
+_MARKET = [fmp, finnhub, polygon, yahoo, wind, aifinmarket, futu]
 
 
 def status() -> dict[str, bool]:
@@ -31,7 +31,7 @@ def status() -> dict[str, bool]:
         "wind": wind.available(), "polymarket": polymarket.available(),
         "twitter": twitter.available(), "reddit": reddit.available(),
         "aifinmarket": aifinmarket.available(), "arxiv": arxiv.available(),
-        "journals": journals.available(),
+        "journals": journals.available(), "futu": futu.available(),
     }
 
 

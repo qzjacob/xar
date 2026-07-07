@@ -179,11 +179,34 @@ def _pull_fresh() -> dict:
 
         return alt.pull_all(limit=get_settings().glm_worker_alt_limit)
 
+    def _futu():
+        # 富途资讯:每轮拉一个轮转切片的公司新闻(快照+板块随夜批全量刷)。OpenD 关=跳过。
+        from ..config import get_settings
+        from ..ingestion.registry import COMPANIES
+        from ..providers import futu
+
+        if not futu.available():
+            return {"skipped": "futu OpenD unavailable"}
+        n = get_settings().glm_worker_alt_limit
+        # code_from_tickers(c["tickers"]) directly — futu_code(c["id"]) re-scans all COMPANIES
+        # via company_by_id per company (O(n²) over ~1000 names).
+        ids = [c["id"] for c in COMPANIES if futu.code_from_tickers(c.get("tickers"))]
+        if not ids:
+            return {"skipped": "no futu-addressable companies"}
+        off = int(get_state("cursor").get("futu", 0)) % len(ids)
+        sl = ids[off:off + n]
+        docs = sum(futu.pull_news(cid) for cid in sl)
+        cur = get_state("cursor")
+        cur["futu"] = (off + len(sl)) % len(ids)
+        save_state("cursor", cur)
+        return {"news": docs, "companies": len(sl), "offset": off}
+
     _run("twitter", 3600, _twitter)
     _run("wechat", 3600, _wechat)
     _run("finnhub_news", 4 * 3600, _finnhub)
     _run("rss", 2 * 3600, _rss)
     _run("alt", 6 * 3600, _alt)
+    _run("futu_news", 3 * 3600, _futu)
     return out
 
 

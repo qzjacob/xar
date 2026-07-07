@@ -348,6 +348,32 @@ def ops_sources() -> dict:
     return ops.sources()
 
 
+@app.get("/api/ops/futu")
+def ops_futu() -> dict:
+    """富途接入总览:资讯/资金流/板块覆盖 + 本体缺口(DB),外加一次 OpenD 连通性探测
+    (opend_reachable=futu.available() —— enable_futu 时会连一次 OpenD 并缓存连接;
+    管理页,低频)。"""
+    from ..config import get_settings
+    from ..ontology.altdata import bindings
+    from ..providers import futu
+    from ..storage import db
+
+    docs = db.query("SELECT count(*) n FROM documents WHERE source='futu'")[0]["n"]
+    flow = db.query("SELECT count(DISTINCT company_id) n FROM alt_signals "
+                    "WHERE signal_key='alt.futu_main_capital_flow'")[0]["n"]
+    plates = db.query("SELECT count(*) n, count(DISTINCT company_id) c FROM futu_plates")
+    metrics = db.query("SELECT count(*) n FROM fundamentals WHERE source='futu'")[0]["n"]
+    bound = sum(1 for b in bindings().values() if b.futu_code)
+    return {
+        "enabled": get_settings().enable_futu,
+        "opend_reachable": futu.available(),
+        "news_docs": docs, "snapshot_metrics": metrics,
+        "capital_flow_companies": flow, "flow_bindable": bound,
+        "plates": {"rows": plates[0]["n"], "companies": plates[0]["c"]},
+        "ontology_gaps": futu.plate_theme_gaps(limit=30),
+    }
+
+
 @app.post("/api/ops/sources/{sid}/run")
 def ops_run_source(sid: str, bg: BackgroundTasks) -> dict:
     from . import ops

@@ -82,6 +82,16 @@ def _run_source(src: str, ids: list[str], since) -> dict:
                 providers.aifinmarket.pull(cid)
             except Exception as e:  # noqa: BLE001
                 log.warning("aifinmarket %s: %s", cid, e)
+    elif src == "futu":
+        # Futu OpenD (富途): snapshot valuation + 资讯 news + 板块 plates for HK/CN/US
+        # names. OFF unless enable_futu + OpenD reachable (available() gates it).
+        if providers.futu.available():
+            for cid in ids:
+                try:
+                    r = providers.futu.pull(cid)
+                    pulled += int(r.get("news", 0))
+                except Exception as e:  # noqa: BLE001
+                    log.warning("futu %s: %s", cid, e)
     elif src == "polymarket":
         providers.polymarket.pull()
         signals.derive_market_signals()

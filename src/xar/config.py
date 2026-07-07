@@ -86,6 +86,17 @@ class Settings(BaseSettings):
     # X (Twitter) expert handles to follow (CSV of @handles); blank = keyword-only.
     x_expert_handles: str = Field(default="", validation_alias="X_EXPERT_HANDLES")
 
+    # --- Futu / moomoo OpenAPI (富途) — HK personal retail account -------------
+    # The `futu` Python SDK talks to a local OpenD gateway daemon (default
+    # 127.0.0.1:11111) that logs in with the account. OFF by default (turnkey-safe);
+    # set XAR_ENABLE_FUTU=true + run OpenD to arm. In docker, point FUTU_OPEND_HOST at
+    # the host (host.docker.internal or the host LAN IP) since OpenD runs on the host.
+    futu_host: str = Field(default="127.0.0.1", validation_alias="FUTU_OPEND_HOST")
+    futu_port: int = Field(default=11111, validation_alias="FUTU_OPEND_PORT")
+    enable_futu: bool = False
+    futu_news_per_stock: int = 10          # get_search_news items per stock per pull
+    futu_flow_lookback_days: int = 90      # capital-flow history window
+
     # --- AIFINmarket (万得终端) — CN A-share professional source ---------------
     # REST gateway to a Wind/AIFINmarket terminal (base url + token); or set
     # XAR_ENABLE_AIFINMARKET + a local WindPy terminal. Blank -> skipped.
@@ -112,7 +123,7 @@ class Settings(BaseSettings):
     # --- Daily auto-ingest system (orchestration/daily.py + Dagster sidecar) ---
     # Which sources the daily loop pulls (CSV; each unavailable one is skipped).
     daily_enabled_sources: str = ("edgar,cninfo,finnhub,fmp,twitter,reddit,wechat,"
-                              "aifinmarket,polymarket,rss,macro")
+                              "aifinmarket,futu,polymarket,rss,macro")
     daily_run_hour: int = 6            # nightly schedule hour (cron "0 {hour} * * *")
     daily_universe_shards: int = 8     # full universe split into N nightly shards
     daily_news_lookback_days: int = 7  # default Finnhub/FMP news pull window
