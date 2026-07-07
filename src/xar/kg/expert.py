@@ -106,10 +106,13 @@ def process_document(doc_id: str, run_id: str | None = None) -> dict:
     polarity = {"bull": "positive", "bear": "negative"}.get((ins.stance or "").lower(), "neutral")
     etype = ins.catalyst_type if ins.catalyst_type in CATALYST_TYPES else "earnings"
     cid = None
-    if ins.entity:
+    if is_research and d.get("company_id"):
+        # 研报/纪要文档在抓取时已按 securityList 逐公司拆行锚定 → **信任文档锚公司**,
+        # 不用 LLM 单实体解析覆盖(否则多公司报告把洞见错挂到 LLM 提到的另一家,评审 #6;
+        # 这正是运行时审计抓到的"中际旭创错挂群创光电")。
+        cid = d["company_id"]
+    elif ins.entity:
         cid, _ = resolve.resolve(ins.entity)
-    if cid is None and is_research and d.get("company_id"):
-        cid = d["company_id"]              # 研报文档已锚公司:实体解析失败也不丢(锚定 fallback)
     q = max(0.0, min(1.0, float(ins.signal_quality or 0)))
     kept = bool(ins.relevant and ins.thesis.strip() and q >= QUALITY_MIN and cid)
     # public-info timestamp + ontology anchor make the insight a first-class semantic fact

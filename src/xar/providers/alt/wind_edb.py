@@ -154,16 +154,22 @@ def pull(limit: int | None = None) -> dict:
         if not series:
             out["skipped"].append(spec.key)
             continue
+        # 增量:只写水位线之后的新点,避免每轮重写整段历史把 observed_at 刷成今天(评审 #13,破坏 PIT)。
+        last = state.get(spec.key)
+        last_pe = date.fromisoformat(last) if last else None
         wrote = 0
         for pe, val in series:
+            if last_pe and pe <= last_pe:
+                continue
             upsert_signal(spec.key, period_end=pe, value=val, theme=theme,
                           unit=spec.unit, source="wind_edb",
                           meta={"question": EDB_QUESTIONS[spec.key]})
             wrote += 1
+        if series:
+            state[spec.key] = series[-1][0].isoformat()   # 推水位线(即使本轮无新点)
         if wrote:
             out["indicators"] += 1
             out["points"] += wrote
-            state[spec.key] = series[-1][0].isoformat()
     kvstate.save_state("wind_edb_state", state)
     log.info("wind_edb: %s", out)
     return out

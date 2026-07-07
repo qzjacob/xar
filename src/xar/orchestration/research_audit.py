@@ -123,10 +123,16 @@ def run_audit(no_llm: bool = False, run_id: str | None = None) -> dict:
             out["spot_check"] = spot_check(run_id=run_id)
         except Exception as e:  # noqa: BLE001
             out["spot_check"] = {"error": str(e)[:160]}
-    # 处置:文档级失败 → 清 kg_extracted_at 重排队 + meta 标记
+    # 处置:文档级失败 → **删掉有缺陷的 expert 洞见 + 其镜像事件**,再清 kg_extracted_at。
+    # 只清 kg_extracted_at 不够:build_kg 会重跑(recall 道),但 expert.process 以
+    # `NOT EXISTS expert_insights` 为门,旧的坏洞见不删就永远跳过、缺陷不修(评审 #2/#9)。
+    # 删除后两道都重跑;research 文档用锚公司(评审 #6 修)重解出正确公司。
     requeued = 0
     for v in (out.get("spot_check") or {}).get("verdicts", []):
         if not (v["company_link_ok"] and v["extraction_grounded"] and v["link_sensible"]):
+            db.execute("DELETE FROM kg_events WHERE source_doc_id=%s AND license_tag='expert'",
+                       (v["doc_id"],))
+            db.execute("DELETE FROM expert_insights WHERE doc_id=%s", (v["doc_id"],))
             db.execute(
                 "UPDATE documents SET kg_extracted_at=NULL, "
                 "meta = jsonb_set(COALESCE(meta,'{}'), '{audit}', %s::jsonb) WHERE id=%s",

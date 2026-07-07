@@ -24,6 +24,8 @@ def test_router_audit_is_independent_token_model():
 @pytest.fixture()
 def _doc(seeded_db):
     def wipe():
+        db.execute("DELETE FROM expert_insights WHERE doc_id=%s", (_DOC,))
+        db.execute("DELETE FROM kg_events WHERE source_doc_id=%s", (_DOC,))
         db.execute("DELETE FROM documents WHERE id=%s", (_DOC,))
     wipe()
     db.execute(
@@ -42,7 +44,11 @@ def test_integrity_report_counts(_doc):
     assert "edb" in rep and "expert" in rep
 
 
-def test_failed_verdict_requeues_doc(_doc, monkeypatch):
+def test_failed_verdict_requeues_and_clears_insight(_doc, monkeypatch):
+    # 埋一条(有缺陷的)expert 洞见 —— 审计失败必须把它删掉,否则 expert 门跳过、缺陷永存(评审 #2/#9)
+    db.execute("INSERT INTO expert_insights(doc_id, source, company_id, stance, kept) "
+               "VALUES(%s,'gangtise','innolux','bull', true) ON CONFLICT (doc_id) DO NOTHING", (_DOC,))
+
     def fake(prompt, schema, **kw):
         return schema(company_link_ok=False, doc_type_ok=True, extraction_grounded=False,
                       link_sensible=True, severity="high", notes_zh="公司链接可疑")
@@ -50,5 +56,7 @@ def test_failed_verdict_requeues_doc(_doc, monkeypatch):
     out = research_audit.run_audit()
     assert out["requeued"] >= 1
     r = db.query("SELECT kg_extracted_at, meta FROM documents WHERE id=%s", (_DOC,))
-    assert r[0]["kg_extracted_at"] is None                 # 已重排队
+    assert r[0]["kg_extracted_at"] is None                 # build_kg 重排队
     assert (r[0]["meta"] or {}).get("audit")               # meta 打了审计标记
+    ins = db.query("SELECT count(*) c FROM expert_insights WHERE doc_id=%s", (_DOC,))
+    assert ins[0]["c"] == 0                                 # 坏洞见已删,expert 会重跑

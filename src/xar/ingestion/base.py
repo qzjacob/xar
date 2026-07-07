@@ -63,7 +63,9 @@ def save(doc: Doc) -> str:
               permission, license_tag, object_key, text, meta)
            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
            ON CONFLICT (id) DO UPDATE SET
-              text = EXCLUDED.text, title = EXCLUDED.title, meta = EXCLUDED.meta""",
+              text = EXCLUDED.text, title = EXCLUDED.title, meta = EXCLUDED.meta,
+              doc_type = EXCLUDED.doc_type, published_at = EXCLUDED.published_at,
+              permission = EXCLUDED.permission, license_tag = EXCLUDED.license_tag""",
         (doc.id, doc.company_id, doc.source, doc.doc_type, doc.title, doc.url,
          doc.published_at, doc.permission, doc.license_tag, object_key, doc.text,
          _json(doc.meta)),

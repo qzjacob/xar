@@ -47,8 +47,11 @@ def test_to_period_end():
 
 @pytest.fixture()
 def _clean(seeded_db):
+    from xar.storage import kvstate
+
     def wipe():
         db.execute("DELETE FROM alt_signals WHERE source='wind_edb' AND period_end >= '2099-01-01'")
+        kvstate.save_state("wind_edb_state", {})     # 清水位线,测试与增量游标隔离
     wipe()
     yield
     wipe()

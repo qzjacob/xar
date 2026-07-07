@@ -44,10 +44,18 @@ def cn_priority_order() -> list[str]:
     return sorted(cn, key=key)
 
 
-def core_set() -> set[str]:
+def core_list() -> list[str]:
+    """核心公司(优先序,确定性)——前 N 名 + 未入前 N 的 CN 种子旗舰(仍按优先序)。"""
     order = cn_priority_order()
     n = get_settings().gangtise_core_size
-    return set(order[:n]) | (seed_company_ids() & set(order))
+    top = order[:n]
+    seen = set(top)
+    extra = [c for c in order if c in seed_company_ids() and c not in seen]
+    return top + extra
+
+
+def core_set() -> set[str]:
+    return set(core_list())
 
 
 def _now_ms() -> int:
@@ -79,7 +87,7 @@ def fresh_sweep() -> dict:
     md = 0
     latest_q = insight._quarter_ends(1)[0] if insight._quarter_ends(1) else None
     if latest_q:
-        for cid in list(core_set())[: s.gangtise_core_size]:
+        for cid in core_list():
             try:
                 md += insight.pull_mgmt_discussion(cid, latest_q)
             except Exception as e:  # noqa: BLE001
@@ -114,7 +122,8 @@ def backfill_step(units: int = 2) -> dict:
     if not insight.client.available():
         return {"skipped": "gangtise disabled"}
     st = kvstate.get_state("gangtise_backfill")
-    st.setdefault("months", {dt: 1 for dt in _BACKFILL_DOCTYPES})   # 每 doc_type 下一个月偏移
+    # 偏移 0 = 上一个完整月(_month_window(0));从 0 起,否则最近的完整月永远扫不到(评审 #1/#7/#8)。
+    st.setdefault("months", {dt: 0 for dt in _BACKFILL_DOCTYPES})
     st.setdefault("empty", {dt: 0 for dt in _BACKFILL_DOCTYPES})
     st.setdefault("exhausted", {})
     st.setdefault("mdq", 0)                                          # MD&A 季度游标
@@ -132,15 +141,19 @@ def backfill_step(units: int = 2) -> dict:
             continue
         start_ms, end_ms = _month_window(mo)
         pull = insight.pull_broker_reports if dt == "broker_report" else insight.pull_minutes
+        errored = False
         try:
             r = pull(start_ms=start_ms, end_ms=end_ms, max_pages=s.gangtise_insight_pages)
             got = r.get("saved", 0)
         except Exception as e:  # noqa: BLE001 —— 毒单元:记一次重试计数,不炸
             st.setdefault("retries", {})[f"{dt}:{mo}"] = st.get("retries", {}).get(f"{dt}:{mo}", 0) + 1
-            got = 0
+            got, errored = 0, True
             log.warning("backfill %s m-%d failed: %s", dt, mo, e)
         st["months"][dt] = mo + 1
-        if got == 0:
+        # 空窗判定只对**真实空结果**计数;瞬时错误不算空窗(评审 #5:否则 API 抖动会误判耗尽)。
+        if errored:
+            pass
+        elif got == 0:
             st["empty"][dt] = st["empty"].get(dt, 0) + 1
             if st["empty"][dt] >= _EMPTY_STOP:                      # 连续空窗 → 账户可见深度到底
                 st["exhausted"][dt] = "empty_window"
@@ -154,7 +167,7 @@ def backfill_step(units: int = 2) -> dict:
     qi = st["mdq"]
     if qi < len(q_all):
         rd = q_all[qi]
-        for cid in list(core_set())[: s.gangtise_core_size]:
+        for cid in core_list():
             try:
                 insight.pull_mgmt_discussion(cid, rd)
             except Exception as e:  # noqa: BLE001

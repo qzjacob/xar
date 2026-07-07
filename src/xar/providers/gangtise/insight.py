@@ -50,9 +50,15 @@ def _sec_index() -> dict[str, str]:
     return _SEC_INDEX
 
 
-def _company_for_security(sec: dict) -> str | None:
-    """securityList 行 → registry cid(数字段+交易所双匹配)。"""
-    code = sec.get("securityCode") or sec.get("gtsCode") or sec.get("code")
+def _company_for_security(sec) -> str | None:
+    """securityList 元素 → registry cid(数字段+交易所双匹配)。评审 #11:元素也可能是
+    代码字符串(如 '600519.SH')而非 dict——都容忍,非 dict 非 str 一律跳过不炸。"""
+    if isinstance(sec, dict):
+        code = sec.get("securityCode") or sec.get("gtsCode") or sec.get("code")
+    elif isinstance(sec, str):
+        code = sec
+    else:
+        return None
     return _sec_index().get(_key(code) or "")
 
 
@@ -66,20 +72,28 @@ def _companies_in(row: dict) -> list[str]:
 
 
 def _pub(ms) -> datetime | None:
-    """13 位毫秒时间戳 → aware datetime。也容忍 'yyyy-MM-dd' 字符串。"""
+    """时间戳解析:13 位毫秒 / 10 位秒 / **8 位 yyyyMMdd** / 'yyyy-MM-dd' / 'yyyy/MM/dd'。
+
+    评审 #10:8 位 yyyyMMdd(如 20990331)不能当 Unix 秒(会变 1970)——先按紧凑日期解析。"""
     if ms in (None, ""):
         return None
     try:
         n = int(ms)
-        if n > 10_000_000_000:            # ms
+        if 10_000_000 <= n <= 99_999_999:     # 8 位 yyyyMMdd
+            s = str(n)
+            return datetime.strptime(s, "%Y%m%d").replace(tzinfo=timezone.utc)
+        if n > 10_000_000_000:                # 13 位 ms
             return datetime.fromtimestamp(n / 1000, tz=timezone.utc)
-        return datetime.fromtimestamp(n, tz=timezone.utc)
+        return datetime.fromtimestamp(n, tz=timezone.utc)  # 10 位秒
     except (TypeError, ValueError):
-        s = str(ms)[:10]
-        try:
-            return datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        except ValueError:
-            return None
+        s = str(ms)[:10].replace("/", "-")
+        for fmt in ("%Y-%m-%d", "%Y%m%d"):
+            try:
+                return datetime.strptime(s.replace("-", "") if fmt == "%Y%m%d" else s,
+                                         fmt).replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+        return None
 
 
 def _ymd(ms: int) -> str:
@@ -106,15 +120,15 @@ def pull_broker_reports(*, start_ms: int, end_ms: int, max_pages: int = 2) -> di
     for page in client.pages(client.BROKER_REPORT_LIST_URL, payload, max_pages=max_pages):
         for r in page:
             seen += 1
-            cids = _companies_in(r) or [None]
             vid = str(r.get("reportId") or r.get("id") or "")
-            if not vid:
+            cids = _companies_in(r)
+            if not vid or not cids:          # 只留命中 registry 名单的报告(评审 #3)
                 continue
             pub = _pub(r.get("publishTime") or r.get("reportDate"))
             brief = str(r.get("brief") or r.get("summary") or "")
             title = str(r.get("title") or "")
             for cid in cids:
-                _save(doc_type="broker_report", vendor_id=(vid if cid is None else f"{vid}:{cid}"),
+                _save(doc_type="broker_report", vendor_id=f"{vid}:{cid}",
                       cid=cid, title=title, text=(title + "\n" + brief).strip(), pub=pub,
                       meta={"reportId": vid, "publisher": r.get("publisher"),
                             "category": r.get("category"), "llmTagList": r.get("llmTagList"),
@@ -135,7 +149,8 @@ def pull_minutes(*, start_ms: int, end_ms: int, max_pages: int = 2) -> dict:
         for r in page:
             seen += 1
             vid = str(r.get("summaryId") or r.get("id") or "")
-            if not vid:
+            cids = _companies_in(r)
+            if not vid or not cids:          # 只留命中 registry 名单的纪要(评审 #3)
                 continue
             roles = r.get("participantRoleList") or []
             doc_type = "expert_minutes" if ("expert" in roles or r.get("guest")) else "meeting_minutes"
@@ -145,9 +160,8 @@ def pull_minutes(*, start_ms: int, end_ms: int, max_pages: int = 2) -> dict:
             essence = "\n".join(str(e.get("content") or "") for e in (r.get("essence") or [])
                                 if isinstance(e, dict))
             text = "\n".join(p for p in (title, brief, essence) if p).strip()
-            cids = _companies_in(r) or [None]
             for cid in cids:
-                _save(doc_type=doc_type, vendor_id=(vid if cid is None else f"{vid}:{cid}"),
+                _save(doc_type=doc_type, vendor_id=f"{vid}:{cid}",
                       cid=cid, title=title, text=text, pub=pub,
                       meta={"summaryId": vid, "guest": r.get("guest"),
                             "institutionList": r.get("institutionList"),

@@ -327,6 +327,21 @@ def _llm_stage(batch_docs: int, q: dict) -> tuple[dict, dict]:
     return out, q
 
 
+def _research_audit_step() -> dict:
+    """独立抓取审计(每日节拍;TaskClass.AUDIT 强 token 模型,pinned/quota 门之外)。
+    模块级函数:run_once 调用此单一入口,glm_worker 单测可整体打桩,避免测试发真实审计 LLM 调用。"""
+    if not _due("research_audit", 24 * 3600):
+        return {"skipped": "not due"}
+    try:
+        from ..orchestration import research_audit
+        out = research_audit.run_audit()
+        _stamp("research_audit", 24 * 3600, ok=True)
+        return out
+    except Exception as e:  # noqa: BLE001
+        _stamp("research_audit", 24 * 3600, ok=False)
+        return {"error": str(e)[:160]}
+
+
 def _alt_correction(q: dict, rebuilds: int) -> dict:
     """信号→事件(每轮,零 LLM)+ 信号挑战最重的论点在额度 ok 时钉扎 GLM 重建。"""
     out: dict = {}
@@ -402,15 +417,8 @@ def run_once(*, batch_docs: int | None = None, backfill_units: int | None = None
     out["alt_correct"] = _alt_correction(q, s.glm_worker_thesis_rebuilds)
 
     # 独立抓取审计(每日):TaskClass.AUDIT 强 token 模型,**在 pinned 与 quota 门之外**——
-    # 验收模型 ≠ 生产 GLM,GLM 耗尽也不影响审计(独立性的另一半)。
-    if _due("research_audit", 24 * 3600):
-        try:
-            from ..orchestration import research_audit
-            out["research_audit"] = research_audit.run_audit()
-            _stamp("research_audit", 24 * 3600, ok=True)
-        except Exception as e:  # noqa: BLE001
-            out["research_audit"] = {"error": str(e)[:160]}
-            _stamp("research_audit", 24 * 3600, ok=False)
+    # 验收模型 ≠ 生产 GLM,GLM 耗尽也不影响审计(独立性的另一半)。模块级函数便于测试打桩。
+    out["research_audit"] = _research_audit_step()
 
     counters = get_state("counters")
     counters["cycles"] = int(counters.get("cycles", 0)) + 1

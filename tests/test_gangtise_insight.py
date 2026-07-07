@@ -28,6 +28,16 @@ def test_pub_ms_parse():
     assert d is not None and d.year == 2099
     assert insight._pub("2099-06-30").year == 2099
     assert insight._pub(None) is None
+    # 评审 #10:8 位 yyyyMMdd 不能当 Unix 秒(否则 1970)
+    p = insight._pub(20990331)
+    assert p is not None and p.year == 2099 and p.month == 3 and p.day == 31
+    assert insight._pub("2099/06/30").year == 2099
+
+
+def test_company_for_security_tolerates_non_dict():
+    # 评审 #11:securityList 元素可能是代码字符串或非法值——不炸
+    assert insight._company_for_security("300308.SZ") == _CID
+    assert insight._company_for_security(123) is None
 
 
 def _page(rows):
@@ -60,6 +70,15 @@ def test_pull_broker_reports_saves_doc(_clean, monkeypatch):
                  "WHERE id='gangtise:report:RT1:innolight'")
     assert d and d[0]["company_id"] == _CID and d[0]["doc_type"] == "broker_report"
     assert "1.6T" in d[0]["text"]
+
+
+def test_non_covered_report_skipped(_clean, monkeypatch):
+    # 评审 #3:securityList 无 registry 命中的报告不落库
+    row = {"reportId": "RT9", "title": "某未覆盖小盘股", "brief": "x", "publishTime": _MS,
+           "securityList": [{"securityCode": "000001.SZ"}]}   # 平安银行,不在 registry
+    monkeypatch.setattr(client, "pages", _page([row]))
+    out = insight.pull_broker_reports(start_ms=_MS - 10**8, end_ms=_MS)
+    assert out["seen"] == 1 and out["saved"] == 0
 
 
 def test_pull_minutes_expert_vs_meeting(_clean, monkeypatch):

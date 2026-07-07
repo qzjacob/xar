@@ -60,3 +60,15 @@ def test_research_doc_uses_research_prompt_and_anchor_fallback(_doc, monkeypatch
     sf = db.query("SELECT count(*) c FROM semantic_facts WHERE company_id='innolight' "
                   "AND kind='insight' AND source_doc_id=%s", (_DOC,))
     assert sf[0]["c"] >= 1
+
+
+def test_research_doc_anchor_wins_over_llm_entity(_doc, monkeypatch):
+    # 评审 #6:研报已按公司锚定 → 即使 LLM 把 entity 解析到另一家,也用文档锚公司(防错挂)
+    def fake(prompt, schema, **kw):
+        return schema(relevant=True, entity="Tesla 特斯拉", stance="bull",  # 故意解析到别家
+                      catalyst_type="earnings", thesis="1.6T", evidence="1.6T 放量超预期",
+                      signal_quality=0.8)
+    monkeypatch.setattr(expert.llm, "complete_json", fake)
+    expert.process_document(_DOC)
+    ins = db.query("SELECT company_id FROM expert_insights WHERE doc_id=%s", (_DOC,))
+    assert ins[0]["company_id"] == "innolight"      # 文档锚公司,不是 LLM 说的 Tesla
