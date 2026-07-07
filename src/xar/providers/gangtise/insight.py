@@ -140,17 +140,28 @@ def pull_broker_reports(*, start_ms: int, end_ms: int, max_pages: int = 2) -> di
     return out
 
 
+def _zh_keyword(cid: str) -> str | None:
+    """公司的中文检索词(broker-report/getList 真机只认 keyword 过滤,securities 参数被忽略)。
+    取最长的纯中文别名(最具体,如「中际旭创」而非「旭创」)。"""
+    c = company_by_id(cid)
+    if not c:
+        return None
+    cands = [a for a in ((c.get("aliases") or []) + [c.get("name", "")])
+             if a and all("一" <= ch <= "鿿" for ch in a)]
+    return max(cands, key=len) if cands else None
+
+
 def pull_broker_reports_for(cids, *, start_ms: int, end_ms: int, max_pages: int = 1) -> dict:
-    """按公司拉券商研报(真机:broker-report/getList 用 securities 过滤才返回公司研报,
-    且响应 securityList 为空 → 直接归属被查询公司 cid,不依赖反解)。"""
-    from .__init__ import gts_code
+    """按公司拉券商研报。真机:broker-report/getList 的 `securities` 参数被忽略(返回全局宏观
+    feed),必须用 `keyword`=公司中文名过滤(已实测:keyword 命中的确是该公司研报,不同公司零重叠)。
+    响应 securityList 恒空 → 归属被查询 cid。"""
     seen = saved = 0
     for cid in cids:
-        code = gts_code(cid)
-        if not code:
+        kw = _zh_keyword(cid)
+        if not kw:
             continue
-        payload = {"securities": [code], "startDate": _ymd(start_ms), "endDate": _ymd(end_ms),
-                   "keyword": "", "categoryList": [], "ratingList": []}
+        payload = {"keyword": kw, "startDate": _ymd(start_ms), "endDate": _ymd(end_ms),
+                   "categoryList": [], "ratingList": []}
         for page in client.pages(client.BROKER_REPORT_LIST_URL, payload, max_pages=max_pages):
             for r in page:
                 seen += 1
