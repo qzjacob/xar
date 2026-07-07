@@ -49,6 +49,10 @@ dependencies = [
 cn = ["akshare>=1.14", "adata>=2.0"]
 # Free global prices + fundamentals (Yahoo) and the catalyst backtest.
 market = ["yfinance>=0.2.40"]
+# Claude Max subscription via the Agent SDK (models/agentsdk.py, executor="agent_sdk").
+# Host-only — needs the `claude` CLI + a Max login (~/.claude/.credentials.json);
+# agentsdk.available() gates it, so an install without them falls back to GLM/DeepSeek.
+agentsdk = ["claude-agent-sdk>=0.2"]
 parse-deep = ["docling>=2.0"]
 graph = ["graphiti-core>=0.3", "neo4j>=5.20"]
 orchestration = ["dagster>=1.7", "dagster-webserver>=1.7"]

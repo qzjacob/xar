@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     glm_sub_api_base: str = Field(default="", validation_alias="GLM_SUB_API_BASE")
     moonshot_sub_api_key: str = Field(default="", validation_alias="MOONSHOT_SUB_API_KEY")
     moonshot_sub_api_base: str = Field(default="", validation_alias="MOONSHOT_SUB_API_BASE")
+    # Claude Max subscription via the Agent SDK (executor="agent_sdk"). Zero per-token bill —
+    # runs on the Max plan's OAuth login. Host-only (needs the `claude` CLI + ~/.claude creds);
+    # agentsdk.available() gates it, so a docker container without them silently falls back to GLM.
+    anthropic_max_enabled: bool = True         # off → Claude-Max specs never route (pure GLM/token)
+    anthropic_max_model: str = "claude-opus-4-8"   # default model for the claude-opus-max spec
+    anthropic_max_effort: str = "high"         # Agent SDK effort for quality tasks
+    anthropic_max_timeout_s: int = 180         # per-call subprocess timeout (single-shot)
 
     # --- Embeddings ---
     # 默认英文 bge-small(turnkey);中英混合部署设 XAR_EMBED_MODEL=

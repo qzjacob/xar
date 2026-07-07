@@ -120,6 +120,12 @@ _PIN: contextvars.ContextVar[tuple[str, ...] | None] = contextvars.ContextVar(
     "xar_llm_pin", default=None)
 
 
+# 便捷钉扎链:强制某高价值流程走 Claude Max(Opus),订阅/宿主不可用则优雅降级到 GLM。
+# 用法:with llm.pinned(llm.CLAUDE_MAX_PIN): report/thesis 综合...  —— 只有该上下文内
+# 才用 Claude Max;默认路由仍是 peer/fallback(不改全局默认)。
+CLAUDE_MAX_PIN: tuple[str, ...] = ("claude-opus-max", "glm-5.2-sub", "glm-4.6-sub")
+
+
 @contextmanager
 def pinned(model_ids: Sequence[str]):
     token = _PIN.set(tuple(model_ids))
@@ -232,6 +238,25 @@ def complete(
     # the budget cap and over-cap token candidates are skipped below — but spend accelerates
     # while the preferred provider is down. (Subscription/flat-plan candidates record usd=0.)
     for spec in chain:
+        # Claude Max via the Agent SDK: a distinct executor (subprocess on the subscription,
+        # never litellm/metered). Host-only → skip when unavailable so the chain rotates to
+        # GLM/DeepSeek (e.g. in docker). Subscription billing: recorded usd=0.
+        if getattr(spec, "executor", "litellm") == "agent_sdk":
+            from . import agentsdk
+
+            if not agentsdk.available():
+                last_err = RuntimeError(f"{spec.id}: agent sdk unavailable (host-only)")
+                continue
+            try:
+                text, usage = agentsdk.complete(spec, system=system, prompt=prompt,
+                                                max_tokens=max_tokens, want_strong=want_strong)
+            except Exception as e:  # noqa: BLE001 — quota/timeout/failure → rotate to next candidate
+                last_err = e
+                log.warning("llm %s agent_sdk %s failed: %s", node, spec.id, str(e)[:160])
+                continue
+            _record(run_id, node, spec, usage, tc.value, used_sub=True)   # subscription, usd=0
+            log.info("route %s -> %s [subscription/agent_sdk]", tc.value, spec.id)
+            return text
         base, key_env, used_sub = _endpoint(spec, s)
         if key_env and not os.environ.get(key_env):   # skip unconfigured provider — no wasted call
             last_err = RuntimeError(f"{spec.id}: {key_env} not configured")
@@ -311,6 +336,11 @@ def complete_stream(
     last_err: Exception | None = None
 
     for spec in chain:
+        if getattr(spec, "executor", "litellm") == "agent_sdk":
+            # The Agent-SDK executor is single-shot (no streaming/tool-calling loop); skip it
+            # here so the streaming chat chain rotates to a litellm candidate.
+            last_err = RuntimeError(f"{spec.id}: agent_sdk not supported for streaming")
+            continue
         base, key_env, used_sub = _endpoint(spec, s)
         if key_env and not os.environ.get(key_env):
             last_err = RuntimeError(f"{spec.id}: {key_env} not configured")

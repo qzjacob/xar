@@ -68,6 +68,7 @@ class ModelSpec:
     preferred: bool = False        # the chosen model for its (provider, primary capability)
     released: str = ""             # ISO date — audit + 换代 ordering
     notes: str = ""
+    executor: str = "litellm"      # "litellm" (HTTP) | "agent_sdk" (Claude Max via Agent SDK)
 
 
 # --- Providers -------------------------------------------------------------
@@ -112,6 +113,28 @@ MODELS: list[ModelSpec] = [
               (Capability.FAST,), Billing.TOKEN, 1.0, 5.0, 200_000, released="2025-10"),
     ModelSpec("claude-sonnet-4-6", "anthropic", "anthropic/claude-sonnet-4-6",
               (Capability.STRONG, Capability.LONG_CONTEXT), Billing.TOKEN, 3.0, 15.0, 200_000),
+    # Anthropic — MAX SUBSCRIPTION via the Claude Agent SDK (executor="agent_sdk").
+    # Runs single-shot completions on the Max plan's OAuth login (~/.claude/.credentials.json),
+    # zero per-token bill — the same "subscription, never metered" discipline as the GLM pool.
+    # Host-only (needs the `claude` CLI + creds); llm skips them when agentsdk.available()=False
+    # (e.g. in docker) and rotates to GLM/DeepSeek. ~6.5s/call → low-volume QUALITY tasks only;
+    # they sit as a peer/fallback in the STRONG chains (prefer_billing=TOKEN keeps token leads).
+    # Distinct litellm_model ("anthropic-max/…") avoids colliding with the token specs' index;
+    # agentsdk derives the real model id from the part after "/".
+    # litellm_model bare name is the registry id ('claude-opus-max'), NOT the real Anthropic
+    # model — so the PRICES/_BY_LITELLM bare-name index can't collide with (and zero the price
+    # of) the metered claude-opus-4-8/sonnet specs. agentsdk._real_model() maps id → real model.
+    # No Capability.FAST: a 6.5s subprocess must never lead the FAST chains (analyst/judge/eval).
+    ModelSpec("claude-opus-max", "anthropic", "anthropic-max/claude-opus-max",
+              (Capability.STRONG, Capability.REASONING, Capability.LONG_CONTEXT),
+              Billing.SUBSCRIPTION, 0.0, 0.0, context_window=200_000, supports_reasoning=True,
+              released="2026-07", executor="agent_sdk",
+              notes="Claude Opus 4.8 on the Max subscription via Agent SDK; host-only, usd=0"),
+    ModelSpec("claude-sonnet-max", "anthropic", "anthropic-max/claude-sonnet-max",
+              (Capability.STRONG, Capability.LONG_CONTEXT),
+              Billing.SUBSCRIPTION, 0.0, 0.0, context_window=200_000,
+              released="2026-07", executor="agent_sdk",
+              notes="Claude Sonnet on the Max subscription via Agent SDK; host-only, usd=0"),
     # GLM (Zhipu) — SUBSCRIPTION / Coding Plan: the bulk + search default pool.
     # price_in/out = the per-token LIST rate, used ONLY if the call falls back to the
     # metered key (no sub key configured); on the flat plan the recorded usd is 0.
