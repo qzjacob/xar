@@ -46,6 +46,12 @@ EVIDENCE_KINDS: tuple[str, ...] = (
     "registry",     # 本体注册表事实(themes/segments/edges bootstrap),ref_id 自由文本
 )
 
+# 争论(debate)与支柱(pillar)的证据裁决词表。thesis_fact_links.verdict 与
+# research/evidence_link.py 的 LLM 分类器共用;方向语义见各自 target_kind。
+DEBATE_VERDICTS: tuple[str, ...] = ("confirms_bull", "confirms_bear", "neutral")
+PILLAR_VERDICTS: tuple[str, ...] = ("confirms", "falsifies", "neutral")
+VP_DIRECTIONS: tuple[str, ...] = ("higher_is_bull", "lower_is_bull")
+
 
 class ThesisEvidence(BaseModel):
     """一条主张的证据锚。ref_id 必须来自提示词给出的事实清单,禁止编造。"""
@@ -107,6 +113,50 @@ class WatchItem(BaseModel):
     direction_zh: str = Field(default="", description="怎么读:超预期/不及预期分别意味着什么")
 
 
+class VerificationPoint(BaseModel):
+    """一个可机器复核的验证点:争论天平上的一颗砝码。
+
+    数值型(metric 非空):最新读数 vs 双阈值 → 灰区语义(达 bull_threshold 证多、
+    破 bear_threshold 证空、之间 neutral)。事件型(event_types 非空):新催化剂事件
+    经 LLM 相对主张分类回归到本 VP。至少有 metric 或 event_types 其一。"""
+    key: str = Field(description="stable slug, e.g. 'crpo_growth_floor'")
+    question_zh: str = Field(description="要回答的具体问题,e.g. '企业客户在扩大采用还是取消订阅?'")
+    metric: str = Field(
+        default="", description="canonical KPI 或衍生指标 key;留空=纯事件型 VP")
+    event_types: list[str] = Field(
+        default_factory=list, description=f"催化剂桶(⊆{CATALYST_TYPES});留空=纯数值型 VP")
+    bull_reading_zh: str = Field(description="数据怎么读算多头得分(含具体数字)")
+    bear_reading_zh: str = Field(description="数据怎么读算空头得分(含具体数字)")
+    direction: str = Field(
+        default="higher_is_bull", description=f"one of {VP_DIRECTIONS}:指标越高越偏多 or 越低越偏多")
+    bull_threshold: float | None = Field(
+        default=None, description="达到即 confirms_bull 的数值阈值(机器可判)")
+    bear_threshold: float | None = Field(
+        default=None, description="跌破即 confirms_bear 的数值阈值;与 bull_threshold 之间=neutral 灰区")
+    cadence: str = Field(
+        default="quarterly", description="quarterly | monthly | event(读数陈旧度判定用)")
+
+
+class ThesisDebate(BaseModel):
+    """核心投资分歧的一等类型化对象(如 ServiceNow「AI 颠覆 vs 赋能」)。
+
+    两边都写成最强因果叙事(steelman),挂 1–4 个 verification_points;新证据经
+    research/evidence_link 回归到天平,health_v3 据此算 lean_now、判 flipped。"""
+    key: str = Field(description="stable slug, e.g. 'ai_disrupt_vs_empower'")
+    question_zh: str = Field(description="争论问题(一句话):这家公司/主题的核心分歧是什么")
+    bull_zh: str = Field(description="多方最强因果叙事(2–3 句,含数字);'多方'=对该公司偏乐观的一边")
+    bear_zh: str = Field(description="空方最强因果叙事(2–3 句,含数字)")
+    weight: float = Field(ge=0, le=1, default=0.5, description="该争论对整体论点的重要度")
+    lean: float = Field(
+        ge=-1, le=1, default=0.0, description="作者态证据天平:-1 全 bear … 0 悬而未决 … +1 全 bull")
+    pillar_keys: list[str] = Field(
+        default_factory=list, description="该争论压在哪些支柱上(pillar.key)")
+    verification_points: list[VerificationPoint] = Field(
+        description="1–4 个验证点;每个可被数值规则或事件语义机器复核")
+    evidence: list[ThesisEvidence] = Field(
+        default_factory=list, description="可选;入库 thesis_evidence slot='debate:<key>'")
+
+
 class CompanyThesis(BaseModel):
     """LLM 生成的完整论点对象(company_thesis.content)。所有主张必须可溯源。"""
     one_liner_zh: str = Field(description="一句话论点(≤40字):这家公司为什么值得/不值得关注")
@@ -125,13 +175,25 @@ class CompanyThesis(BaseModel):
     coverage_gaps_zh: list[str] = Field(
         default_factory=list,
         description="诚实声明:哪些维度证据不足(如'无 capex 时序''无 CN 分析师覆盖')——宁缺毋滥")
+    debates: list[ThesisDebate] = Field(
+        default_factory=list,
+        description="0–3 个核心争论(真分歧,两边都有聪明钱);有争论种子的公司必须逐条回应,没有就留空")
 
 
 # ── 校验(生成管线在入库前调用;宁可拒绝不可污染)────────────────────────────────
 def validate_thesis(t: CompanyThesis, *, known_evidence_ids: set[str] | None = None,
-                    known_kpis: set[str] | None = None) -> list[str]:
-    """返回违规清单(空 = 通过)。known_evidence_ids 形如 {'event:123', 'chunk:ab'}。"""
+                    known_kpis: set[str] | None = None,
+                    known_indicators: set[str] | None = None,
+                    required_debate_keys: set[str] | None = None) -> list[str]:
+    """返回违规清单(空 = 通过)。known_evidence_ids 形如 {'event:123', 'chunk:ab'}。
+
+    known_indicators:合法衍生指标 key 集合(与 known_kpis 并集构成 VP/watch_metric 合法域)。
+    required_debate_keys:策展种子要求本论点必须覆盖的争论 key(缺失即违规;宁缺毋滥的反面——
+    有种子就必须回应,key 保持不变)。"""
     problems: list[str] = []
+    metric_domain: set[str] | None = None
+    if known_kpis is not None or known_indicators is not None:
+        metric_domain = set(known_kpis or set()) | set(known_indicators or set())
     if t.stance not in STANCES:
         problems.append(f"stance {t.stance!r} not in {STANCES}")
     if not (3 <= len(t.pillars) <= 6):
@@ -153,13 +215,57 @@ def validate_thesis(t: CompanyThesis, *, known_evidence_ids: set[str] | None = N
         for et in p.watch_event_types:
             if et not in CATALYST_TYPES:
                 problems.append(f"pillar {p.key}: watch_event_type {et!r} invalid")
-        if known_kpis is not None:
+        if metric_domain is not None:
             for m in p.watch_metrics:
-                if m not in known_kpis:
+                if m not in metric_domain:
                     problems.append(f"pillar {p.key}: watch_metric {m!r} not canonical")
     for r in t.risks:
         if r.type not in RISK_TYPES:
             problems.append(f"risk type {r.type!r} invalid")
+    # ── 争论(debate)/验证点(VP)校验 ────────────────────────────────────────────
+    pillar_keys = {p.key for p in t.pillars}
+    seen_debates: set[str] = set()
+    # 上限 = max(3, 必答种子数+1):种子占满 3 席时仍留 1 席给模型自主补的争论(_SYSTEM 第 8 条允许)。
+    debate_cap = max(3, len(required_debate_keys or ()) + 1)
+    if len(t.debates) > debate_cap:
+        problems.append(f"debates count {len(t.debates)} > {debate_cap}")
+    for d in t.debates:
+        if d.key in seen_debates:
+            problems.append(f"debate {d.key!r} duplicated")
+        seen_debates.add(d.key)
+        for pk in d.pillar_keys:
+            if pk not in pillar_keys:
+                problems.append(f"debate {d.key}: pillar_key {pk!r} not a pillar")
+        # 争论证据锚:与支柱同一纪律(kind 合法 + ref_id 必须存在于 dossier,禁幻觉)
+        for ev in d.evidence:
+            if ev.kind not in EVIDENCE_KINDS:
+                problems.append(f"debate {d.key}: evidence kind {ev.kind!r} invalid")
+            elif known_evidence_ids is not None and ev.kind != "registry" \
+                    and f"{ev.kind}:{ev.ref_id}" not in known_evidence_ids:
+                problems.append(f"debate {d.key}: unknown evidence {ev.kind}:{ev.ref_id}")
+        if not (1 <= len(d.verification_points) <= 4):
+            problems.append(f"debate {d.key}: VP count {len(d.verification_points)} not in 1..4")
+        for vp in d.verification_points:
+            if not vp.metric and not vp.event_types:
+                problems.append(f"debate {d.key} VP {vp.key}: needs metric or event_types")
+            if vp.metric and metric_domain is not None and vp.metric not in metric_domain:
+                problems.append(f"debate {d.key} VP {vp.key}: metric {vp.metric!r} not canonical")
+            for et in vp.event_types:
+                if et not in CATALYST_TYPES:
+                    problems.append(f"debate {d.key} VP {vp.key}: event_type {et!r} invalid")
+            if vp.direction not in VP_DIRECTIONS:
+                problems.append(f"debate {d.key} VP {vp.key}: direction {vp.direction!r} invalid")
+            # 双阈值排序 sanity:higher_is_bull → bull 阈应 ≥ bear 阈;反向亦然。
+            if vp.bull_threshold is not None and vp.bear_threshold is not None:
+                if vp.direction == "higher_is_bull" and vp.bull_threshold < vp.bear_threshold:
+                    problems.append(
+                        f"debate {d.key} VP {vp.key}: bull_threshold < bear_threshold (higher_is_bull)")
+                if vp.direction == "lower_is_bull" and vp.bull_threshold > vp.bear_threshold:
+                    problems.append(
+                        f"debate {d.key} VP {vp.key}: bull_threshold > bear_threshold (lower_is_bull)")
+    for req in (required_debate_keys or set()):
+        if req not in seen_debates:
+            problems.append(f"required debate {req!r} (seed) not addressed")
     # 证据密度 ↔ 信念度纪律:总证据 <5 条时 conviction 不得超过 3
     n_ev = sum(len(p.evidence) for p in t.pillars) + sum(len(r.evidence) for r in t.risks)
     if n_ev < 5 and t.conviction > 3:

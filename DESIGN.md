@@ -437,6 +437,18 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 
 **接线（加性，缺 OpenD 无副作用）**：`providers._MARKET`/`status()` 纳入 futu；`orchestration/daily.py` 加 `futu` 源（`available()` gated，快照+资讯+板块）；`glm_worker._pull_fresh._futu` 每 3h 拉一个轮转切片的富途资讯（快照/板块随夜批全量）；CLI `xar futu [id] [--gaps]`；`GET /api/ops/futu`（连通/资讯/资金流/板块/本体缺口，纯 DB 不强连 OpenD）；`config.py` `futu_host/futu_port/enable_futu/futu_news_per_stock/futu_flow_lookback_days`；`pyproject` `[futu]` extra（`futu-api>=9.0`）；`schema.sql` `futu_plates` 表；`.env.example` 富途块。
 
+### 5.12 对冲基金级论点争论层（As-Built，2026-07，`ontology/{debates,indicators}.py` + `research/{indicators,evidence_link,thesis_health}.py`）
+
+**意图**：把 §5.9 的论点从"散文式多空 + 单杠杆健康度"升级为**对冲基金工业级**——核心投资分歧（如 ServiceNow「AI 对其生意模式是颠覆还是赋能」）建成一等**类型化对象**，挂**机器可判验证点**，新资讯经 LLM **相对主张分类**回归到争论天平，天平翻转自动触发论点重写。四层增量，全部加性、向后兼容（旧论点 `debates=[]` 照常 parse）。
+
+- **类型化争论（`ontology/thesis.py`：`ThesisDebate` + `VerificationPoint`）**：`CompanyThesis.debates` 追加 0–3 个争论,每个 = `question_zh` + 两边最强因果叙事（steelman `bull_zh`/`bear_zh`）+ `weight`/`lean`（作者态天平 −1..+1）+ `pillar_keys` + 1–4 个 `VerificationPoint`。VP = **双阈值灰区对**（`direction` + `bull_threshold`/`bear_threshold`：达多阈证多、破空阈证空、之间 neutral），`metric` 取 canonical KPI 或衍生指标 key，或 `event_types`（催化剂桶）。`validate_thesis` 扩展硬校验：≤3 争论、pillar_keys 存在、VP metric ∈ KPI∪指标、阈值排序 sanity、**种子 key 必须逐条覆盖**。
+- **策展争论种子（`ontology/debates.py`，code-as-truth）**：全 8 主题 **21 家旗舰**公司种子（`DebateSeed`：now「AI颠覆vs赋能」/snow/nvidia/innolight/tsla_hum/002050sz_hum…）+ **8 条主题级争论**（`ThemeDebate`：ai_software「Agent 时代按座位收费 SaaS 存废」…），`seeds_for(cid,themes)` 装配公司种子 + 旗舰继承主题争论。种子注入 `dossier` prompt，作为 `build` 的 `required_debate_keys`（有种子必须回应，长尾允许留空——宁缺毋滥）。
+- **衍生追踪指标（`ontology/indicators.py` + `research/indicators.py`，零 LLM）**：~24 个 `IndicatorSpec`（`crpo_yoy`/`crpo_yoy_accel` 增速二阶导/`nrr_trend`/`crpo_to_revenue`…），从 `fundamentals` 原始序列计算（**财年安全**：按 `period_end` 日窗配对同比 350–380 天、环比 80–100 天，绝不 parse period 字符串；`source<>'derived'` 排除自身防反馈环）→ 写回 `fundamentals(source='derived')`。**最高杠杆复用**：dossier 财务节自动带上（免费获得 `[fundamental:cid:crpo_yoy]` 引用锚），前端 KPI 表免费显示，UNIQUE 键天然幂等。指标独立注册表，**绝不注入 `SPEC_BY_KEY`**（严禁成为 LLM 抽取目标）。CLI `xar indicators compute/status`；glm_worker 6h 节拍。
+- **相对主张链接（`research/evidence_link.py`，`TaskClass.THESIS_LINK`）**：新表 `thesis_fact_links`（监控态逐日增量裁决，与作者态 `thesis_evidence` 分离；**表本身即游标**——LEFT JOIN 找 `semantic_facts` 里未链接的新事实）。两条道:①**语义道**——每公司一批（≤20 新事实）一次 GLM 订阅调用,判每条事实相对某争论/支柱是 `confirms_bull`/`confirms_bear`（或 `confirms`/`falsifies`）,**与公司利好利空解耦**（「大客户取消订阅」对公司 negative、对空方叙事 confirms_bear）;行级校验非法行静默丢弃、无裁决事实打哨兵行保证游标推进。②**数值规则道**（零 LLM）——VP metric 最新值 vs 双阈值 → 每 period 一条 rule 裁决。折入 `glm_worker._llm_stage`（订阅池,`RateLimitError` 走既有额度定性）。
+- **争论感知健康度 health_v3（`research/thesis_health.py`）**：在 `health_v2`（事件⊕信号）之上叠加。`debate_health` 每争论**只用自己两条道**（LLM 链接 + VP 规则:`lean_now = clip(0.6·llm + 0.4·vp)`）→ 判 `confirming_bull/bear`、`flipped`（lean_now 与作者立场反号且 |lean|≥0.3）;支柱级 LLM 链接**只做升降级**（quiet/mixed→challenging）——**规则优先级合并不加权求和,防同一 kg_event 在事件桶道与链接道双计**。`challenged_companies_v2` 并入争论翻转压力,换入 `glm_worker._alt_correction` → **天平翻转自动触发 GLM 重写论点,闭环闭合**。主题级 `theme_debate_health` 聚合成员旗舰同 key 争论 lean。
+- **表面**：CLI `xar thesis {link,links,health,theme-debates}` · `GET /api/thesis/{cid}/{health,links}` + `/api/themes/{tid}/debates` · dashboard `_thesis_health` 切 v3 · 前端 `ThesisSection` 争论卡（问题 + 双方 steelman + lean 计量条 authored↔now + VP 读数 vs 阈值 + 正反 top 事实）。
+- **Schema（加性、幂等）**：`thesis_fact_links`（thesis_id/company_id/fact_kind/fact_ref/target_kind/target_key/verdict/strength/origin/as_of，UNIQUE 五元组）。**回填 runbook**：`xar indicators compute` → 旗舰重建 `xar thesis build <cid> --force`（21 家种子，可 `--quality` 走 EDITOR 档）→ 长尾走既有 challenged→rebuild 循环自然获得争论 → linker 自动回填（facts>as_of）。DB 零迁移。
+
 ---
 
 ## 6. 多 Agent 报告流水线

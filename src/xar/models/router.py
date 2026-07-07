@@ -42,6 +42,7 @@ class TaskClass(str, Enum):
     CHAT = "chat"                 # Chathy: interactive tool-calling chat (strong, token)
     THESIS = "thesis"             # bulk: company-thesis generation (research/thesis.py)
     WECHAT_TRIAGE = "wechat_triage"  # bulk: cheap pre-extraction SNR triage (mining/triage.py)
+    THESIS_LINK = "thesis_link"   # bulk: claim-relative evidence→debate/pillar classification
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,8 @@ POLICIES: dict[TaskClass, RoutePolicy] = {
     TaskClass.THESIS:       RoutePolicy(Capability.CHEAP_BULK, Billing.SUBSCRIPTION.value, "bulk"),
     # 微信 triage 是抽取前的廉价预筛(短 prompt),与 EXPERT 同策略:订阅池优先、成本有界。
     TaskClass.WECHAT_TRIAGE: RoutePolicy(Capability.CHEAP_BULK, Billing.SUBSCRIPTION.value, "bulk"),
+    # 证据→争论/支柱的相对主张分类(短 prompt、每公司一批),与 EXPERT/THESIS 同策略:订阅池优先。
+    TaskClass.THESIS_LINK:  RoutePolicy(Capability.CHEAP_BULK, Billing.SUBSCRIPTION.value, "bulk"),
 }
 
 

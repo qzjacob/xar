@@ -312,6 +312,38 @@ resolution=hit            ← 由 2026-03-20 的 earnings(positive) 兑现回填
 
 ---
 
+### 🏰 护城河 #1.6 —— 论点争论层：把"核心分歧"建成可机器追踪的对象
+
+> 关键文件：`src/xar/ontology/{thesis,debates,indicators}.py` · `src/xar/research/{indicators,evidence_link,thesis_health}.py`
+
+顶尖对冲基金的研究不是"看多/看空"，而是**盯住一家公司最核心的那个分歧**，并持续用数据判定它往哪边走。XAR 把这件事**本体化**——以 ServiceNow（`now`）为例，走一遍完整闭环：
+
+**① 核心争论建成类型化对象（不再是散文）**
+```
+ThesisDebate  key=ai_disrupt_vs_empower
+  question_zh  "AI 对 ServiceNow 按座位收费的工作流平台，是颠覆还是赋能？"
+  bull_zh      "Now Assist 独立加价 SKU，Pro Plus 客户 ACV 溢价 25-30%，cRPO 同比稳定 ~20%+；
+                Agent 需要其工作流引擎作执行底座；定价转向'座位+按量'混合模型…"（多方最强叙事）
+  bear_zh      "Agent 原生栈绕过 ITSM 人工 fulfiller 座位模型，一个 Agent 替代 5 个 L1 坐席；
+                AI 自助解决让工单量本身下降，长期 TAM 重定义…"（空方最强叙事）
+  lean=+0.5   weight=0.6   pillar_keys=[ai_monetization]
+  verification_points=[
+    VP crpo_floor  metric=crpo_yoy  direction=higher_is_bull
+       bull_threshold=0.20  bear_threshold=0.125   ← 机器可判的双阈值灰区
+       question_zh "企业客户是在扩大采用还是取消订阅？"]
+```
+这 21 家旗舰的争论是**人工策展的 code-as-truth 种子**（`ontology/debates.py`），保证最有价值的分歧质量；长尾公司由 LLM 自行判断有无真分歧（宁缺毋滥，可留空）。
+
+**② 验证点背后是自动计算的衍生指标**：`crpo_yoy`（cRPO 同比）、`crpo_yoy_accel`（增速二阶导——加速还是减速）等 ~24 个衍生指标由 `research/indicators.py` 从 `fundamentals` 原始序列**零 LLM 计算**（财年安全的 period_end 日窗配对），写回 `fundamentals(source='derived')`——季报一落地，验证点即可机器复核。
+
+**③ 新资讯经"相对主张"分类回归天平**（关键创新）：一条新闻「某财富 500 强弃用 Now Assist 转向自研 Agent」——对公司股价是**利空**，但相对这个争论它 **`confirms_bear`**（证实了"被颠覆"的空方叙事）。`research/evidence_link.py` 用一次 GLM 订阅调用（`TaskClass.THESIS_LINK`）把每条新事实判成对某争论/支柱的证实或证伪，**与公司利好利空解耦**——这是散文式论点和单一情绪极性做不到的。裁决落 `thesis_fact_links`。
+
+**④ 天平翻转自动触发论点重写（闭环）**：`health_v3`（`research/thesis_health.py`）把 LLM 相对主张裁决 + VP 数值裁决合并成 `lean_now`——当证据天平与作者立场反号且 |lean|≥0.3，该争论标 **`flipped`**；`challenged_companies_v2` 把翻转的论点喂给常驻 GLM worker **自动重写**。整个过程 code-as-truth、可溯源、零人工盯盘。
+
+**为什么这是护城河**：竞品的"AI 研报"给结论，XAR 给的是**一个持续自我复核的分歧追踪器**——它明确写下"什么数据出现即证明我错了"（双阈值 + 证伪条件），并在数据到达时自动判定、自动纠偏。
+
+---
+
 ### 🏰 护城河 #2 —— 可控、可审计、强溯源的多 Agent 报告流水线
 
 > 关键文件：`src/xar/agents/graph.py` · `nodes.py` · `debate.py` · `report.py` · `evidence_gate.py` · `state.py`

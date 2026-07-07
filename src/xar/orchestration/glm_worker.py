@@ -262,7 +262,9 @@ def _llm_stage(batch_docs: int, q: dict) -> tuple[dict, dict]:
     from ..kg import expert
     from ..kg import extract as kg_extract
     from ..mining import triage
+    from ..research import evidence_link
 
+    s = get_settings()
     out: dict = {}
     run_id = llm.new_batch_run_id("kg")
     try:
@@ -270,13 +272,20 @@ def _llm_stage(batch_docs: int, q: dict) -> tuple[dict, dict]:
             # T2:微信 SNR triage 必须在 build_kg 之前(同周期新拉的微信文档先打分,
             # 再由两条 WHERE 守卫筛队列 —— 消除"先抽后筛"的竞态与额度浪费)。
             out["triage"] = triage.triage_pending(
-                limit=get_settings().glm_worker_triage_docs, run_id=run_id)
+                limit=s.glm_worker_triage_docs, run_id=run_id)
             out["kg"] = kg_extract.build_kg(limit=batch_docs, run_id=run_id)
             out["expert"] = expert.process(limit=max(batch_docs // 2, 5), run_id=run_id)
+            # 相对主张证据链接:同周期新事实 → 争论/支柱裁决(订阅池;RateLimitError 中止本批)
+            out["links"] = evidence_link.link_pending(s.glm_worker_link_companies, run_id=run_id)
     except Exception as e:  # noqa: BLE001
         out["aborted"] = str(e)[:160]
         if is_quota_error(e):
             q = _mark_exhausted(q, str(e))
+    # VP 数值检查(零 LLM,与额度无关,每轮做)
+    try:
+        out["vp_checks"] = evidence_link.check_pending(s.glm_worker_link_companies, run_id=run_id)
+    except Exception as e:  # noqa: BLE001
+        out["vp_checks"] = {"error": str(e)[:120]}
     return out, q
 
 
@@ -291,9 +300,10 @@ def _alt_correction(q: dict, rebuilds: int) -> dict:
         out["events"] = {"error": str(e)[:160]}
     if q.get("status") == "ok" and _sub_ready() and rebuilds > 0:
         try:
-            from ..research import thesis, thesis_signals
+            from ..research import thesis, thesis_health
 
-            cids = thesis_signals.challenged_companies(limit=rebuilds)
+            # 信号面 + 争论翻转面挑战最重的论点 → 钉扎 GLM 重写(天平翻转闭环)
+            cids = thesis_health.challenged_companies_v2(limit=rebuilds)
             rebuilt = []
             with llm.pinned(GLM_PIN):
                 for cid in cids:
@@ -324,6 +334,16 @@ def run_once(*, batch_docs: int | None = None, backfill_units: int | None = None
         out["parsed_chunks"] = parse.parse_pending(limit=200)   # 本地嵌入,零 LLM
     except Exception as e:  # noqa: BLE001
         out["parsed_chunks"] = {"error": str(e)[:120]}
+
+    # 衍生追踪指标(零 LLM,6h 节拍):从 fundamentals 算同比/增速二阶导/趋势,写回 source='derived'
+    if _due("indicators", 6 * 3600):
+        try:
+            from ..research import indicators
+            out["indicators"] = indicators.compute_all()
+            _stamp("indicators", 6 * 3600, ok=True)
+        except Exception as e:  # noqa: BLE001
+            out["indicators"] = {"error": str(e)[:120]}
+            _stamp("indicators", 6 * 3600, ok=False)
 
     if not _sub_ready():
         # 订阅 key 缺位 = 若继续,_endpoint 会静默回退到按 token 计费 —— 直接拒绝。

@@ -673,6 +673,78 @@ def thesis_show(company: str) -> None:
               str([(x['key'], x['status']) for x in h['pillars']]))
 
 
+@thesis_app.command("link")
+def thesis_link(
+    company: str = typer.Argument(None, help="company id;省略=批量(按待链接事实数排序)"),
+    limit: int = typer.Option(15, help="批量:处理的公司数"),
+) -> None:
+    """把新到事实做相对主张分类,写入 thesis_fact_links(LLM 语义道 + 零 LLM 数值道)。"""
+    from .research import evidence_link, thesis
+
+    if company:
+        row = thesis.latest(company)
+        if row is None:
+            print("[yellow]no thesis[/yellow] — run: xar thesis build " + company)
+            raise typer.Exit(0)
+        links = evidence_link.link_company(company, row)
+        vps = evidence_link.check_verification_points(company, row)
+        print(json.dumps({"links": links, "vp_checks": vps}, ensure_ascii=False, indent=2, default=str))
+        return
+    out = {"links": evidence_link.link_pending(limit), "vp_checks": evidence_link.check_pending(limit)}
+    print(json.dumps(out, ensure_ascii=False, indent=2, default=str))
+
+
+@thesis_app.command("health")
+def thesis_health_cmd(company: str) -> None:
+    """争论感知健康度(health_v3):争论天平 lean / VP 读数 vs 阈值 / top facts。"""
+    from .research import thesis_health
+
+    h = thesis_health.health_v3(company)
+    if h is None:
+        print("[yellow]no thesis[/yellow] — run: xar thesis build " + company)
+        raise typer.Exit(0)
+    print(f"[bold]{company}[/bold] overall={h['overall']} "
+          f"(debate_challenged={h.get('debate_challenged')})")
+    pt = Table("pillar", "status", "signal_score")
+    for p in h["pillars"]:
+        pt.add_row(p["key"], p["status"], str(p.get("signal_score")))
+    print(pt)
+    if h.get("debates"):
+        dt_ = Table("debate", "status", "lean_now", "authored", "weight", "n")
+        for d in h["debates"]:
+            dt_.add_row(d["key"], d["status"], f"{d['lean_now']:+.2f}",
+                        f"{d['lean_authored']:+.2f}", f"{d['weight']:.2f}", str(d["n_facts"]))
+        print(dt_)
+        for d in h["debates"]:
+            for vp in d.get("vp_readings", []):
+                print(f"  · {d['key']} VP {vp['metric']}: {vp['verdict']} — {vp['note']}")
+
+
+@thesis_app.command("theme-debates")
+def thesis_theme_debates(theme: str) -> None:
+    """主题级核心争论健康度(成员旗舰 lean 聚合 + 翻转清单)。"""
+    from .research import thesis_health
+
+    out = thesis_health.theme_debate_health(theme)
+    print(json.dumps(out, ensure_ascii=False, indent=2, default=str))
+
+
+@thesis_app.command("links")
+def thesis_links(company: str, limit: int = typer.Option(30)) -> None:
+    """打印一家公司最近的证据裁决(人工抽查:rationale 是否真'相对主张')。"""
+    from .storage import db
+
+    t = Table("date", "kind", "target", "verdict", "str", "origin", "rationale")
+    for r in db.query(
+            "SELECT as_of, fact_kind, target_kind, target_key, verdict, strength, origin, rationale_zh "
+            "FROM thesis_fact_links WHERE company_id=%s AND target_kind<>'none' "
+            "ORDER BY created_at DESC LIMIT %s", (company, limit)):
+        t.add_row(str(r["as_of"]), r["fact_kind"], f"{r['target_kind']}:{r['target_key']}",
+                  r["verdict"], f"{r['strength']:.2f}" if r["strength"] is not None else "",
+                  r["origin"], (r["rationale_zh"] or "")[:50])
+    print(t)
+
+
 @thesis_app.command("status")
 def thesis_status() -> None:
     """论点库总览:版本数/立场分布/最近生成。"""
@@ -689,6 +761,39 @@ def thesis_status() -> None:
                       "SELECT DISTINCT ON (company_id) company_id, stance FROM company_thesis "
                       "ORDER BY company_id, version DESC) x GROUP BY stance"):
         t.add_row(f"stance {r['stance']}", str(r["count"]))
+    print(t)
+
+
+indicators_app = typer.Typer(add_completion=False,
+                             help="衍生追踪指标:从 fundamentals 计算同比/增速二阶导/趋势(零 LLM)")
+app.add_typer(indicators_app, name="indicators")
+
+
+@indicators_app.command("compute")
+def indicators_compute(
+    company: str = typer.Argument(None, help="company id;省略=全库有数据的公司"),
+    limit: int = typer.Option(None, help="批量上限"),
+) -> None:
+    """计算衍生指标写回 fundamentals(source='derived',幂等)。"""
+    from .research import indicators
+
+    if company:
+        out = indicators.compute_company(company)
+    else:
+        out = indicators.compute_all(limit=limit)
+    print(json.dumps(out, ensure_ascii=False, indent=2, default=str))
+
+
+@indicators_app.command("status")
+def indicators_status() -> None:
+    """衍生指标库总览:每指标行数/覆盖公司数/最新期。"""
+    from .storage import db
+
+    t = Table("indicator", "rows", "companies", "latest")
+    for r in db.query(
+            "SELECT metric, count(*) n, count(DISTINCT company_id) c, max(period_end) mx "
+            "FROM fundamentals WHERE source='derived' GROUP BY 1 ORDER BY 1"):
+        t.add_row(r["metric"], str(r["n"]), str(r["c"]), str(r["mx"]))
     print(t)
 
 

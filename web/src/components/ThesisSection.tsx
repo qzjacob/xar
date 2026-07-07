@@ -18,13 +18,16 @@ import { api } from "../lib/api";
 import { cn, fmtPct, signClass } from "../lib/format";
 import { contribTone, signalShort, signalToneChip } from "../types-alt";
 import {
+  debateStatusMeta,
   evidenceChipClass,
   healthOverallMeta,
   pillarKindLabel,
   pillarStatusMeta,
   stanceMeta,
   valuationCaseMeta,
+  type DebateHealth,
   type Thesis,
+  type ThesisDebate,
   type ThesisEvidence,
   type ThesisHealthPillar,
   type ThesisPillar,
@@ -124,6 +127,9 @@ export function ThesisSection({
   const healthByKey = new Map<string, ThesisHealthPillar>(
     (health?.pillars ?? []).map((p) => [p.key, p]),
   );
+  const debateByKey = new Map<string, DebateHealth>(
+    (health?.debates ?? []).map((d) => [d.key, d]),
+  );
   const stance = stanceMeta(thesis.stance);
   const overall = health ? healthOverallMeta(health.overall) : null;
   const q = thesis.quality;
@@ -208,6 +214,23 @@ export function ThesisSection({
             </details>
           )}
         </div>
+
+        {/* ------------------------- core debates ------------------------ */}
+        {(c.debates?.length ?? 0) > 0 && (
+          <div>
+            <SubHead
+              icon={<Scale size={13} strokeWidth={2} />}
+              en="Core Debates"
+              cn="核心争论"
+              right={<span className="tnum text-2xs text-slate-400">{c.debates!.length}</span>}
+            />
+            <div className="grid grid-cols-1 gap-2.5">
+              {c.debates!.map((d, i) => (
+                <DebateCard key={d.key || i} debate={d} health={debateByKey.get(d.key)} />
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* --------------------------- pillars --------------------------- */}
         {pillars.length > 0 && (
@@ -527,6 +550,95 @@ function EvidenceChips({
           {e.kind}:{String(e.ref_id)}
         </span>
       ))}
+    </div>
+  );
+}
+
+/** One core debate: question + bull/bear steelman + a lean gauge (authored vs
+ * current evidence) + VP readings and top confirming/falsifying facts. */
+function DebateCard({ debate: d, health }: { debate: ThesisDebate; health?: DebateHealth }) {
+  const st = health ? debateStatusMeta(health.status) : null;
+  const authored = Math.max(-1, Math.min(1, d.lean ?? 0));
+  const now = health ? Math.max(-1, Math.min(1, health.lean_now)) : authored;
+  // gauge: -1 (bear) … 0 … +1 (bull) → 0..100% left offset
+  const pct = (v: number) => ((v + 1) / 2) * 100;
+  return (
+    <div className="rounded-xl border border-line bg-canvas p-3">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-medium leading-snug text-slate-200">{d.question_zh}</p>
+        {st && (
+          <Badge className={cn("shrink-0 text-2xs", st.chip)} title={`${st.cn} ${st.en}`}>
+            {st.cn}
+          </Badge>
+        )}
+      </div>
+      {/* lean gauge: authored (hollow) vs now (solid) on a bear↔bull scale */}
+      <div className="relative mt-2.5 h-1.5 rounded-full bg-gradient-to-r from-neg/40 via-slate-600/40 to-pos/40">
+        <div
+          className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-slate-300 bg-canvas"
+          style={{ left: `${pct(authored)}%` }}
+          title={`作者态 lean ${authored >= 0 ? "+" : ""}${authored.toFixed(2)}`}
+        />
+        {health && (
+          <div
+            className={cn("absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full", st?.dot ?? "bg-slate-400")}
+            style={{ left: `${pct(now)}%` }}
+            title={`当前 lean ${now >= 0 ? "+" : ""}${now.toFixed(2)}（${health.n_facts} 证据）`}
+          />
+        )}
+      </div>
+      <div className="mt-1 flex justify-between text-3xs text-slate-500">
+        <span>空方 Bear</span>
+        <span>多方 Bull</span>
+      </div>
+      <div className="mt-2 grid grid-cols-1 gap-1.5 md:grid-cols-2">
+        <div className="rounded-lg border border-pos/20 bg-pos-50/40 px-2 py-1.5">
+          <div className="text-3xs font-semibold text-pos-700">多方 Bull</div>
+          <p className="mt-0.5 text-2xs leading-relaxed text-slate-300">{d.bull_zh}</p>
+        </div>
+        <div className="rounded-lg border border-neg/20 bg-neg-50/40 px-2 py-1.5">
+          <div className="text-3xs font-semibold text-neg-700">空方 Bear</div>
+          <p className="mt-0.5 text-2xs leading-relaxed text-slate-300">{d.bear_zh}</p>
+        </div>
+      </div>
+      {/* verification points: latest reading vs thresholds */}
+      {d.verification_points.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {d.verification_points.map((vp) => {
+            const r = health?.vp_readings.find((x) => x.metric === vp.metric);
+            return (
+              <div key={vp.key} className="flex items-center justify-between gap-2 text-2xs">
+                <span className="truncate text-slate-400" title={vp.question_zh}>
+                  {vp.metric || vp.question_zh}
+                </span>
+                <span className="shrink-0 tnum text-slate-500">
+                  {vp.bear_threshold != null && vp.bull_threshold != null
+                    ? `空≤${vp.bear_threshold} · 多≥${vp.bull_threshold}`
+                    : "事件型"}
+                  {r && <span className={cn("ml-1.5", signClass(r.verdict === "confirms_bull" ? 1 : r.verdict === "confirms_bear" ? -1 : 0))}>· {r.verdict}</span>}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {/* top confirming/falsifying facts */}
+      {(health?.top_facts?.length ?? 0) > 0 && (
+        <details className="group mt-1.5">
+          <summary className="cursor-pointer select-none text-3xs text-slate-500 hover:text-slate-400">
+            近期证据 {health!.top_facts.length}
+          </summary>
+          <ul className="mt-1 space-y-0.5">
+            {health!.top_facts.map((f, i) => (
+              <li key={i} className="text-2xs text-slate-400">
+                <span className={cn(signClass(f.verdict === "confirms_bull" ? 1 : -1))}>{f.verdict}</span>
+                {" · "}
+                {f.rationale_zh}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }

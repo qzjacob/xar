@@ -644,3 +644,28 @@ CREATE TABLE IF NOT EXISTS holdings (
     UNIQUE(company_id, holder, as_of)
 );
 CREATE INDEX IF NOT EXISTS idx_holdings_company ON holdings(company_id, as_of DESC);
+
+-- 论点↔事实链接:监控态的相对主张裁决(LLM 语义道 + 数值规则道共用)。
+-- 与 thesis_evidence(build 时写死的作者态溯源)分离:后者喂覆盖度质量数学、随版本不可变;
+-- 本表逐日增量累积,记录"某新事实证实/证伪了哪个争论的哪一边"。
+-- 表本身即游标:evidence_link 用 LEFT JOIN 找 semantic_facts 里尚未链接的新事实。
+CREATE TABLE IF NOT EXISTS thesis_fact_links (
+    id           BIGSERIAL PRIMARY KEY,
+    thesis_id    BIGINT NOT NULL REFERENCES company_thesis(id) ON DELETE CASCADE,
+    company_id   TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    fact_kind    TEXT NOT NULL,   -- event | insight(LLM 道)| fundamental(规则道)
+    fact_ref     TEXT NOT NULL,   -- semantic_facts.id;规则道: '<metric>:<period_end>'
+    target_kind  TEXT NOT NULL,   -- debate | pillar
+    target_key   TEXT NOT NULL,   -- debate.key | pillar.key
+    verdict      TEXT NOT NULL,   -- debate: confirms_bull|confirms_bear|neutral
+                                  -- pillar: confirms|falsifies|neutral
+    strength     REAL,            -- 0..1(规则道恒 1.0)
+    rationale_zh TEXT,
+    origin       TEXT NOT NULL DEFAULT 'llm',   -- llm | rule
+    model        TEXT, run_id TEXT,
+    as_of        DATE,            -- 事实经济日期(PIT lean 时序回放)
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(thesis_id, fact_kind, fact_ref, target_kind, target_key)
+);
+CREATE INDEX IF NOT EXISTS idx_tfl_thesis  ON thesis_fact_links(thesis_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tfl_company ON thesis_fact_links(company_id, as_of DESC);

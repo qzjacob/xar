@@ -31,7 +31,10 @@ _SYSTEM = """你是一家机构投研平台的研究总监,为覆盖公司维护
 2. 主张必须可证伪:写清 falsifier(什么事实出现即推翻)。
 3. conviction 与证据密度一致:证据薄弱(总锚点 <5)时 conviction ≤3;coverage_gaps 必须诚实列出 dossier 标注的缺口,不许假装知道。
 4. 区分事实与推断:narrative 可以推断,pillar.claim 必须贴着证据;数字尽量进入 claim。
-5. 用中文;metric key / event type / id 保持英文原样。"""
+5. 用中文;metric key / event type / id 保持英文原样。
+6. debates(核心争论):只写**真分歧**——两边都有聪明钱、答案未定;两边都写成最强因果叙事(steelman),禁止稻草人。宁缺毋滥:没有真分歧就留空 debates。
+7. 每个 debate 挂 1–4 个 verification_points;每个 VP 的 metric **只能取**"可用 watch_metrics / 衍生指标"清单里的 key(逐字照抄);数值型 VP 的 bull_threshold / bear_threshold 必须是**具体数字**(如 0.20 / 0.125),方向 direction 要与"越高越偏多/越低越偏多"一致。
+8. 若下方给出"核心争论种子",**必须逐条回应每个种子 key(key 保持不变)**;可以在种子之外补充新争论,但同样受第 6 条约束。"""
 
 
 # ── dossier ──────────────────────────────────────────────────────────────────
@@ -145,8 +148,31 @@ def dossier(cid: str) -> dict | None:
     parts.append(f"## 覆盖缺口(必须回声到 coverage_gaps_zh)\n{', '.join(gaps) or '无重大缺口'}")
     parts.append(f"## 可用 watch_metrics(canonical keys)\n{', '.join(sorted(kpis))}")
 
+    # 衍生追踪指标(可作 watch_metrics / verification_points.metric;值已在上方财务节出现)
+    from ..ontology.indicators import INDICATOR_BY_KEY, indicator_keys_for_company
+    indicator_keys = set(indicator_keys_for_company(c))
+    if indicator_keys:
+        ilines = [f"{k} — {INDICATOR_BY_KEY[k].label_zh}" for k in sorted(indicator_keys)]
+        parts.append("## 可用衍生指标(watch_metrics / verification_points.metric 可用)\n"
+                     + "\n".join(ilines))
+
+    # 核心争论种子(策展):必须逐条回应,key 保持不变
+    from ..ontology.debates import seeds_for
+    seeds = seeds_for(cid, c.get("themes"))
+    if seeds:
+        slines = []
+        for s in seeds:
+            hint = ""
+            if s.suggested_metrics:
+                hint += f"  建议 metric: {', '.join(s.suggested_metrics)}"
+            if s.suggested_event_types:
+                hint += f"  建议 event_types: {', '.join(s.suggested_event_types)}"
+            slines.append(f"- [{s.key}] {s.question_zh}\n  多方: {s.bull_zh}\n  空方: {s.bear_zh}{hint}")
+        parts.append("## 核心争论种子(必须逐条回应,debate.key 保持不变)\n" + "\n".join(slines))
+
     n_facts = len(known)
     return {"text": "\n\n".join(parts), "known_ids": known, "kpis": kpis,
+            "indicators": indicator_keys, "debate_seeds": [s.key for s in seeds],
             "coverage_gaps": gaps, "n_facts": n_facts, "as_of": today}
 
 
@@ -155,10 +181,14 @@ def _quality(t: CompanyThesis, known: set[str]) -> dict:
     n_claims = len(t.pillars) + len(t.risks)
     anchored = sum(1 for p in t.pillars if p.evidence) + sum(1 for r in t.risks if r.evidence)
     digits = sum(1 for p in t.pillars if any(ch.isdigit() for ch in p.claim_zh))
+    vps = [vp for dbt in t.debates for vp in dbt.verification_points]
+    machine_vps = sum(1 for vp in vps
+                      if vp.metric and (vp.bull_threshold is not None or vp.bear_threshold is not None))
     return {"evidence_coverage": round(anchored / n_claims, 3) if n_claims else 0.0,
             "numeric_grounding": round(digits / len(t.pillars), 3) if t.pillars else 0.0,
             "evidence_anchors": sum(len(p.evidence) for p in t.pillars)
                                 + sum(len(r.evidence) for r in t.risks),
+            "debates": len(t.debates), "vps": len(vps), "vps_machine_checkable": machine_vps,
             "dossier_facts": len(known)}
 
 
@@ -175,6 +205,12 @@ def _changed_because(prev: dict | None, t: CompanyThesis) -> str:
     new_pillars = {p.key for p in t.pillars} - prev_pillars
     if new_pillars:
         notes.append(f"新支柱 {','.join(sorted(new_pillars))}")
+    # 争论天平漂移(作者态 lean 变化 ≥0.2 记一笔)
+    prev_lean = {d.get("key"): d.get("lean") for d in (prev.get("content") or {}).get("debates", [])}
+    for dbt in t.debates:
+        pl = prev_lean.get(dbt.key)
+        if pl is not None and abs(dbt.lean - float(pl)) >= 0.2:
+            notes.append(f"debate {dbt.key} lean {pl:+.1f}→{dbt.lean:+.1f}")
     return "; ".join(notes) or "证据刷新,结构未变"
 
 
@@ -214,10 +250,13 @@ def build(cid: str, *, force: bool = False, quality_tier: bool = False,
         suffix = ("\n\n上一稿违规,必须修正:\n- " + "\n- ".join(problems)) if problems else ""
         try:
             t = llm.complete_json(prompt + suffix, CompanyThesis, system=_SYSTEM,
-                                  task=task, node="thesis", run_id=run_id, max_tokens=6000)
+                                  task=task, node="thesis", run_id=run_id, max_tokens=8000)
         except Exception as e:  # noqa: BLE001
             return {"status": "rejected", "company_id": cid, "reason": f"llm: {e}"}
-        problems = validate_thesis(t, known_evidence_ids=d["known_ids"], known_kpis=d["kpis"])
+        problems = validate_thesis(
+            t, known_evidence_ids=d["known_ids"], known_kpis=d["kpis"],
+            known_indicators=d.get("indicators"),
+            required_debate_keys=set(d.get("debate_seeds") or ()))
         if not problems:
             break
         log.warning("thesis %s attempt %d: %d violations", cid, attempt, len(problems))
@@ -240,6 +279,8 @@ def build(cid: str, *, force: bool = False, quality_tier: bool = False,
             ev_rows += [(tid, p.key, e.kind, e.ref_id, e.quote) for e in p.evidence]
         for r in t.risks:
             ev_rows += [(tid, f"risk:{r.type}", e.kind, e.ref_id, e.quote) for e in r.evidence]
+        for dbt in t.debates:
+            ev_rows += [(tid, f"debate:{dbt.key}", e.kind, e.ref_id, e.quote) for e in dbt.evidence]
         for er in ev_rows:
             conn.execute("INSERT INTO thesis_evidence(thesis_id, slot, kind, ref_id, quote) "
                          "VALUES (%s,%s,%s,%s,%s)", er)

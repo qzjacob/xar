@@ -84,6 +84,34 @@ export interface ThesisWatchItem {
   direction_zh: string;
 }
 
+/** A machine-checkable weight on a debate scale: metric vs dual thresholds
+ *  (>= bull_threshold → confirms bull; <= bear_threshold → confirms bear;
+ *  in-between → neutral gray zone) and/or catalyst event types. */
+export interface VerificationPoint {
+  key: string;
+  question_zh: string;
+  metric: string; // canonical KPI or derived-indicator key ("" = event-only)
+  event_types: string[];
+  bull_reading_zh: string;
+  bear_reading_zh: string;
+  direction: "higher_is_bull" | "lower_is_bull";
+  bull_threshold: number | null;
+  bear_threshold: number | null;
+  cadence: string;
+}
+
+/** A first-class typed core controversy (e.g. ServiceNow "AI disrupt vs empower"). */
+export interface ThesisDebate {
+  key: string;
+  question_zh: string;
+  bull_zh: string;
+  bear_zh: string;
+  weight: number; // 0..1
+  lean: number; // -1..1 authored balance
+  pillar_keys: string[];
+  verification_points: VerificationPoint[];
+}
+
 export interface ThesisContent {
   one_liner_zh: string;
   narrative_zh: string;
@@ -98,6 +126,7 @@ export interface ThesisContent {
   valuation: ThesisValuationCase[];
   what_to_watch: ThesisWatchItem[];
   coverage_gaps_zh: string[];
+  debates?: ThesisDebate[]; // 0..3 core controversies (backward-compatible)
 }
 
 export interface ThesisQuality {
@@ -120,11 +149,46 @@ export interface ThesisHealthPillar {
   signals?: PillarHealthSignal[];
 }
 
+/** health_v3 per-debate roll-up: current evidence lean vs authored, flip status. */
+export interface DebateVpReading {
+  metric: string;
+  verdict: string;
+  as_of: string | null;
+  note: string;
+}
+export interface DebateTopFact {
+  ref: string;
+  verdict: string;
+  strength: number | null;
+  rationale_zh: string;
+}
+export type DebateStatus =
+  | "confirming_bull"
+  | "confirming_bear"
+  | "flipped"
+  | "quiet";
+export interface DebateHealth {
+  key: string;
+  question_zh: string;
+  weight: number;
+  lean_authored: number; // -1..1
+  lean_now: number; // -1..1
+  delta: number;
+  status: DebateStatus;
+  n_facts: number;
+  vp_readings: DebateVpReading[];
+  top_facts: DebateTopFact[];
+}
+
 export interface ThesisHealth {
-  thesis_version: number;
+  thesis_version?: number;
   as_of: string;
   overall: ThesisHealthOverall;
   pillars: ThesisHealthPillar[];
+  // health_v3: debate-aware layer (present when the thesis carries debates).
+  debates?: DebateHealth[];
+  debate_challenged?: boolean;
+  version?: string;
 }
 
 export interface Thesis {
@@ -307,6 +371,20 @@ const EVIDENCE_CHIP: Record<EvidenceKind, string> = {
 export function evidenceChipClass(kind: string): string {
   const tone = (EVIDENCE_CHIP as Record<string, string>)[kind] ?? "bg-surface-2 text-slate-400 ring-line";
   return `ring-1 ring-inset ${tone}`;
+}
+
+/** Debate health status -> bilingual label + chip/dot tone. */
+export function debateStatusMeta(status: string): { en: string; cn: string; chip: string; dot: string } {
+  switch (status) {
+    case "confirming_bull":
+      return { en: "Bull confirming", cn: "多方获证实", chip: "bg-pos-50 text-pos-700 ring-1 ring-inset ring-pos/20", dot: "bg-pos" };
+    case "confirming_bear":
+      return { en: "Bear confirming", cn: "空方获证实", chip: "bg-neg-50 text-neg-700 ring-1 ring-inset ring-neg/20", dot: "bg-neg" };
+    case "flipped":
+      return { en: "Flipped", cn: "天平翻转", chip: "bg-warn-50 text-warn-700 ring-1 ring-inset ring-warn/30", dot: "bg-warn" };
+    default:
+      return { en: "Quiet", cn: "静默", chip: "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line", dot: "bg-slate-400" };
+  }
 }
 
 /** Valuation scenario -> chip tone. */

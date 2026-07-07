@@ -635,18 +635,23 @@ def _thesis_block(cid: str) -> dict | None:
 
 
 def _thesis_health(cid: str) -> dict | None:
-    """事件⊕信号合并健康度(health_v2);alt 层不可用时回落到纯事件健康度。"""
+    """争论感知健康度(health_v3:事件⊕信号⊕争论天平);逐层回落到 v2 / 纯事件。"""
     try:
-        from ..research import thesis_signals
+        from ..research import thesis_health
 
-        return thesis_signals.health_v2(cid)
+        return thesis_health.health_v3(cid)
     except Exception:  # noqa: BLE001
         try:
-            from ..research import thesis as th
+            from ..research import thesis_signals
 
-            return th.health(cid)
+            return thesis_signals.health_v2(cid)
         except Exception:  # noqa: BLE001
-            return None
+            try:
+                from ..research import thesis as th
+
+                return th.health(cid)
+            except Exception:  # noqa: BLE001
+                return None
 
 
 def _alt_block(cid: str) -> dict | None:

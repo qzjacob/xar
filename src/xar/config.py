@@ -145,6 +145,7 @@ class Settings(BaseSettings):
     glm_worker_alt_limit: int = 120        # alt-tracker company slice per cycle (wiki/github pacing)
     glm_worker_gangtise_limit: int = 15    # Gangtise CN research slice per cycle (rotating cursor)
     glm_worker_thesis_rebuilds: int = 2    # signal-challenged theses rebuilt per cycle (LLM)
+    glm_worker_link_companies: int = 15    # thesis-holding companies whose fresh facts get claim-linked per cycle
     # --- 微信多层级挖掘系统 (mining/) ---
     wechat_miner_enabled: bool = True      # T2 triage 预筛闸门(关闭=退回旧的无差别抽取)
     wechat_deep_min: float = 0.4           # triage_score >= 此值才进深度抽取(精度优先)

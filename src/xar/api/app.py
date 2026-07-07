@@ -548,6 +548,38 @@ def thesis_build(cid: str, force: bool = False):
     return out
 
 
+@app.get("/api/thesis/{cid}/health")
+def thesis_health(cid: str) -> dict:
+    """争论感知健康度(health_v3:事件⊕信号⊕争论天平)。"""
+    from ..research import thesis_health as thh
+
+    h = thh.health_v3(cid)
+    if h is None:
+        raise HTTPException(status_code=404, detail="no thesis")
+    return h
+
+
+@app.get("/api/thesis/{cid}/links")
+def thesis_links(cid: str, limit: int = 50) -> dict:
+    """最近的证据裁决(相对主张链接 + VP 数值裁决)。"""
+    from ..storage import db
+
+    rows = db.query(
+        "SELECT as_of, fact_kind, fact_ref, target_kind, target_key, verdict, strength, "
+        "origin, rationale_zh, created_at FROM thesis_fact_links "
+        "WHERE company_id=%s AND target_kind<>'none' ORDER BY created_at DESC LIMIT %s",
+        (cid, limit))
+    return {"company_id": cid, "links": rows}
+
+
+@app.get("/api/themes/{tid}/debates")
+def theme_debates(tid: str) -> dict:
+    """主题级核心争论健康度(成员旗舰 lean 聚合 + 翻转清单)。"""
+    from ..research import thesis_health as thh
+
+    return thh.theme_debate_health(tid)
+
+
 # --- Exploration module (frontier research) -------------------------------
 @app.get("/api/exploration/overview")
 def exploration_overview() -> dict:
