@@ -58,7 +58,11 @@ agentsdk = ["claude-agent-sdk>=0.2"]
 futu = ["futu-api>=9.0"]
 parse-deep = ["docling>=2.0"]
 graph = ["graphiti-core>=0.3", "neo4j>=5.20"]
-orchestration = ["dagster>=1.7", "dagster-webserver>=1.7"]
+# grpcio pinned <1.74: dagster caps protobuf<7, but grpcio-health-checking>=1.82 ships a
+# health_pb2 gencode (7.35) that demands protobuf>=7.35 → import-time VersionError crash-loop.
+# 1.73.1's gencode is protobuf-6.33-compatible (the version dagster resolves).
+orchestration = ["dagster>=1.7", "dagster-webserver>=1.7",
+                 "grpcio==1.73.1", "grpcio-health-checking==1.73.1"]
 eval = ["arize-phoenix>=4.0"]
 crawl = ["crawl4ai>=0.3", "playwright>=1.45"]
 dev = ["pytest>=8.2", "pytest-asyncio>=0.23", "ruff>=0.5", "hypothesis>=6.100"]
