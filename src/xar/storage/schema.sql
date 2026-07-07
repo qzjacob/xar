@@ -669,3 +669,26 @@ CREATE TABLE IF NOT EXISTS thesis_fact_links (
 );
 CREATE INDEX IF NOT EXISTS idx_tfl_thesis  ON thesis_fact_links(thesis_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tfl_company ON thesis_fact_links(company_id, as_of DESC);
+
+-- ── ET:季报事件裁决(INSERT 即锁;仅 outcome/outcome_at 盘后回填;--force 才有新 version)──
+CREATE TABLE IF NOT EXISTS earnings_verdicts (
+    id           BIGSERIAL PRIMARY KEY,
+    company_id   TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    event_date   DATE NOT NULL,                 -- 财报日(改期 = 新键从 v1 起)
+    calendar_id  BIGINT,                        -- event_calendar.id(可空,日历行可能重写)
+    version      INT  NOT NULL DEFAULT 1,
+    direction    TEXT NOT NULL CHECK (direction IN ('long','short','no_trade')),
+    conviction   REAL NOT NULL CHECK (conviction BETWEEN 0 AND 10),
+    expected_move REAL,                         -- 裁决时点最新 implied move(straddle/spot)
+    content      JSONB NOT NULL,                -- EarningsVerdict 全量
+    quality      JSONB NOT NULL DEFAULT '{}',   -- 锚数/维度覆盖/数字接地率
+    model        TEXT, run_id TEXT,
+    as_of        DATE NOT NULL,                 -- 裁决生成日(≈ T-lead)
+    outcome      JSONB,                         -- {status, session, actual_surprise_pct,
+                                                --  reaction_pct, realized_vs_implied, direction_hit}
+    outcome_at   TIMESTAMPTZ,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(company_id, event_date, version)
+);
+CREATE INDEX IF NOT EXISTS idx_ev_company ON earnings_verdicts(company_id, event_date DESC);
+CREATE INDEX IF NOT EXISTS idx_ev_pending ON earnings_verdicts(event_date) WHERE outcome IS NULL;

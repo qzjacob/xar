@@ -71,6 +71,13 @@ ALT_SIGNALS: tuple[AltSignalSpec, ...] = (
        min_history=10,
        rationale_zh="富途 OpenAPI 主力(超大单+大单)日度净流入——机构资金在盘面的直接足迹,"
                     "覆盖港股/A股/美股;主力持续净流入=需求与估值支撑的高频代理。"),
+    # ── 期权隐含波动(季报事件):ATM straddle 定价的 |move| / spot(good_when=None → 纯注意力旗标)──
+    _S("alt.options_implied_move", "Options-implied earnings move", "期权隐含季报波动",
+       "daily", "ratio", "company", None, ("valuation",), "implied_move",
+       min_history=5,
+       rationale_zh="财报到期 ATM straddle 中价 / 现价 = 期权市场对本次财报隐含的股价波动幅度;"
+                    "T-10 起每日快照 → IV run-up 序列;方向不定(高波动本身不预示涨跌),"
+                    "作事件面板与 realized-vs-implied 复盘的定价锚,不参与支柱评分。"),
     # ── 数据追踪:Wind EDB 宏观/行业指标时序(theme 级需求真值;固定问题见 wind_edb.EDB_QUESTIONS)──
     _S("alt.edb_semi_sales", "Global semiconductor sales", "全球半导体月度销售额", "monthly",
        "USD", "theme", "rising", ("demand", "cyclical"), "wind_edb", themes=("ai_chip",),
@@ -113,6 +120,7 @@ class AltBinding:
     pypi_packages: tuple[str, ...] = ()
     npm_packages: tuple[str, ...] = ()
     futu_code: str | None = None          # 富途代码 HK./SH./SZ./US.(派生自 ticker)
+    options_ticker: str | None = None     # 美股期权代码(EARNINGS_UNIVERSE 成员,派生自 US ticker)
 
     def signals(self) -> tuple[str, ...]:
         out = []
@@ -128,6 +136,8 @@ class AltBinding:
             out.append("alt.wiki_attention")
         if self.futu_code:
             out.append("alt.futu_main_capital_flow")
+        if self.options_ticker:
+            out.append("alt.options_implied_move")
         return tuple(out)
 
 
@@ -156,8 +166,20 @@ def _wiki_title(c: dict) -> str | None:
     return ascii_part if len(ascii_part) >= 3 else None
 
 
+def _options_ticker(c: dict) -> str | None:
+    """EARNINGS_UNIVERSE 成员 → 美股期权代码(第一个无后缀 US ticker);否则 None。"""
+    from .earnings_events import EARNINGS_UNIVERSE
+
+    if c["id"] not in EARNINGS_UNIVERSE:
+        return None
+    for t in c.get("tickers") or []:
+        if "." not in t:
+            return t
+    return None
+
+
 def bindings() -> dict[str, AltBinding]:
-    """全宇宙绑定 = 派生(TW 码/Wiki 词条)⊕ 策展(alt_bindings.CURATED)。"""
+    """全宇宙绑定 = 派生(TW 码/Wiki 词条/期权代码)⊕ 策展(alt_bindings.CURATED)。"""
     from ..ingestion.registry import COMPANIES
 
     try:
@@ -177,6 +199,7 @@ def bindings() -> dict[str, AltBinding]:
             pypi_packages=tuple(cur.get("pypi_packages", ())),
             npm_packages=tuple(cur.get("npm_packages", ())),
             futu_code=_futu_code(c),
+            options_ticker=_options_ticker(c),
         )
         if b.signals():
             out[cid] = b

@@ -168,9 +168,11 @@ def upsert_calendar(company_id, event_type, scheduled_for, *, title=None,
         f"{company_id}|{event_type}|{scheduled_for}|{(title or '').strip().lower()}".encode()
     ).hexdigest()[:32]
     if db.query("SELECT 1 FROM event_calendar WHERE dedup_key=%s", (dedup,)):
+        # meta 用 jsonb 合并而非整体覆盖 —— 否则一个源重拉会抹掉另一源写入的键
+        # (如 yahoo 重拉抹掉 finnhub 的 hour / earnings-surprise;新键覆盖旧键,加性)。
         db.execute(
             "UPDATE event_calendar SET status=%s, importance=%s, window_end=%s, "
-            "as_of=now(), meta=%s WHERE dedup_key=%s",
+            "as_of=now(), meta = COALESCE(meta,'{}'::jsonb) || %s::jsonb WHERE dedup_key=%s",
             (status, importance, window_end, _json(meta), dedup))
         return False
     db.execute(

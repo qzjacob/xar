@@ -44,6 +44,7 @@ class TaskClass(str, Enum):
     WECHAT_TRIAGE = "wechat_triage"  # bulk: cheap pre-extraction SNR triage (mining/triage.py)
     THESIS_LINK = "thesis_link"   # bulk: claim-relative evidence→debate/pillar classification
     AUDIT = "audit"               # single, strong TOKEN — INDEPENDENT crawl/archival verifier
+    EARNINGS_JUDGE = "earnings_judge"  # single, strong TOKEN — pre-earnings long/short verdict
 
 
 @dataclass(frozen=True)
@@ -80,6 +81,9 @@ POLICIES: dict[TaskClass, RoutePolicy] = {
     TaskClass.THESIS_LINK:  RoutePolicy(Capability.CHEAP_BULK, Billing.SUBSCRIPTION.value, "bulk"),
     # 独立抓取审计:强 TOKEN 模型 —— 刻意**不落 GLM 订阅池**,验收模型≠生产模型,量小成本有界。
     TaskClass.AUDIT:        RoutePolicy(Capability.STRONG, Billing.TOKEN.value, "normal"),
+    # 季报事件裁决:强 TOKEN 深度研究任务 —— host 上由 build_verdict 内 llm.pinned 提级到
+    # 订阅执行器(codex-sub/claude-opus-max,$0);docker/无执行器落 deepseek 强 token,量 1-3 次/天。
+    TaskClass.EARNINGS_JUDGE: RoutePolicy(Capability.STRONG, Billing.TOKEN.value, "normal"),
 }
 
 

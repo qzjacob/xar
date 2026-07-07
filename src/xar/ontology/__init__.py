@@ -1,6 +1,13 @@
 """Industry-chain ontology — code IS the source of truth (per design §5)."""
-from . import cycle, metric_packs, research_docs, sectors
+from . import cycle, earnings_events, metric_packs, research_docs, sectors
 from .catalysts import CATALYST_TYPES, LEGACY_CATALYST_TYPES, CatalystType
+from .earnings_events import (
+    EARNINGS_DIMENSIONS,
+    EARNINGS_UNIVERSE,
+    EarningsVerdict,
+    earnings_universe,
+    validate_verdict,
+)
 from .research_docs import DOCS_BY_TYPE, EXPERT_DOC_TYPES, RESEARCH_DOCS, ResearchDocSpec
 from .cycle import (
     CYCLE_LABELS,
@@ -98,6 +105,12 @@ __all__ = [
     "cycle_of_company",
     # non-standard research-document ontology
     "research_docs",
+    "earnings_events",
+    "EARNINGS_DIMENSIONS",
+    "EARNINGS_UNIVERSE",
+    "EarningsVerdict",
+    "earnings_universe",
+    "validate_verdict",
     "ResearchDocSpec",
     "RESEARCH_DOCS",
     "DOCS_BY_TYPE",

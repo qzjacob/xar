@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     codex_effort: str = "high"                 # model_reasoning_effort for quality tasks
     codex_timeout_s: int = 600                 # per-call subprocess timeout (gpt-5.5 xhigh is slow)
 
+    # --- Earnings event-trading (ET; US-only pre-earnings long/short verdicts) ---
+    earnings_watch_days: int = 10              # 观察窗:财报前 N 天进入每日刷新
+    earnings_verdict_lead_days: int = 3        # T-N 生成正式裁决(之后锁定)
+    earnings_outcome_max_days: int = 5         # 盘后回验兜底收尾天数
+    earnings_universe_cap: int = 50            # universe 截断帽
+    earnings_verdict_host_only: bool = False   # True → docker worker 裁决 deferred,host 专跑
+
     # --- Embeddings ---
     # 默认英文 bge-small(turnkey);中英混合部署设 XAR_EMBED_MODEL=
     # sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2(384d,多语含中文)

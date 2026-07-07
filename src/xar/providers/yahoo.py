@@ -243,6 +243,22 @@ def pull_analyst(company_id: str, *, tk=None) -> int:
 
 
 # --- corporate actions + earnings dates -> event_calendar ---------------------
+def _session_from_ts(idx) -> str | None:
+    """财报时间戳 → 场次:hour≥16 盘后(amc)/ hour 有值且<9:30 盘前(bmo)/ 无 hour 不判。"""
+    try:
+        h = getattr(idx, "hour", None)
+        if h is None:
+            return None
+        mn = getattr(idx, "minute", 0) or 0
+        if h >= 16:
+            return "amc"
+        if h < 9 or (h == 9 and mn < 30):
+            return "bmo"
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 def pull_calendar(company_id: str, *, tk=None, lookback_days: int = 5 * 365,
                   earnings_limit: int = 12) -> int:
     """Dividends/splits (.actions) and earnings dates -> event_calendar rows,
@@ -289,6 +305,10 @@ def pull_calendar(company_id: str, *, tk=None, lookback_days: int = 5 * 365,
             meta = {"eps_estimate": _num(row.get("EPS Estimate")),
                     "reported_eps": _num(row.get("Reported EPS")),
                     "surprise_pct": _num(row.get("Surprise(%)"))}
+            # 盘前/盘后场次(财报反应日口径):时间戳有 hour 时 ≥16→amc,<9:30→bmo(ET-P1)
+            sess = _session_from_ts(idx)
+            if sess:
+                meta["session"] = sess
             n += int(structured.upsert_calendar(
                 company_id, "earnings", d, title=f"{sym} earnings", status=status,
                 importance=3, source="yahoo", meta=meta))
