@@ -135,6 +135,13 @@ def test_debate_evidence_validated():
     assert ok == []
 
 
+def test_debate_key_pillar_key_collision_flagged():
+    # 评审 #1:争论 key 与支柱 key 同名会让证据链接器把该争论的 LLM 道覆盖掉
+    t = _mk(debates=[_debate(key="p1")])   # p1 是既有支柱 key
+    probs = validate_thesis(t, known_indicators={"crpo_yoy"})
+    assert any("collides with a pillar key" in p for p in probs)
+
+
 def test_debate_cap_allows_required_plus_headroom():
     # 评审 #7:3 个必答种子 + 模型自主补 1 个 = 4 个,不应因 >3 被拒
     reqs = {"d0", "d1", "d2"}

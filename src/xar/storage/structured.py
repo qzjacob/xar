@@ -15,6 +15,20 @@ from . import db
 
 log = get_logger("xar.structured")
 
+# fundamentals 同期多源撞车时的权威取值优先级(报表口径 > 第三方聚合 > 抽取)。
+# 单一真相:derived 计算(research/indicators.py)与 VP 读数(research/evidence_link.py)共用,
+# 防两处各自维护一份而漂移(评审 #3)。
+FUNDAMENTAL_SOURCE_PRIORITY: dict[str, int] = {
+    "edgar": 6, "cninfo": 5, "gangtise": 5, "wind": 4, "aifinmarket": 4,
+    "futu": 3, "fmp": 3, "finnhub": 3, "polygon": 2, "yahoo": 2, "extracted": 1,
+}
+
+
+def source_priority_sql(col: str = "source") -> str:
+    """把上面的优先级表编译成 SQL `CASE ... END`(值均为可信常量,无注入)。"""
+    whens = " ".join(f"WHEN '{s}' THEN {p}" for s, p in FUNDAMENTAL_SOURCE_PRIORITY.items())
+    return f"CASE {col} {whens} ELSE 0 END"
+
 
 def _json(d) -> str:
     return json.dumps(d or {}, ensure_ascii=False, default=str)

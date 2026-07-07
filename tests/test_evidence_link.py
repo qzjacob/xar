@@ -35,23 +35,28 @@ def _content():
                 "bull_threshold": 0.20, "bear_threshold": 0.125, "cadence": "quarterly"}]}]}
 
 
-@pytest.fixture()
-def _thesis(seeded_db):
-    db.execute("DELETE FROM thesis_fact_links WHERE company_id=%s", (_CID,))
+# 远未来 VP 期(2099):测试自己的 derived crpo_yoy 唯一占据该期,清理只删这行,
+# 绝不动开发库真实 derived 数据(评审 #7)。thesis_fact_links 由 company_thesis 版本删除 CASCADE 清理。
+_VP_PE = dt.date(2099, 6, 30)
+
+
+def _teardown():
     db.execute("DELETE FROM company_thesis WHERE company_id=%s AND version=%s", (_CID, _TVER))
     db.execute("DELETE FROM kg_events WHERE dedup_key LIKE 'pytestlink%%'")
-    db.execute("DELETE FROM fundamentals WHERE company_id=%s AND metric='crpo_yoy' AND source='derived'",
-               (_CID,))
+    db.execute("DELETE FROM fundamentals WHERE company_id=%s AND metric='crpo_yoy' "
+               "AND source='derived' AND period_end=%s", (_CID, _VP_PE))
+
+
+@pytest.fixture()
+def _thesis(seeded_db):
+    _teardown()
     db.execute(
         "INSERT INTO company_thesis(company_id, version, as_of, stance, conviction, one_liner, content) "
         "VALUES(%s,%s,%s,'bull',3,'x',%s::jsonb)",
         (_CID, _TVER, dt.date(2026, 1, 1), json.dumps(_content())))
     row = db.query("SELECT id FROM company_thesis WHERE company_id=%s AND version=%s", (_CID, _TVER))[0]
     yield {"id": row["id"], "company_id": _CID, "as_of": dt.date(2026, 1, 1), "content": _content()}
-    db.execute("DELETE FROM company_thesis WHERE company_id=%s AND version=%s", (_CID, _TVER))
-    db.execute("DELETE FROM kg_events WHERE dedup_key LIKE 'pytestlink%%'")
-    db.execute("DELETE FROM fundamentals WHERE company_id=%s AND metric='crpo_yoy' AND source='derived'",
-               (_CID,))
+    _teardown()
 
 
 def _event(dedup, summary, polarity="negative"):
@@ -100,8 +105,8 @@ def test_link_idempotent_cursor(_thesis, monkeypatch):
 
 
 def _vp(value):
-    structured.upsert_fundamental(_CID, "crpo_yoy", value, period="Q-2025-06-30",
-                                  period_end=dt.date(2025, 6, 30), freq="quarter",
+    structured.upsert_fundamental(_CID, "crpo_yoy", value, period=f"Q-{_VP_PE}",
+                                  period_end=_VP_PE, freq="quarter",
                                   unit="ratio", source="derived")
 
 
@@ -130,8 +135,27 @@ def test_vp_rule_refreshes_on_restatement(_thesis):
     _vp(0.21)                                  # 正式重述 0.21(同 period_end)→ 应变 confirms_bull
     evidence_link.check_verification_points(_CID, _thesis)
     rows = db.query("SELECT verdict FROM thesis_fact_links WHERE company_id=%s AND origin='rule' "
-                    "AND fact_ref=%s", (_CID, "crpo_yoy:2025-06-30"))
+                    "AND fact_ref=%s", (_CID, f"crpo_floor:crpo_yoy:{_VP_PE}"))
     assert len(rows) == 1 and rows[0]["verdict"] == "confirms_bull"
+
+
+def test_two_vps_same_metric_no_collision(_thesis, monkeypatch):
+    # 评审 #9:同一争论下两个 VP 引用同一 metric 不应撞唯一键、互相覆盖
+    content = _content()
+    d = content["debates"][0]
+    d["verification_points"].append({
+        "key": "crpo_ceiling", "question_zh": "q", "metric": "crpo_yoy",
+        "bull_reading_zh": "b", "bear_reading_zh": "be", "direction": "higher_is_bull",
+        "bull_threshold": 0.30, "bear_threshold": 0.25, "cadence": "quarterly"})
+    row = dict(_thesis, content=content)
+    _vp(0.25)   # crpo_floor(0.20/0.125): confirms_bull;crpo_ceiling(0.30/0.25): 0.25→confirms_bear
+    evidence_link.check_verification_points(_CID, row)
+    rows = db.query("SELECT fact_ref, verdict FROM thesis_fact_links WHERE company_id=%s "
+                    "AND origin='rule' ORDER BY fact_ref", (_CID,))
+    assert len(rows) == 2
+    verdicts = {r["fact_ref"].split(":")[0]: r["verdict"] for r in rows}
+    assert verdicts["crpo_floor"] == "confirms_bull"
+    assert verdicts["crpo_ceiling"] == "confirms_bear"
 
 
 def test_router_thesis_link_subscription_first():

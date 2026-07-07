@@ -19,11 +19,8 @@ from ..storage import db, structured
 
 log = get_logger("xar.indicators")
 
-# 同一 period_end 多源撞车时的取值优先级(报表口径 > 第三方聚合 > 抽取)。
-_SOURCE_PRIORITY: dict[str, int] = {
-    "edgar": 6, "cninfo": 5, "gangtise": 5, "wind": 4, "aifinmarket": 4,
-    "futu": 3, "fmp": 3, "finnhub": 3, "polygon": 2, "yahoo": 2, "extracted": 1,
-}
+# 同一 period_end 多源撞车时的取值优先级 —— 单一真相在 storage/structured.py(评审 #3)。
+_SOURCE_PRIORITY = structured.FUNDAMENTAL_SOURCE_PRIORITY
 
 
 def _series(cid: str, metric: str, prefer_freq: str = "quarter") -> list[dict]:
@@ -70,23 +67,23 @@ def _match(cands: list[dict], target: date, lo: int, hi: int) -> dict | None:
     return best
 
 
-def _yoy_points(series: list[dict]) -> list[tuple[dict, float, dict]]:
-    """(当期点, 同比值, 去年同期点) 列表;仅在基期 >0 时产出(避免符号翻转的伪同比)。"""
+def _pct_change_points(series: list[dict], lo: int, hi: int) -> list[tuple[dict, float, dict]]:
+    """(当期点, 变化率, 配对基期点) 列表;仅在基期 >0 时产出(避免符号翻转的伪比率)。
+    lo/hi = 配对日窗:同比 350-380 天、环比 80-100 天。"""
     out = []
     for i, r in enumerate(series):
-        p = _match(series[:i], r["period_end"], 350, 380)
+        p = _match(series[:i], r["period_end"], lo, hi)
         if p and p["value"] and p["value"] > 0:
             out.append((r, r["value"] / p["value"] - 1.0, p))
     return out
+
+
+def _yoy_points(series: list[dict]) -> list[tuple[dict, float, dict]]:
+    return _pct_change_points(series, 350, 380)
 
 
 def _qoq_points(series: list[dict]) -> list[tuple[dict, float, dict]]:
-    out = []
-    for i, r in enumerate(series):
-        p = _match(series[:i], r["period_end"], 80, 100)
-        if p and p["value"] and p["value"] > 0:
-            out.append((r, r["value"] / p["value"] - 1.0, p))
-    return out
+    return _pct_change_points(series, 80, 100)
 
 
 def _ols_slope_norm(values: list[float]) -> float | None:
@@ -166,9 +163,12 @@ def compute_company(cid: str, company: dict | None = None) -> dict:
             log.warning("indicator %s failed for %s: %s", key, cid, e)
             continue
         for anchor, value, inputs in pts:
+            # period 参与 fundamentals 唯一键;基期 period 为 NULL 会让 ON CONFLICT 永不命中
+            # (Postgres NULL≠NULL)→ 每轮插新行破坏幂等。回退到 period_end 串保证非空且稳定(评审 #8)。
             structured.upsert_fundamental(
                 cid, spec.key, value,
-                period=anchor.get("period"), period_end=anchor["period_end"],
+                period=anchor.get("period") or str(anchor["period_end"]),
+                period_end=anchor["period_end"],
                 freq=anchor.get("freq") or "quarter", unit=spec.unit, source="derived",
                 meta={"indicator": spec.key, "transform": spec.transform,
                       "base_metric": spec.base_metric,
@@ -185,7 +185,7 @@ def compute_all(limit: int | None = None) -> dict:
         "SELECT DISTINCT company_id FROM fundamentals "
         "WHERE metric = ANY(%s) AND source<>'derived' ORDER BY company_id",
         (list(BASE_METRICS),))
-    cids = [r["company_id"] for r in rows][: (limit or len(rows))]
+    cids = [r["company_id"] for r in rows][: (len(rows) if limit is None else limit)]
     total = 0
     for cid in cids:
         total += compute_company(cid, company_by_id(cid))["written"]

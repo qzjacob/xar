@@ -18,7 +18,7 @@ from ..logging import get_logger
 from ..models import llm
 from ..models.router import TaskClass
 from ..ontology.thesis import DEBATE_VERDICTS, PILLAR_VERDICTS
-from ..storage import db
+from ..storage import db, structured
 
 log = get_logger("xar.evidence_link")
 
@@ -92,9 +92,12 @@ def _insert_link(thesis_id, cid, fact_kind, fact_ref, target_kind, target_key,
     # LLM 链接:DO NOTHING(一条事实一经分类不再重判,fact_ref=不可变的事实 id)。
     # 规则道 VP:refresh=True → DO UPDATE,因为 fact_ref='<metric>:<period_end>' 会被同期财报
     # 重述覆盖(如季报预披 0.19 → 正式 10-Q 重述 0.21 跨阈),裁决必须随之刷新(评审 #3)。
+    # refresh 时只在 verdict 真变了才写(WHERE 守卫),避免每轮把 created_at 刷成 now() 造成
+    # 无谓写放大 + /links 时序抖动(评审 #2/#11)。
     conflict = (
         "DO UPDATE SET verdict=EXCLUDED.verdict, strength=EXCLUDED.strength, "
-        "rationale_zh=EXCLUDED.rationale_zh, as_of=EXCLUDED.as_of, created_at=now()"
+        "rationale_zh=EXCLUDED.rationale_zh, as_of=EXCLUDED.as_of, created_at=now() "
+        "WHERE thesis_fact_links.verdict IS DISTINCT FROM EXCLUDED.verdict"
         if refresh else "DO NOTHING")
     db.execute(
         "INSERT INTO thesis_fact_links(thesis_id, company_id, fact_kind, fact_ref, target_kind, "
@@ -177,16 +180,14 @@ def link_pending(limit_companies: int = 15, *, run_id: str | None = None) -> dic
 
 # ── 验证点数值检查器(零 LLM 规则道)──────────────────────────────────────────
 def _latest_metric(cid: str, metric: str) -> dict | None:
-    # 确定性取值:优先 derived(衍生指标只此一源)→ 最新期 → **权威源优先级**(评审 #4:
-    # 同期多源多 period 串并存时若无 source 定序,选行不确定;末位再按 source 名保证全序)。
+    # 确定性取值:优先 derived(衍生指标只此一源)→ 最新期 → **权威源优先级**(评审 #4)。
+    # 源优先级与 indicators._series 共用同一张表(structured.FUNDAMENTAL_SOURCE_PRIORITY),防漂移
+    # (评审 #3);末位再按 source 名保证全序。
     rows = db.query(
         "SELECT value, period_end FROM fundamentals WHERE company_id=%s AND metric=%s "
         "AND value IS NOT NULL AND period_end IS NOT NULL "
         "ORDER BY (source='derived') DESC, period_end DESC, "
-        "CASE source WHEN 'edgar' THEN 6 WHEN 'cninfo' THEN 5 WHEN 'gangtise' THEN 5 "
-        "  WHEN 'wind' THEN 4 WHEN 'aifinmarket' THEN 4 WHEN 'futu' THEN 3 WHEN 'fmp' THEN 3 "
-        "  WHEN 'finnhub' THEN 3 WHEN 'polygon' THEN 2 WHEN 'yahoo' THEN 2 ELSE 1 END DESC, "
-        "source DESC LIMIT 1", (cid, metric))
+        f"{structured.source_priority_sql()} DESC, source DESC LIMIT 1", (cid, metric))
     return rows[0] if rows else None
 
 
@@ -218,7 +219,9 @@ def check_verification_points(cid: str, thesis_row: dict, *, run_id: str | None 
             if latest is None:
                 continue
             verdict = _vp_verdict(float(latest["value"]), vp.get("direction", "higher_is_bull"), bt, br)
-            _insert_link(thesis_row["id"], cid, "fundamental", f"{metric}:{latest['period_end']}",
+            # fact_ref 含 vp.key:同一争论下两个 VP 引用同一 metric 时不撞唯一键(评审 #9)
+            fref = f"{vp.get('key', '')}:{metric}:{latest['period_end']}"
+            _insert_link(thesis_row["id"], cid, "fundamental", fref,
                          "debate", d["key"], verdict, 1.0,
                          f"{metric}={latest['value']:.4g} @ {latest['period_end']}",
                          "rule", "rule", run_id, latest["period_end"], refresh=True)
@@ -228,11 +231,10 @@ def check_verification_points(cid: str, thesis_row: dict, *, run_id: str | None 
 
 
 def check_pending(limit_companies: int = 15, *, run_id: str | None = None) -> dict:
-    """给有论点的公司跑 VP 数值检查(零 LLM,每轮做)。"""
+    """给有论点的公司跑 VP 数值检查(零 LLM,每轮做)。honor limit_companies(评审 #2)。"""
     out = {"companies": 0, "checks": 0}
-    for th in _latest_theses():
-        if not (th["content"].get("debates")):
-            continue
+    debate_theses = [th for th in _latest_theses() if th["content"].get("debates")]
+    for th in debate_theses[:limit_companies]:
         res = check_verification_points(th["company_id"], th, run_id=run_id)
         if res:
             out["companies"] += 1

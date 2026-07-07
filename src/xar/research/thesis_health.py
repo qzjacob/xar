@@ -32,6 +32,18 @@ def _clip(x: float, lo: float = -1.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, x))
 
 
+def _latest_thesis_rows(where_ids: list[str] | None = None) -> list[dict]:
+    """每公司最新版论点行(id/company_id/content);where_ids 给定则只取这些公司。
+    单点定义'最新版'语义,免在多处重抄 DISTINCT ON(评审 #14)。"""
+    q = "SELECT DISTINCT ON (company_id) company_id, id, content FROM company_thesis"
+    params: tuple = ()
+    if where_ids is not None:
+        q += " WHERE company_id = ANY(%s)"
+        params = (where_ids,)
+    q += " ORDER BY company_id, version DESC"
+    return db.query(q, params)
+
+
 def debate_health(thesis_id: int, content: dict) -> list[dict]:
     """每个争论只合并自己的两条道 → lean_now、status、top_facts。"""
     debates = content.get("debates") or []
@@ -54,13 +66,14 @@ def debate_health(thesis_id: int, content: dict) -> list[dict]:
         if llm:
             s = sum((r["strength"] or 0) * _SIGN.get(r["verdict"], 0) for r in llm)
             llm_score = _clip(s / max(len(llm), 3))
-        # VP 规则道:每 metric 取最新一期,再取均值
+        # VP 规则道:每个 VP(fact_ref='<vpkey>:<metric>:<period_end>')取最新一期,再取均值。
+        # 分组键 = 去掉末段 period_end 的前缀(= vpkey:metric,逐 VP 唯一)。
         latest_by_metric: dict[str, dict] = {}
         for r in rules:
-            metric = r["fact_ref"].rsplit(":", 1)[0]
-            cur = latest_by_metric.get(metric)
+            gkey = r["fact_ref"].rsplit(":", 1)[0]
+            cur = latest_by_metric.get(gkey)
             if cur is None or (r["as_of"] and cur["as_of"] and r["as_of"] > cur["as_of"]):
-                latest_by_metric[metric] = r
+                latest_by_metric[gkey] = r
         vp_score = 0.0
         if latest_by_metric:
             vp_score = _clip(sum(_SIGN.get(r["verdict"], 0) for r in latest_by_metric.values())
@@ -89,8 +102,9 @@ def debate_health(thesis_id: int, content: dict) -> list[dict]:
             "lean_authored": authored, "lean_now": round(lean_now, 3),
             "delta": round(lean_now - authored, 3), "status": status,
             "n_facts": n, "vp_readings": [
-                {"metric": m, "verdict": r["verdict"], "as_of": r["as_of"],
-                 "note": r["rationale_zh"]} for m, r in latest_by_metric.items()],
+                {"metric": m.split(":")[-1], "vp": m.split(":")[0], "verdict": r["verdict"],
+                 "as_of": r["as_of"], "note": r["rationale_zh"]}
+                for m, r in latest_by_metric.items()],
             "top_facts": [{"ref": f"{r['fact_kind']}:{r['fact_ref']}", "verdict": r["verdict"],
                            "strength": r["strength"], "rationale_zh": r["rationale_zh"]} for r in top],
         })
@@ -147,9 +161,7 @@ def theme_debate_health(theme: str) -> dict:
     if not tds:
         return {"theme": theme, "debates": []}
     members = [c["id"] for c in COMPANIES if theme in (c.get("themes") or [])]
-    rows = db.query(
-        "SELECT DISTINCT ON (company_id) company_id, id, content FROM company_thesis "
-        "WHERE company_id = ANY(%s) ORDER BY company_id, version DESC", (members,))
+    rows = _latest_thesis_rows(members)
     buckets: dict[str, list[tuple[str, dict]]] = {td.key: [] for td in tds}
     for r in rows:
         for d in debate_health(r["id"], _content(r)):
@@ -175,9 +187,7 @@ def challenged_companies_v2(limit: int = 2) -> list[str]:
     """信号面 + 争论翻转面挑战最重的论点(供 glm_worker 重建)。零 LLM。"""
     from . import thesis_signals as ts
 
-    rows = db.query(
-        "SELECT DISTINCT ON (company_id) company_id, id, content "
-        "FROM company_thesis ORDER BY company_id, version DESC")
+    rows = _latest_thesis_rows()
     scored: list[tuple[float, str]] = []
     for r in rows:
         cid = r["company_id"]

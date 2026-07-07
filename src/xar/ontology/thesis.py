@@ -232,6 +232,10 @@ def validate_thesis(t: CompanyThesis, *, known_evidence_ids: set[str] | None = N
     for d in t.debates:
         if d.key in seen_debates:
             problems.append(f"debate {d.key!r} duplicated")
+        # 争论 key 不得与支柱 key 同名:证据链接器把 debate/pillar target 并进一张 key→kind 表,
+        # 撞名会让该争论的 LLM 证据道被支柱覆盖、永远静默(评审 #1)。
+        if d.key in pillar_keys:
+            problems.append(f"debate {d.key!r} collides with a pillar key")
         seen_debates.add(d.key)
         for pk in d.pillar_keys:
             if pk not in pillar_keys:

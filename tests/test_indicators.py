@@ -13,19 +13,24 @@ from xar.research import indicators
 from xar.storage import db, structured
 
 _METRICS = ["crpo", "crpo_yoy", "crpo_yoy_accel"]
-_Q = [dt.date(2024, 3, 31), dt.date(2024, 6, 30), dt.date(2024, 9, 30),
-      dt.date(2024, 12, 31), dt.date(2025, 3, 31), dt.date(2025, 6, 30)]
-# 100→110→120→130→125→132:2025Q1 同比 125/100-1=0.25,2025Q2 同比 132/110-1=0.20(减速)
+# 远未来日期(2098-2099):绝不与真实摄取的 fundamentals 撞期,清理也只删这段,永不毁开发库真实数据(评审 #6)
+_FUTURE = dt.date(2098, 1, 1)
+_Q = [dt.date(2098, 3, 31), dt.date(2098, 6, 30), dt.date(2098, 9, 30),
+      dt.date(2098, 12, 31), dt.date(2099, 3, 31), dt.date(2099, 6, 30)]
+# 100→110→120→130→125→132:2099Q1 同比 125/100-1=0.25,2099Q2 同比 132/110-1=0.20(减速)
 _VALS = [100.0, 110.0, 120.0, 130.0, 125.0, 132.0]
+
+
+def _wipe():
+    db.execute("DELETE FROM fundamentals WHERE company_id = ANY(%s) AND metric = ANY(%s) "
+               "AND period_end >= %s", (["now", "snow"], _METRICS, _FUTURE))
 
 
 @pytest.fixture()
 def _clean(seeded_db):
-    db.execute("DELETE FROM fundamentals WHERE company_id = ANY(%s) AND metric = ANY(%s)",
-               (["now", "snow"], _METRICS))
+    _wipe()
     yield
-    db.execute("DELETE FROM fundamentals WHERE company_id = ANY(%s) AND metric = ANY(%s)",
-               (["now", "snow"], _METRICS))
+    _wipe()
 
 
 def _seed(cid: str, dates, vals):
@@ -45,11 +50,11 @@ def test_crpo_yoy_exact(_clean):
     indicators.compute_company("now")
     latest = _latest("now", "crpo_yoy")
     assert latest is not None
-    assert latest["period_end"] == dt.date(2025, 6, 30)
+    assert latest["period_end"] == dt.date(2099, 6, 30)
     assert abs(latest["value"] - 0.20) < 1e-6
     # 2025Q1 点应为 0.25
     q1 = db.query("SELECT value FROM fundamentals WHERE company_id='now' AND metric='crpo_yoy' "
-                  "AND source='derived' AND period_end=%s", (dt.date(2025, 3, 31),))
+                  "AND source='derived' AND period_end=%s", (dt.date(2099, 3, 31),))
     assert q1 and abs(q1[0]["value"] - 0.25) < 1e-6
 
 
@@ -86,10 +91,16 @@ def test_freq_homogenized_no_cross_freq_yoy(_clean):
     # 播 6 季 crpo + 2 个年末 annual 全年值;_series 应只保留 quarter,annual 被剔除。
     _seed("now", _Q, _VALS)
     structured.upsert_fundamental("now", "crpo", 999.0, period="FY2024",
-                                  period_end=dt.date(2024, 12, 31), freq="annual", source="gangtise")
+                                  period_end=dt.date(2098, 12, 31), freq="annual", source="gangtise")
     s = indicators._series("now", "crpo")           # prefer quarter
     assert all(r["freq"] == "quarter" for r in s)
     assert len(s) == 6                                # annual 行被同质化剔除
+
+
+def test_compute_all_limit_zero_processes_none(_clean):
+    # 评审 #10:limit=0 不应被 falsy-zero 当成"无上限"而全库计算
+    out = indicators.compute_all(limit=0)
+    assert out["companies"] == 0 and out["written"] == 0
 
 
 def test_derived_not_fed_back(_clean):
