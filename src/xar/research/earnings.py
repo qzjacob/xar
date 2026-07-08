@@ -390,3 +390,146 @@ def dossier_earnings(cid: str, event: dict) -> dict | None:
 
     return {"text": "\n\n".join(parts), "known_ids": known, "panel": panel,
             "as_of": date.today().isoformat(), "event_date": str(event_date), "n_facts": len(known)}
+
+
+# ── ET-P3:裁决引擎 ────────────────────────────────────────────────────────────────
+_SYSTEM_EARNINGS = """你是对冲基金的财报事件交易判官。给你一份某公司季报前的 360° dossier(含接地事实 id)。
+输出一个 EarningsVerdict JSON。纪律:
+1. evidence 里的 id 必须逐字抄自 dossier(如 [estimate:now:eps_diluted] 抄成 "estimate:now:eps_diluted"),严禁编造;
+2. conviction(0-10)必须与证据密度耦合:≥7 分需 ≥6 个不同接地锚,且 asymmetry_zh 必须写清赔率为何不对称
+   (市场定价了什么、你认为错在哪、错的代价 vs 对的赔付);
+3. ≥7 分还必须给出盘前可观察的证伪条件(falsifiers_zh)——出现即应放弃交易;
+4. 没有 edge 就选 no_trade(conviction=0,写明 no_trade_reason_zh)。宁缺毋滥:本系统价值在极少数高把握时刻;
+5. 区分「预期差」与「好公司」:好公司 + 人尽皆知的高预期 + 期权定价充分 = 没有交易;
+   平庸公司 + 过度悲观的预期 + 便宜的 implied move 可能才是交易;
+6. move_view_zh 必须表态:implied move 相对你预期的分布是贵/便宜/合理——方向对了也可能被期权定价吃掉;
+7. dimensions 至少覆盖 4 维,分数与 note 一致;信息缺失的维度诚实写"数据不足"而非编造。"""
+
+
+def latest_verdict(cid: str, event_date) -> dict | None:
+    rows = db.query(
+        "SELECT id, version, direction, conviction, expected_move, as_of, model, content, outcome "
+        "FROM earnings_verdicts WHERE company_id=%s AND event_date=%s "
+        "ORDER BY version DESC LIMIT 1", (cid, event_date))
+    return rows[0] if rows else None
+
+
+def _preferred_pin():
+    """host 上择优深度研究订阅执行器;都不可用 → None(裸任务路由落 deepseek token)。"""
+    from ..config import get_settings
+    from ..models import agentsdk, codex_cli, llm
+
+    s = get_settings()
+    if s.codex_enabled and codex_cli.available():
+        return llm.CODEX_PIN
+    if s.anthropic_max_enabled and agentsdk.available():
+        return llm.CLAUDE_MAX_PIN
+    return None
+
+
+def _next_earnings(cid: str):
+    """cid 的下一次 earnings 事件行(观察窗内)。"""
+    from ..config import get_settings
+
+    days = get_settings().earnings_watch_days + get_settings().earnings_verdict_lead_days + 2
+    rows = structured.upcoming_calendar([cid], days=max(days, 15), limit=20)
+    return next((r for r in rows if r.get("event_type") == "earnings"), None)
+
+
+def build_verdict(cid: str, *, event: dict | None = None, force: bool = False,
+                  run_id: str | None = None) -> dict:
+    """生成/刷新一次季报裁决。返回 {status: built|skipped|rejected|no_data|deferred_host, ...}。
+    INSERT 即锁 —— 已有裁决且非 force → skipped;force → version+1。"""
+    import contextlib
+
+    from ..models import llm
+    from ..models.router import TaskClass
+    from ..ontology.earnings_events import EarningsVerdict, validate_verdict
+
+    if event is None:
+        event = _next_earnings(cid)
+    if not event:
+        return {"status": "no_data", "company_id": cid, "reason": "no upcoming earnings"}
+    event_date = event.get("scheduled_for")
+    prev = latest_verdict(cid, event_date)
+    if prev and not force:
+        return {"status": "skipped", "company_id": cid, "event_date": str(event_date),
+                "version": prev["version"], "reason": "verdict locked (use force)"}
+
+    pin = _preferred_pin()
+    from ..config import get_settings
+    if get_settings().earnings_verdict_host_only and pin is None:
+        return {"status": "deferred_host", "company_id": cid, "event_date": str(event_date),
+                "reason": "no subscription executor (host-only)"}
+
+    d = dossier_earnings(cid, event)
+    if d is None:
+        return {"status": "no_data", "company_id": cid, "reason": "unknown company"}
+    if d["n_facts"] < 4:
+        return {"status": "no_data", "company_id": cid,
+                "reason": f"only {d['n_facts']} grounded facts — 宁缺毋滥"}
+
+    prompt = f"为下述公司生成季报事件 EarningsVerdict(as_of={d['as_of']}):\n\n{d['text']}"
+    problems: list[str] = []
+    v: EarningsVerdict | None = None
+    for attempt in (1, 2):
+        suffix = ("\n\n上一稿违规,必须修正:\n- " + "\n- ".join(problems)) if problems else ""
+        ctx = llm.pinned(pin) if pin else contextlib.nullcontext()
+        try:
+            with ctx:
+                v = llm.complete_json(prompt + suffix, EarningsVerdict, system=_SYSTEM_EARNINGS,
+                                      task=TaskClass.EARNINGS_JUDGE, node="earnings_judge",
+                                      run_id=run_id, max_tokens=6000)
+        except Exception as e:  # noqa: BLE001
+            return {"status": "rejected", "company_id": cid, "reason": f"llm: {str(e)[:160]}"}
+        problems = validate_verdict(v, known_ids=d["known_ids"])
+        if not problems:
+            break
+        log.warning("verdict %s attempt %d: %d violations", cid, attempt, len(problems))
+    if v is None or problems:
+        return {"status": "rejected", "company_id": cid, "reason": "; ".join(problems[:6])}
+
+    # expected_move = 裁决时点本事件最新 implied move
+    ser = _implied_series_for(cid, event_date)
+    expected_move = float(ser[0]["value"]) if ser else None
+    anchors = len({e for dim in v.dimensions for e in dim.evidence})
+    quality = {"evidence_anchors": anchors, "dimensions": len(v.dimensions),
+               "n_facts": d["n_facts"]}
+    version = (prev["version"] + 1) if prev else 1
+    model = (pin[0] if pin else "token")
+    db.execute(
+        "INSERT INTO earnings_verdicts(company_id, event_date, calendar_id, version, direction, "
+        "conviction, expected_move, content, quality, model, run_id, as_of) "
+        "VALUES(%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s)",
+        (cid, event_date, event.get("id"), version, v.direction, v.conviction, expected_move,
+         v.model_dump_json(), _json_quality(quality), model, run_id, d["as_of"]))
+    log.info("verdict %s v%d: %s conviction=%.1f anchors=%d",
+             cid, version, v.direction, v.conviction, anchors)
+    return {"status": "built", "company_id": cid, "event_date": str(event_date), "version": version,
+            "direction": v.direction, "conviction": v.conviction, "model": model, "quality": quality}
+
+
+def _json_quality(q: dict) -> str:
+    import json
+
+    return json.dumps(q, ensure_ascii=False)
+
+
+def judge_due(*, force: bool = False) -> dict:
+    """观察窗 [today, today+lead] 内、尚无裁决的 universe 事件逐个 build。返回统计。"""
+    from ..config import get_settings
+    from ..ontology.earnings_events import EARNINGS_UNIVERSE
+
+    s = get_settings()
+    rows = structured.upcoming_calendar(list(EARNINGS_UNIVERSE),
+                                        days=s.earnings_verdict_lead_days, limit=100)
+    out = {"built": 0, "skipped": 0, "rejected": 0, "no_data": 0, "deferred_host": 0, "events": []}
+    for r in rows:
+        if r.get("event_type") != "earnings":
+            continue
+        res = build_verdict(r["company_id"], event=r, force=force)
+        st = res.get("status", "no_data")
+        out[st] = out.get(st, 0) + 1
+        out["events"].append({"cid": r["company_id"], "status": st,
+                              "direction": res.get("direction"), "conviction": res.get("conviction")})
+    return out
