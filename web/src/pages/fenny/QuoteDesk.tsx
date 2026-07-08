@@ -72,8 +72,8 @@ interface Product {
   tickers: string[];
 }
 interface QuoteResult {
-  // top-level coupon_rate / reoffer_fraction are present only on the SOLVE response;
-  // on a plain QUOTE the coupon lives at pricing.coupon_rate (reads below are null-safe).
+  // Both /jobs/quote and /jobs/solve echo top-level coupon_rate + reoffer_fraction (fcn
+  // _run_job); still optional here + null-safe below in case a caller hits the sync endpoint.
   coupon_rate?: number;
   coupon_rate_se?: number;
   reoffer_fraction?: number;
@@ -138,6 +138,17 @@ function Field({
   );
 }
 
+type Tone = "pos" | "neg" | "warn";
+function toneClass(tone?: Tone): string {
+  return tone === "pos"
+    ? "text-pos"
+    : tone === "neg"
+      ? "text-neg"
+      : tone === "warn"
+        ? "text-warn-100"
+        : "text-brand-900";
+}
+
 function Stat({
   label,
   value,
@@ -148,17 +159,10 @@ function Stat({
   label: string;
   value: string;
   sub?: string;
-  tone?: "pos" | "neg" | "warn";
+  tone?: Tone;
   tip?: string;
 }) {
-  const t =
-    tone === "pos"
-      ? "text-pos"
-      : tone === "neg"
-        ? "text-neg"
-        : tone === "warn"
-          ? "text-warn-100"
-          : "text-brand-900";
+  const t = toneClass(tone);
   return (
     <div className="rounded-lg border border-line bg-surface-2 px-3 py-2">
       <div className="flex items-center gap-1 text-2xs uppercase tracking-wide text-slate-500">
@@ -172,10 +176,14 @@ function Stat({
 }
 
 // Plain-language one-line takeaway synthesised from the numbers (no jargon).
-function verdict(coupon: number, probLoss: number, probAutocall: number): string {
+// touchProb = prob_knock_in, which is an anytime-TOUCH probability (esp. Phoenix's American
+// KI), NOT a capital-loss probability — so the risk clause talks about *touching* the
+// protection line, consistent with the chanceLoss tile (a touch only becomes a loss if still
+// below strike at maturity). Do not word this as "principal-loss risk".
+function verdict(coupon: number, touchProb: number, probAutocall: number): string {
   const income = coupon >= 0.1 ? "票息较高" : coupon >= 0.06 ? "票息中等" : "票息偏低";
   const risk =
-    probLoss < 0.08 ? "本金风险较低" : probLoss < 0.2 ? "本金风险中等" : "本金风险偏高";
+    touchProb < 0.1 ? "很少触及保护线" : touchProb < 0.25 ? "偶尔触及保护线" : "较易触及保护线";
   const exit = probAutocall >= 0.5 ? "较可能提前收回" : "多半持有到期";
   return `${income}、${risk},${exit}。`;
 }
@@ -193,17 +201,10 @@ function BigTile({
   label: string;
   value: string;
   sub?: string;
-  tone?: "pos" | "neg" | "warn";
+  tone?: Tone;
   tip?: string;
 }) {
-  const t =
-    tone === "pos"
-      ? "text-pos"
-      : tone === "neg"
-        ? "text-neg"
-        : tone === "warn"
-          ? "text-warn-100"
-          : "text-brand-900";
+  const t = toneClass(tone);
   return (
     <div className="rounded-xl border border-line bg-surface-2 p-3">
       <div className="mb-1 flex items-center gap-1 text-2xs text-slate-400">
@@ -326,6 +327,14 @@ export function QuoteDesk() {
   // fall back to pricing.coupon_rate defensively. reoffer is the (fee-derived) issue price.
   const couponVal = res?.coupon_rate ?? p?.coupon_rate ?? 0;
   const reoffer = res?.reoffer_fraction;
+  // Only FCN pays an unconditional coupon; Phoenix/Snowball coupons are conditional (paid only
+  // when the underlying is above the coupon level; memory defers, it does not guarantee).
+  const conditionalCoupon = (prod?.variant ?? variant) !== "fcn";
+  const couponSub = isSolve
+    ? "公平票息(模型解出)"
+    : conditionalCoupon
+      ? "达标时才派发的有条件票息"
+      : "你每年可收到的固定利息";
 
   return (
     <div className="grid grid-cols-1 gap-4 p-4 xl:grid-cols-[380px_1fr]">
@@ -654,7 +663,7 @@ export function QuoteDesk() {
                   icon={<Wallet size={13} />}
                   label={`${T.coupon.cn} ${T.coupon.label}`}
                   value={pct(couponVal, 2) + " p.a."}
-                  sub={isSolve ? "公平票息(模型解出)" : "你每年可收到的利息"}
+                  sub={couponSub}
                   tone="pos"
                   tip={T.coupon.tip}
                 />
@@ -852,7 +861,7 @@ export function QuoteDesk() {
                       label={isSolve ? "Fair coupon" : "Coupon"}
                       value={pct(couponVal, 2) + " p.a."}
                       sub={
-                        isSolve && res.coupon_rate_se
+                        isSolve && res.coupon_rate_se != null
                           ? "± " + (res.coupon_rate_se * 100).toFixed(3) + "%"
                           : undefined
                       }

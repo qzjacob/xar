@@ -257,7 +257,7 @@ export function MarketRead() {
               right={
                 <Badge
                   className={res.narrative_source === "llm" ? "bg-accent-600/15 text-accent-100" : "bg-surface-2 text-slate-400"}
-                  title={res.narrative_source === "llm" ? "AI 撰写(Opus→Codex→GLM→DeepSeek 择优)" : "无 LLM 时的确定性模板"}
+                  title={res.narrative_source === "llm" ? "AI 撰写(择优模型)" : "无 LLM 时的确定性模板"}
                 >
                   {res.narrative_source === "llm" ? "AI 解读" : "模板"}
                 </Badge>
