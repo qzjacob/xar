@@ -578,11 +578,13 @@ def ops_earnings():
 
 @app.post("/api/ops/earnings/{cid}/judge")
 def ops_earnings_judge(cid: str, bg: BackgroundTasks, force: bool = False):
-    """后台生成某公司季报裁决(host 上择优订阅执行器)。"""
-    from ..research import earnings
+    """后台生成某公司季报裁决。UA-P1:走统一 capability_runs(返回 run_id 可轮询;活跃去重防双跑)。"""
+    from ..capabilities import runs
 
-    bg.add_task(earnings.build_verdict, cid, force=force)
-    return {"status": "scheduled", "company_id": cid, "force": force}
+    sched = runs.schedule("build_earnings_verdict", {"company_id": cid, "force": force}, origin="ui")
+    bg.add_task(runs.execute_run, sched["run_id"])
+    return {**sched, "status": "scheduled", "company_id": cid, "force": force,
+            "run_id": sched["run_id"]}
 
 
 @app.get("/api/ops/altdata/trackers")
@@ -680,6 +682,51 @@ def exploration_refresh(bg: BackgroundTasks, domain: str = None) -> dict:
 
     bg.add_task(_job)
     return {"status": "started", "domain": domain or "all"}
+
+
+# ── UA-P1:统一能力入口(一处定义 → Chathy/UI/CLI/API 共用)────────────────────────────
+@app.get("/api/capabilities")
+def list_capabilities():
+    """能力登记簿清单(name/kind/duration/chathy/description)。"""
+    from ..capabilities import registry
+
+    return [{"name": c.name, "kind": c.kind, "duration": c.duration, "chathy": c.chathy,
+             "description": c.description, "parameters": c.parameters} for c in registry.CAPABILITIES]
+
+
+@app.post("/api/run/{name}")
+def run_capability(name: str, bg: BackgroundTasks, body: dict | None = None):
+    """跑一个能力。read/fast → 内联执行返回 {status:'done', result};
+    build/slow → schedule + 后台 execute_run,返回 {run_id, status, dedup?}。未知能力 404。"""
+    from ..capabilities import registry, runs
+
+    spec = registry.by_name(name)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"unknown capability {name}")
+    args = body or {}
+    if spec.kind == "read" and spec.duration == "fast":
+        import json as _json
+        return {"status": "done", "result": _json.loads(registry.execute(name, args))}
+    sched = runs.schedule(name, args, origin="api")
+    bg.add_task(runs.execute_run, sched["run_id"])
+    return sched
+
+
+@app.get("/api/run/{run_id}")
+def get_run(run_id: str):
+    from ..capabilities import runs
+
+    st = runs.status(run_id)
+    if st is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return st
+
+
+@app.get("/api/runs")
+def list_runs(capability: str = None, limit: int = 20):
+    from ..capabilities import runs
+
+    return runs.recent(capability, limit=min(int(limit or 20), 100))
 
 
 # legacy vanilla-UI assets

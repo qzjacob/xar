@@ -21,6 +21,34 @@ app = typer.Typer(add_completion=False, help="XAR industry-chain investment rese
 log = get_logger("xar.cli")
 
 
+@app.command("capabilities")
+def capabilities_cmd() -> None:
+    """列出统一能力登记簿(name/kind/duration/chathy)。"""
+    from .capabilities import registry
+
+    for c in registry.CAPABILITIES:
+        tag = "build" if c.kind == "build" else "read"
+        print(f"  {c.name:26} [{tag}/{c.duration}]{' chathy' if c.chathy else ''}  {c.description[:60]}")
+
+
+@app.command("run")
+def run_cmd(name: str, args: str = typer.Option("{}", "--args", help="JSON 参数对象")) -> None:
+    """跑一个能力(read 即答;build 落 capability_runs 并 inline 执行)。"""
+    from .capabilities import registry, runs
+
+    spec = registry.by_name(name)
+    if spec is None:
+        print(f"[red]unknown capability {name}[/red]")
+        raise typer.Exit(1)
+    a = json.loads(args)
+    if spec.kind == "read" and spec.duration == "fast":
+        print(registry.execute(name, a))
+        return
+    sched = runs.schedule(name, a, origin="cli")
+    out = runs.execute_run(sched["run_id"])
+    print(json.dumps({"run_id": sched["run_id"], **out}, ensure_ascii=False, indent=2, default=str))
+
+
 @app.command()
 def init() -> None:
     """Initialize DB schema, seed the company basket, and bootstrap the KG seed."""

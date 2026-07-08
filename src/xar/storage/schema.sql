@@ -692,3 +692,22 @@ CREATE TABLE IF NOT EXISTS earnings_verdicts (
 );
 CREATE INDEX IF NOT EXISTS idx_ev_company ON earnings_verdicts(company_id, event_date DESC);
 CREATE INDEX IF NOT EXISTS idx_ev_pending ON earnings_verdicts(event_date) WHERE outcome IS NULL;
+
+-- ── UA-P1:能力运行表(统一异步触发;修复四种触发风格分裂)。running 去重靠部分唯一索引 ──
+CREATE TABLE IF NOT EXISTS capability_runs (
+    id          TEXT PRIMARY KEY,              -- uuid4 hex
+    capability  TEXT NOT NULL,
+    args        JSONB NOT NULL DEFAULT '{}',
+    args_hash   TEXT NOT NULL,                 -- sha256(json.dumps(args, sort_keys=True))
+    status      TEXT NOT NULL DEFAULT 'queued'
+                CHECK (status IN ('queued','running','done','error')),
+    result      JSONB,
+    error       TEXT,
+    origin      TEXT,                          -- chathy | ui | api | cli
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at  TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_capruns_recent ON capability_runs(capability, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_capruns_active ON capability_runs(capability, args_hash)
+    WHERE status IN ('queued','running');

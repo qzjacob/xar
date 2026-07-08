@@ -144,6 +144,33 @@ def _macro_indicators(theme: str | None = None, metric_key: str | None = None,
         "platform_metric_keys": [m["metric_key"] for m in full["platform_metrics"]]}
 
 
+# --- build-capability implementations (kind=build; run via capabilities/runs.py) --------
+def _build_earnings_verdict(company_id: str, force: bool = False) -> dict:
+    from ..research import earnings
+    return earnings.build_verdict(company_id, force=force)
+
+
+def _build_thesis(company_id: str, force: bool = False) -> dict:
+    from ..research import thesis
+    return thesis.build(company_id, force=force)
+
+
+def _refresh_exploration(domain: str | None = None) -> dict:
+    from ..exploration import ingest, synthesis
+    if domain:
+        ing = ingest.ingest_domain(domain)
+        syn = synthesis.synthesize(domain)
+        return {"domain": domain, "ingest": ing, "synthesis": syn}
+    ing = ingest.ingest_all()
+    syn = synthesis.synthesize_all()
+    return {"ingest": ing, "synthesis": syn}
+
+
+def _report(company_id: str, kind: str = "deep_report", since: str | None = None) -> dict:
+    from ..agents import graph
+    return graph.run_report({"kind": kind, "company_id": company_id, "since": since})
+
+
 CAPABILITIES: list[CapabilitySpec] = [
     CapabilitySpec("find_company", "Resolve a company name or ticker to its platform id + basic profile.",
                    _obj({"query": {"type": "string", "description": "company name or ticker"}}, ["query"]),
@@ -241,6 +268,26 @@ CAPABILITIES: list[CapabilitySpec] = [
                                         "description": "a siliconomics metric_key, e.g. 'capex.hyperscaler_capex'"},
                          "as_of": {"type": "string", "description": "ISO date look-ahead boundary; default today"}}),
                    _macro_indicators),
+
+    # ── UA-P1 build 能力(kind=build/slow;经 capability_runs 异步跑;暂不直接暴露给 Chathy,
+    #    Chathy 经 get_thesis(refresh)/earnings_verdict(refresh)/start_report 触达)──
+    CapabilitySpec("build_earnings_verdict",
+                   "生成/刷新某公司季报前多空裁决(分钟级 LLM,host 择优订阅执行器,docker 落 token)。",
+                   _obj({"company_id": _CID, "force": {"type": "boolean", "default": False}}, ["company_id"]),
+                   _build_earnings_verdict, kind="build", duration="slow", chathy=False),
+    CapabilitySpec("build_thesis",
+                   "生成/刷新某公司投资论点(接地事实 → 结构化 CompanyThesis)。",
+                   _obj({"company_id": _CID, "force": {"type": "boolean", "default": False}}, ["company_id"]),
+                   _build_thesis, kind="build", duration="slow", chathy=False),
+    CapabilitySpec("refresh_exploration",
+                   "刷新前沿探索(抓取 + LLM 合成 research fronts);domain 省略则全域。",
+                   _obj({"domain": {"type": "string"}}),
+                   _refresh_exploration, kind="build", duration="slow", chathy=False),
+    CapabilitySpec("report",
+                   "多智能体深度报告 DAG(scope→retrieve→analysts→debate/risk→editor→证据门→审批)。",
+                   _obj({"company_id": _CID, "kind": {"type": "string", "default": "deep_report"},
+                         "since": {"type": "string"}}, ["company_id"]),
+                   _report, kind="build", duration="slow", chathy=False),
 ]
 
 
