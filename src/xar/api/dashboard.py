@@ -613,7 +613,54 @@ def company_detail(cid: str, theme: str | None = None) -> dict | None:
             "supplyChain": supply_chain, "landscape": graphrag.landscape(cid),
             "thesis": _thesis_block(cid), "coverage": _coverage_block(cid),
             "estimates": _estimates_block(cid), "holdings": _holdings_block(cid),
-            "calendar": _calendar_block(cid), "alt": _alt_block(cid)}
+            "calendar": _calendar_block(cid), "alt": _alt_block(cid),
+            "earnings": _earnings_block(cid)}
+
+
+def _earnings_block(cid: str) -> dict | None:
+    """公司页季报事件块:下一事件摘要 + 最新裁决 + 锁后漂移 chips + 近 4 次 outcome。零 LLM。"""
+    from ..ontology.earnings_events import EARNINGS_UNIVERSE
+    from ..research import earnings
+
+    if cid not in EARNINGS_UNIVERSE:
+        return None
+    try:
+        ev = earnings._next_earnings(cid)
+        beat = earnings.beat_stats(cid)
+        block: dict = {"beat": beat}
+        if ev:
+            ed = ev["scheduled_for"]
+            ser = earnings._implied_series_for(cid, ed)
+            v = earnings.latest_verdict(cid, ed)
+            block["event"] = {"date": str(ed), "session": (ev.get("meta") or {}).get("session"),
+                              "daysTo": (ed - _today_date()).days}
+            block["impliedMove"] = (float(ser[0]["value"]) if ser else None)
+            if v:
+                # 锁后漂移:implied move 最新 vs 裁决时点 expected_move
+                drift = None
+                if ser and v.get("expected_move"):
+                    drift = round((float(ser[0]["value"]) - float(v["expected_move"])) * 100, 2)
+                block["verdict"] = {"direction": v["direction"], "conviction": v["conviction"],
+                                    "version": v["version"], "asOf": str(v["as_of"]),
+                                    "model": v.get("model"), "impliedDriftPp": drift}
+        outs = db.query(
+            "SELECT event_date, direction, conviction, outcome FROM earnings_verdicts "
+            "WHERE company_id=%s AND outcome->>'status'='scored' ORDER BY event_date DESC LIMIT 4",
+            (cid,))
+        block["recentOutcomes"] = [
+            {"date": str(o["event_date"]), "direction": o["direction"], "conviction": o["conviction"],
+             "hit": (o["outcome"] or {}).get("direction_hit"),
+             "reactionPct": (o["outcome"] or {}).get("reaction_pct")} for o in outs]
+        return block
+    except Exception as e:  # noqa: BLE001
+        log.warning("earnings_block %s: %s", cid, e)
+        return None
+
+
+def _today_date():
+    from datetime import date
+
+    return date.today()
 
 
 def _thesis_block(cid: str) -> dict | None:

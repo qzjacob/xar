@@ -537,6 +537,54 @@ def ops_research_crawl():
             "lastAudit": kvstate.get_state("research_audit")}
 
 
+@app.get("/api/ops/earnings")
+def ops_earnings():
+    """季报事件面板:观察窗队列 + 最近裁决 + conviction 校准。"""
+    from .. import config
+    from ..ontology.earnings_events import EARNINGS_UNIVERSE
+    from ..research import earnings
+    from ..storage import db, structured
+
+    s = config.get_settings()
+    out: dict = {}
+    try:
+        rows = structured.upcoming_calendar(list(EARNINGS_UNIVERSE),
+                                            days=s.earnings_watch_days + 5, limit=100)
+        queue = []
+        for r in rows:
+            if r.get("event_type") != "earnings":
+                continue
+            v = earnings.latest_verdict(r["company_id"], r["scheduled_for"])
+            queue.append({"cid": r["company_id"], "date": str(r["scheduled_for"]),
+                          "session": (r.get("meta") or {}).get("session"),
+                          "verdict": ({"direction": v["direction"], "conviction": v["conviction"],
+                                       "version": v["version"]} if v else None)})
+        out["queue"] = queue
+    except Exception as e:  # noqa: BLE001
+        out["queue"] = {"error": str(e)[:160]}
+    try:
+        recent = db.query(
+            "SELECT company_id, event_date, direction, conviction, model, as_of, "
+            "outcome->>'direction_hit' hit FROM earnings_verdicts ORDER BY created_at DESC LIMIT 15")
+        out["recent"] = [dict(r) for r in recent]
+    except Exception as e:  # noqa: BLE001
+        out["recent"] = {"error": str(e)[:160]}
+    try:
+        out["calibration"] = earnings.calibration()
+    except Exception as e:  # noqa: BLE001
+        out["calibration"] = {"error": str(e)[:160]}
+    return out
+
+
+@app.post("/api/ops/earnings/{cid}/judge")
+def ops_earnings_judge(cid: str, bg: BackgroundTasks, force: bool = False):
+    """后台生成某公司季报裁决(host 上择优订阅执行器)。"""
+    from ..research import earnings
+
+    bg.add_task(earnings.build_verdict, cid, force=force)
+    return {"status": "scheduled", "company_id": cid, "force": force}
+
+
 @app.get("/api/ops/altdata/trackers")
 def ops_alt_trackers():
     """alt 追踪器覆盖 + 每信号库存(ops 面板)。"""

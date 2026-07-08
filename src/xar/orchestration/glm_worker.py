@@ -279,7 +279,14 @@ def _pull_fresh() -> dict:
     _run("gangtise_backfill", 6 * 3600, _gangtise_backfill)
     _run("wind_edb", 24 * 3600, _wind_edb)
     _run("aifinmarket_theme", 24 * 3600, _aifin_theme)
+    _run("earnings_watch", 6 * 3600, _earnings_watch)   # 季报观察窗:日历/analyst/隐含波动刷新
     return out
+
+
+def _earnings_watch() -> dict:
+    from ..research import earnings
+
+    return earnings.refresh_window()
 
 
 def _backfill(units: int) -> dict:
@@ -340,6 +347,29 @@ def _research_audit_step() -> dict:
     except Exception as e:  # noqa: BLE001
         _stamp("research_audit", 24 * 3600, ok=False)
         return {"error": str(e)[:160]}
+
+
+def _earnings_step() -> dict:
+    """季报裁决 + 盘后回验(pinned/quota 门之外;host 由 build_verdict 内 pinned 提级订阅执行器)。
+    模块级:run_once 单一入口,glm_worker 单测可整体打桩,不发真实裁决 LLM 调用。"""
+    out: dict = {}
+    if _due("earnings_verdicts", 24 * 3600):
+        try:
+            from ..research import earnings
+            out["verdicts"] = earnings.judge_due()
+            _stamp("earnings_verdicts", 24 * 3600, ok=True)
+        except Exception as e:  # noqa: BLE001
+            out["verdicts"] = {"error": str(e)[:160]}
+            _stamp("earnings_verdicts", 24 * 3600, ok=False)
+    if _due("earnings_outcomes", 12 * 3600):
+        try:
+            from ..research import earnings
+            out["outcomes"] = earnings.score_outcomes()
+            _stamp("earnings_outcomes", 12 * 3600, ok=True)
+        except Exception as e:  # noqa: BLE001
+            out["outcomes"] = {"error": str(e)[:160]}
+            _stamp("earnings_outcomes", 12 * 3600, ok=False)
+    return out
 
 
 def _alt_correction(q: dict, rebuilds: int) -> dict:
@@ -419,6 +449,7 @@ def run_once(*, batch_docs: int | None = None, backfill_units: int | None = None
     # 独立抓取审计(每日):TaskClass.AUDIT 强 token 模型,**在 pinned 与 quota 门之外**——
     # 验收模型 ≠ 生产 GLM,GLM 耗尽也不影响审计(独立性的另一半)。模块级函数便于测试打桩。
     out["research_audit"] = _research_audit_step()
+    out["earnings"] = _earnings_step()
 
     counters = get_state("counters")
     counters["cycles"] = int(counters.get("cycles", 0)) + 1

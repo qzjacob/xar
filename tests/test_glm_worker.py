@@ -87,6 +87,7 @@ def test_run_once_exhausted_probes_and_skips(state_db, monkeypatch):
     monkeypatch.setattr(gw, "_pull_fresh", lambda: {"stub": True})
     monkeypatch.setattr(gw, "_backfill", lambda units: {"done_units": units})
     monkeypatch.setattr(gw, "_research_audit_step", lambda: {"stub": True})
+    monkeypatch.setattr(gw, "_earnings_step", lambda: {"stub": True})
     out = gw.run_once(batch_docs=1, backfill_units=2)
     assert out["quota"] == "exhausted"
     assert out["extract"] == {"skipped": "quota exhausted — waiting for window reset"}
@@ -103,6 +104,7 @@ def test_run_once_ok_extracts_without_probe(state_db, monkeypatch):
     monkeypatch.setattr(gw, "_pull_fresh", lambda: {})
     monkeypatch.setattr(gw, "_backfill", lambda units: {})
     monkeypatch.setattr(gw, "_research_audit_step", lambda: {"stub": True})
+    monkeypatch.setattr(gw, "_earnings_step", lambda: {"stub": True})
     monkeypatch.setattr(gw, "_llm_stage",
                         lambda batch, q: ({"kg": {"docs": 2}}, q))
     out = gw.run_once(batch_docs=5, backfill_units=0)
@@ -116,6 +118,7 @@ def test_run_once_recovery_resumes_extraction(state_db, monkeypatch):
     monkeypatch.setattr(gw, "_pull_fresh", lambda: {})
     monkeypatch.setattr(gw, "_backfill", lambda units: {})
     monkeypatch.setattr(gw, "_research_audit_step", lambda: {"stub": True})
+    monkeypatch.setattr(gw, "_earnings_step", lambda: {"stub": True})
     monkeypatch.setattr(gw, "_llm_stage",
                         lambda batch, q: ({"kg": {"docs": 3}, "expert": {"processed": 1}}, q))
     out = gw.run_once(batch_docs=5, backfill_units=0)
@@ -131,6 +134,7 @@ def test_run_once_refuses_metered_fallback(state_db, monkeypatch):
     monkeypatch.setattr(gw, "_pull_fresh", lambda: {})
     monkeypatch.setattr(gw, "_backfill", lambda units: {})
     monkeypatch.setattr(gw, "_research_audit_step", lambda: {"stub": True})
+    monkeypatch.setattr(gw, "_earnings_step", lambda: {"stub": True})
     monkeypatch.setattr(gw, "_llm_stage",
                         lambda batch, q: (_ for _ in ()).throw(AssertionError("must not extract")))
     out = gw.run_once(batch_docs=1, backfill_units=0)

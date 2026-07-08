@@ -623,6 +623,84 @@ def alt_status() -> None:
     print(json.dumps(altdata.coverage_summary(), ensure_ascii=False, indent=2))
 
 
+earnings_app = typer.Typer(add_completion=False,
+                           help="季报事件交易:观察窗/面板/裁决/盘后回验/校准(美股)")
+app.add_typer(earnings_app, name="earnings")
+
+
+@earnings_app.command("watch")
+def earnings_watch_cmd() -> None:
+    """观察窗队列(未来 N 天出财报的 universe 名字 + 裁决状态)。"""
+    from datetime import date
+
+    from .config import get_settings
+    from .ontology.earnings_events import EARNINGS_UNIVERSE
+    from .research import earnings
+    from .storage import structured
+
+    s = get_settings()
+    rows = structured.upcoming_calendar(list(EARNINGS_UNIVERSE), days=s.earnings_watch_days + 5)
+    for r in rows:
+        if r.get("event_type") != "earnings":
+            continue
+        v = earnings.latest_verdict(r["company_id"], r["scheduled_for"])
+        days_to = (r["scheduled_for"] - date.today()).days
+        vs = f"{v['direction']}@{v['conviction']}(v{v['version']})" if v else "—"
+        print(f"{r['company_id']:14} {r['scheduled_for']}  T{days_to:+d}  裁决={vs}")
+
+
+@earnings_app.command("panel")
+def earnings_panel_cmd(company: str) -> None:
+    """打印某公司下一次财报的 360° dossier(接地面板)。"""
+    from .research import earnings
+
+    ev = earnings._next_earnings(company)
+    if not ev:
+        print("[yellow]no upcoming earnings in window[/yellow]")
+        raise typer.Exit(0)
+    d = earnings.dossier_earnings(company, ev)
+    if d is None:
+        print("[red]unknown company[/red]")
+        raise typer.Exit(1)
+    print(d["text"])
+    print(f"\n[dim]n_facts={d['n_facts']} event={d['event_date']}[/dim]")
+
+
+@earnings_app.command("judge")
+def earnings_judge_cmd(
+    company: str = typer.Argument(None, help="company id;省略配 --due 批量"),
+    due: bool = typer.Option(False, "--due", help="批量:观察窗内未裁决的事件"),
+    force: bool = typer.Option(False, help="重生成(锁定后仅此可覆盖,version+1)"),
+) -> None:
+    """生成季报裁决(host 上择优订阅执行器 codex/claude-max;docker 落 token 强模型)。"""
+    from .research import earnings
+
+    if company:
+        print(json.dumps(earnings.build_verdict(company, force=force),
+                         ensure_ascii=False, indent=2, default=str))
+        return
+    if not due:
+        print("[red]give a company id or --due[/red]")
+        raise typer.Exit(1)
+    print(json.dumps(earnings.judge_due(force=force), ensure_ascii=False, indent=2, default=str))
+
+
+@earnings_app.command("outcomes")
+def earnings_outcomes_cmd() -> None:
+    """盘后回验:已过财报日的裁决 → 实际 surprise + 反应 + 方向命中。"""
+    from .research import earnings
+
+    print(json.dumps(earnings.score_outcomes(), ensure_ascii=False, indent=2, default=str))
+
+
+@earnings_app.command("calibration")
+def earnings_calibration_cmd() -> None:
+    """按 conviction 分桶回看命中率 × 平均反应(≥7 桶单列)。"""
+    from .research import earnings
+
+    print(json.dumps(earnings.calibration(), ensure_ascii=False, indent=2, default=str))
+
+
 thesis_app = typer.Typer(add_completion=False,
                          help="投资论点:生成/刷新/健康度(research/thesis.py)")
 app.add_typer(thesis_app, name="thesis")

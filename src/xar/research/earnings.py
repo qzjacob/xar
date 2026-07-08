@@ -533,3 +533,111 @@ def judge_due(*, force: bool = False) -> dict:
         out["events"].append({"cid": r["company_id"], "status": st,
                               "direction": res.get("direction"), "conviction": res.get("conviction")})
     return out
+
+
+# ── ET-P4:盘后结果回验 + 校准 ──────────────────────────────────────────────────────
+def _occurred_on(cid: str, event_date, tol_days: int = 3) -> dict | None:
+    """事件日 ±tol 天窗内已发生的 earnings 行(对齐改期/跨源 ±1 天)。"""
+    rows = db.query(
+        "SELECT scheduled_for, meta FROM event_calendar WHERE company_id=%s AND event_type='earnings' "
+        "AND status='occurred' AND scheduled_for BETWEEN %s AND %s ORDER BY "
+        "abs(scheduled_for - %s) LIMIT 1",
+        (cid, event_date - timedelta(days=tol_days), event_date + timedelta(days=tol_days), event_date))
+    return rows[0] if rows else None
+
+
+def score_outcomes() -> dict:
+    """回填未评分、已过财报日的裁决:对齐 occurred → 实际 surprise + 反应 + realized-vs-implied +
+    方向命中;超期兜底收尾(price_missing/event_moved),绝不无限挂起。返回统计。"""
+    from ..config import get_settings
+
+    s = get_settings()
+    today = date.today()
+    pend = db.query(
+        "SELECT id, company_id, event_date, direction, conviction, expected_move "
+        "FROM earnings_verdicts WHERE outcome IS NULL AND event_date < %s "
+        "ORDER BY event_date LIMIT 200", (today,))
+    out = {"scored": 0, "event_moved": 0, "price_missing": 0, "pending": 0}
+    for v in pend:
+        cid, ed = v["company_id"], v["event_date"]
+        occ = _occurred_on(cid, ed)
+        overdue = (today - ed).days > s.earnings_outcome_max_days
+        if occ is None:
+            if overdue:   # 超期仍无 occurred 行 → 收尾(可能改期/未披露)
+                _stamp_outcome(v["id"], {"status": "event_moved"})
+                out["event_moved"] += 1
+            else:
+                out["pending"] += 1
+            continue
+        meta = occ["meta"] or {}
+        session = meta.get("session")
+        surprise = _num(meta.get("surprise_pct"))
+        rr = reaction_return(cid, occ["scheduled_for"], session)
+        if rr is None:
+            if overdue:
+                _stamp_outcome(v["id"], {"status": "price_missing"})
+                out["price_missing"] += 1
+            else:
+                out["pending"] += 1
+            continue
+        reaction = rr["reaction_pct"]
+        exp = v["expected_move"]
+        realized_vs_implied = (round(abs(reaction) / (float(exp) * 100), 3)
+                               if exp and float(exp) > 0 else None)
+        if v["direction"] == "no_trade":
+            hit = "abstain"
+        else:
+            hit = (reaction > 0) if v["direction"] == "long" else (reaction < 0)
+        _stamp_outcome(v["id"], {"status": "scored", "session": rr["session"],
+                                 "actual_surprise_pct": surprise, "reaction_pct": reaction,
+                                 "realized_vs_implied": realized_vs_implied, "direction_hit": hit})
+        out["scored"] += 1
+    return out
+
+
+def _num(x):
+    try:
+        return None if x in (None, "") else float(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def _stamp_outcome(vid: int, outcome: dict) -> None:
+    import json
+
+    db.execute("UPDATE earnings_verdicts SET outcome=%s::jsonb, outcome_at=now() WHERE id=%s",
+               (json.dumps(outcome, ensure_ascii=False, default=str), vid))
+
+
+_CONVICTION_BUCKETS = ((0, 3), (4, 6), (7, 8), (9, 10))
+
+
+def calibration() -> dict:
+    """按 conviction 分桶回看命中率 × 平均反应(≥7 桶单列;no_trade=abstain 不计 hit-rate)。"""
+    rows = db.query(
+        "SELECT conviction, direction, outcome FROM earnings_verdicts "
+        "WHERE outcome IS NOT NULL AND outcome->>'status'='scored'")
+    buckets = {f"{lo}-{hi}": {"n": 0, "hits": 0, "decided": 0, "reactions": []}
+               for lo, hi in _CONVICTION_BUCKETS}
+    for r in rows:
+        conv = float(r["conviction"])
+        lo_hi = next((b for b in _CONVICTION_BUCKETS if b[0] <= conv <= b[1]), None)
+        if lo_hi is None:
+            continue
+        b = buckets[f"{lo_hi[0]}-{lo_hi[1]}"]
+        o = r["outcome"] or {}
+        b["n"] += 1
+        rp = o.get("reaction_pct")
+        if rp is not None:
+            b["reactions"].append(float(rp))
+        hit = o.get("direction_hit")
+        if isinstance(hit, bool):
+            b["decided"] += 1
+            b["hits"] += int(hit)
+    out = {}
+    for k, b in buckets.items():
+        reacts = b.pop("reactions")
+        out[k] = {"n": b["n"], "hit_rate": round(b["hits"] / b["decided"], 3) if b["decided"] else None,
+                  "decided": b["decided"],
+                  "avg_reaction_pct": round(sum(reacts) / len(reacts), 3) if reacts else None}
+    return out
