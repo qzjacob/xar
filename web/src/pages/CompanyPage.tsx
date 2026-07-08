@@ -27,6 +27,7 @@ import {
 import type { CompanyDetail, SupplyEdge } from "../types";
 import { Badge, Card, DeltaTag, MetricPill, SectionHeader, Sparkline } from "../components/ui";
 import { SignalFeed } from "../components/SignalFeed";
+import { EarningsSection } from "../components/EarningsSection";
 import { ThesisSection } from "../components/ThesisSection";
 import { AltDataPanel } from "../components/AltDataPanel";
 import { CoverageRing } from "../components/CoverageRing";
@@ -235,6 +236,9 @@ export function CompanyPage() {
 
       {/* ============================ THESIS 360 =========================== */}
       <ThesisSection cid={company.id} thesis={thesis} onRefetch={refetch} />
+
+      {/* ==================== PRE-EARNINGS EVENT TRADING ================== */}
+      <EarningsSection earnings={detail.earnings} />
 
       {/* ==================== ALT-DATA HIGH-FREQ SIGNALS =================== */}
       <AltDataPanel alt={detail.alt} />

@@ -263,6 +263,38 @@ export interface CompanyDetail {
   // High-frequency alternative-data signals — null for the ~99% of names with
   // no bindings yet; consumers hide the panel entirely when null.
   alt?: AltData | null;
+  // Pre-earnings event-trading block — only for EARNINGS_UNIVERSE US names; null otherwise.
+  earnings?: EarningsBlock | null;
+}
+
+// --- pre-earnings event-trading (mirrors dashboard._earnings_block) ---------
+export interface EarningsVerdictSummary {
+  direction: "long" | "short" | "no_trade";
+  conviction: number;               // 0-10
+  version: number;
+  asOf: string;
+  model?: string | null;
+  impliedDriftPp?: number | null;   // 锁后 implied-move drift (percentage points)
+}
+
+export interface EarningsOutcome {
+  date: string;
+  direction: string;
+  conviction: number;
+  hit?: boolean | "abstain" | null;
+  reactionPct?: number | null;
+}
+
+export interface EarningsBlock {
+  event?: { date: string; session?: string | null; daysTo: number } | null;
+  impliedMove?: number | null;      // straddle/spot ratio
+  verdict?: EarningsVerdictSummary | null;
+  beat?: {
+    n: number; beat_rate: number | null; streak: number;
+    avg_abs_surprise_pct: number | null;
+    rows: { date: string; surprise_pct: number }[];
+  } | null;
+  recentOutcomes?: EarningsOutcome[];
 }
 
 export interface SegmentDetail {
