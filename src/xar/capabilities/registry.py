@@ -124,17 +124,11 @@ def _macro_indicators(theme: str | None = None, metric_key: str | None = None,
         out = andy_links.link_metric(metric_key)
         return out if out is not None else {"error": f"no crosswalk entry for {metric_key}"}
     if theme:
+        from ..macro import view as macro_view
         out = andy_links.link_theme(theme, as_of)
         if out is None:
             return {"error": f"unknown theme {theme}"}
-        # compact for the tool channel (8k truncation): drop series, keep the reading +
-        # the watermark (soft ⇒ 未识别·勿作因果 must reach the model verbatim). UA-P2 → shared compactor.
-        for m in out["metrics"]:
-            m.pop("series", None)
-            ident = m.pop("identification", None) or {}
-            m["identification_status"] = ident.get("identification_status")
-            m["watermark"] = ident.get("watermark")
-        return out
+        return macro_view.compact_theme_macro(out)     # UA-P2:共享压缩器(drop series 保水印)
     full = andy_links.link_themes()
     return {"themes": [{
         "theme": t["theme"], "name_cn": t["name_cn"], "kind": t["kind"],

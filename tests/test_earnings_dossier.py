@@ -82,6 +82,29 @@ def test_dossier_sections_and_known_ids(_seeded, monkeypatch):
     assert d["n_facts"] >= 4
 
 
+def test_dossier_macro_and_theme_debate_sections(_seeded, monkeypatch):
+    # UA-P2:宏观勾稽 + 主题争论天平两节接入(桩输入使断言确定)
+    ev_date = _seeded
+    monkeypatch.setattr(earnings, "beat_stats", lambda cid, n=8: {"n": 0, "beat_rate": None,
+                        "streak": 0, "avg_abs_surprise_pct": None, "rows": []})
+    monkeypatch.setattr(earnings, "hist_move_stats", lambda cid, n=8: {"n": 0, "avg_abs_move_pct": None,
+                        "max_abs_move_pct": None, "rows": []})
+    from xar.macro import view as macro_view
+    monkeypatch.setattr(macro_view, "macro_dossier_lines",
+                        lambda themes, as_of=None, per_theme=5:
+                        (["[registry:macro:capex.x] 算力资本开支 — 最新 100"], {"registry:macro:capex.x"}))
+    monkeypatch.setattr(macro_view, "theme_macro_view", lambda t, as_of=None: {"theme": t, "metrics": []})
+    from xar.research import thesis_health
+    monkeypatch.setattr(thesis_health, "theme_debate_health",
+                        lambda t: {"theme": t, "debates": [{"key": "dbt1", "mean_lean": 0.3,
+                                   "flipped": [], "members_scored": 4}]})
+    d = earnings.dossier_earnings("now", _event(ev_date))
+    assert "## 宏观勾稽" in d["text"] and "registry:macro:capex.x" in d["known_ids"]
+    assert "## 主题争论天平" in d["text"]
+    assert any(k.startswith("theme_debate:") for k in d["known_ids"])
+    assert d["panel"].get("theme_debates") and d["panel"]["theme_debates"][0]["mean_lean"] == 0.3
+
+
 def test_revision_drift_math(monkeypatch):
     # 纯口径单测:桩 estimate_series → 90 天窗内 1000→1050 = +5%
     import datetime as _dt

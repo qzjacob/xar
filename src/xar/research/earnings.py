@@ -346,6 +346,37 @@ def dossier_earnings(cid: str, event: dict) -> dict | None:
                 f"· {s['name_cn']}: z={s.get('z')} 贡献={s['contribution']}" for s in snap[:8]))
     _sect(_alt)
 
+    # 8b. 宏观勾稽(Andy 活读数,PIT @ as_of)— UA-P2:ET × Andy 耦合
+    def _macro():
+        from ..macro import view as macro_view
+
+        themes = (c.get("themes") or [])[:2]
+        vlines, vids = macro_view.macro_dossier_lines(themes, as_of=date.today())
+        panel["macro"] = [macro_view.compact_theme_macro(macro_view.theme_macro_view(t)) for t in themes]
+        known.update(vids)
+        if vlines:
+            parts.append("## 宏观勾稽(活读数;soft=未识别·勿作因果)\n" + "\n".join(vlines))
+    _sect(_macro)
+
+    # 8c. 主题争论天平(Genny 争论层)— UA-P2:ET × Genny 主题耦合
+    def _theme_debates():
+        from .thesis_health import theme_debate_health
+
+        out, lines = [], []
+        for t in (c.get("themes") or [])[:2]:
+            debates = (theme_debate_health(t) or {}).get("debates") or []
+            for d in debates[:3]:
+                out.append({"theme": t, "key": d.get("key"), "mean_lean": d.get("mean_lean"),
+                            "flipped": d.get("flipped"), "members_scored": d.get("members_scored")})
+                known.add(f"theme_debate:{t}:{d.get('key')}")
+                lines.append(f"[theme_debate:{t}:{d.get('key')}] {t}·{d.get('key')}: "
+                             f"旗舰均势 lean={d.get('mean_lean')} 翻转={d.get('flipped')} "
+                             f"计分={d.get('members_scored')}")
+        panel["theme_debates"] = out
+        if lines:
+            parts.append("## 主题争论天平(旗舰聚合)\n" + "\n".join(lines))
+    _sect(_theme_debates)
+
     # 9. 论点状态
     def _thesis():
         from . import thesis as thesis_mod

@@ -130,14 +130,12 @@ def dossier(cid: str) -> dict | None:
     if tr:
         parts.append("## 前瞻声明兑现记录\n" + ", ".join(f"{r['resolution']}={r['n']}" for r in tr))
 
-    # 宏观勾稽(该公司主题关联的 Andy 指标——论点的宏观语境)
+    # 宏观勾稽(该公司主题关联的 Andy 指标——论点的宏观语境)。UA-P2:升级为活读数(slx 不可用降级静态)
     try:
-        from ..ontology.macro_links import THEME_TO_METRICS
+        from ..macro import view as macro_view
 
-        mlines = []
-        for t in (c.get("themes") or [])[:2]:
-            for li in (THEME_TO_METRICS.get(t) or ())[:5]:
-                mlines.append(f"[registry:macro:{li.metric_key}] {li.metric_key} — {li.rationale_zh[:80]}")
+        mlines, mids = macro_view.macro_dossier_lines((c.get("themes") or [])[:2], per_theme=5)
+        known.update(mids)
         if mlines:
             parts.append("## 宏观勾稽指标(语境,可引用为 registry 证据)\n" + "\n".join(mlines))
     except Exception:  # noqa: BLE001

@@ -28,7 +28,7 @@ def capabilities_cmd() -> None:
 
     for c in registry.CAPABILITIES:
         tag = "build" if c.kind == "build" else "read"
-        print(f"  {c.name:26} [{tag}/{c.duration}]{' chathy' if c.chathy else ''}  {c.description[:60]}")
+        print(f"  {c.name:26} ({tag}/{c.duration}){' chathy' if c.chathy else ''}  {c.description[:60]}")
 
 
 @app.command("run")
