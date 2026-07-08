@@ -28,12 +28,15 @@ def test_registry_schemas_valid():
 def test_chathy_reexport_parity():
     from xar.chathy import tools
 
-    # tools.TOOLS 只含 chathy 能力,且与迁移前 24 名一一对应(P0 零行为变化)
-    assert {t.name for t in tools.TOOLS} == _PRE_MOVE_24
-    # openai 工具定义渲染 chathy 能力
+    # 迁移前的 24 个工具必须全部保留(回归锁;P3 后新增 chathy 工具 → 超集)
+    names = {t.name for t in tools.TOOLS}
+    assert _PRE_MOVE_24 <= names, f"missing pre-move tools: {_PRE_MOVE_24 - names}"
+    # openai 工具定义渲染的名字集 == chathy 能力集
     defs = tools.openai_tool_defs()
-    assert {d["function"]["name"] for d in defs} == _PRE_MOVE_24
+    assert {d["function"]["name"] for d in defs} == names
     assert all(d["type"] == "function" and "parameters" in d["function"] for d in defs)
+    # build 能力不进 Chathy
+    assert "build_earnings_verdict" not in names and "report" not in names
 
 
 def test_execute_unknown_tool_error_json():

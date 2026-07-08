@@ -138,6 +138,78 @@ def _macro_indicators(theme: str | None = None, metric_key: str | None = None,
         "platform_metric_keys": [m["metric_key"] for m in full["platform_metrics"]]}
 
 
+# --- UA-P3 Chathy 读工具(ET/探索/Fenny/报告/run 状态)——————————————————————————
+def _earnings_panel(company_id: str) -> dict:
+    from ..api import dashboard
+
+    blk = dashboard._earnings_block(company_id)
+    if blk is None:
+        return {"company_id": company_id, "earnings": None,
+                "note": "该公司不在季报事件 universe(仅美股旗舰有 ET),或尚无数据。"}
+    return {"company_id": company_id, **blk}
+
+
+def _earnings_verdict(company_id: str, refresh: bool = False, force: bool = False) -> dict:
+    from ..research import earnings
+    ev = earnings._next_earnings(company_id)
+    if not ev:
+        return {"company_id": company_id, "verdict": None, "note": "观察窗内无临近财报事件。"}
+    if refresh:
+        from . import runs
+        sched = runs.schedule("build_earnings_verdict",
+                              {"company_id": company_id, "force": force}, origin="chathy")
+        return {"scheduled": True, "run_id": sched["run_id"], "status": sched["status"],
+                "note": "裁决为分钟级后台任务;用 run_status 查询,勿反复轮询,告知用户稍后再看。"}
+    v = earnings.latest_verdict(company_id, ev["scheduled_for"])
+    if not v:
+        return {"company_id": company_id, "event_date": str(ev["scheduled_for"]), "verdict": None,
+                "note": "尚无裁决;可 refresh=true 触发生成(分钟级)。"}
+    content = v.get("content") or {}
+    return {"company_id": company_id, "event_date": str(ev["scheduled_for"]), "version": v["version"],
+            "direction": v["direction"], "conviction": v["conviction"], "model": v.get("model"),
+            "expected_move": v.get("expected_move"),
+            "expected_surprise_zh": content.get("expected_surprise_zh"),
+            "move_view_zh": content.get("move_view_zh"), "asymmetry_zh": content.get("asymmetry_zh"),
+            "dimensions": [{"key": dm.get("key"), "score": dm.get("score")}
+                           for dm in (content.get("dimensions") or [])]}
+
+
+def _run_status(run_id: str) -> dict:
+    from . import runs
+    return runs.status(run_id) or {"run_id": run_id, "error": "run not found"}
+
+
+def _theme_debates(theme: str) -> dict:
+    from ..research.thesis_health import theme_debate_health
+    d = theme_debate_health(theme)
+    for dbt in d.get("debates", []):
+        if isinstance(dbt.get("by_company"), list):
+            dbt["by_company"] = dbt["by_company"][:8]
+    return d
+
+
+def _exploration_frontier(domain: str | None = None) -> dict:
+    from ..api import exploration
+    if domain:
+        out = exploration.section(domain)
+        if out is not None:
+            return out
+    return exploration.overview()
+
+
+def _fenny_quote(termsheet: dict, market: dict | None = None) -> dict:
+    from fcn.api.main import quote
+    from fcn.api.schemas import QuoteRequest
+    return quote(QuoteRequest(termsheet=termsheet, market=market or {}))
+
+
+def _start_report(company_id: str, since: str | None = None) -> dict:
+    from . import runs
+    sched = runs.schedule("report", {"company_id": company_id, "since": since}, origin="chathy")
+    return {"scheduled": True, "run_id": sched["run_id"], "status": sched["status"],
+            "note": "深度报告为分钟级后台任务;用 run_status 查询。"}
+
+
 # --- build-capability implementations (kind=build; run via capabilities/runs.py) --------
 def _build_earnings_verdict(company_id: str, force: bool = False) -> dict:
     from ..research import earnings
@@ -262,6 +334,39 @@ CAPABILITIES: list[CapabilitySpec] = [
                                         "description": "a siliconomics metric_key, e.g. 'capex.hyperscaler_capex'"},
                          "as_of": {"type": "string", "description": "ISO date look-ahead boundary; default today"}}),
                    _macro_indicators),
+
+    # ── UA-P3 Chathy 全套读工具(ET/探索/Fenny/报告/run 状态)──
+    CapabilitySpec("earnings_panel",
+                   "公司季报事件 360 面板:下一财报日/最新裁决(方向+conviction)/期权隐含波动/"
+                   "beat 习惯/近期战绩。非季报 universe 名字会明说无数据。",
+                   _obj({"company_id": _CID}, ["company_id"]), _earnings_panel),
+    CapabilitySpec("earnings_verdict",
+                   "读取(或 refresh=true 触发重跑)某公司季报前多空裁决(direction/conviction 0-10/"
+                   "预期差/赔率不对称/维度评分)。**触发是分钟级后台任务:立即返回 run_id,请用 "
+                   "run_status 查询,不要在本轮反复轮询,告知用户稍后再看。force=true 才覆盖已锁定裁决。**",
+                   _obj({"company_id": _CID, "refresh": {"type": "boolean", "default": False},
+                         "force": {"type": "boolean", "default": False}}, ["company_id"]),
+                   _earnings_verdict),
+    CapabilitySpec("run_status",
+                   "查询后台分析任务状态与结果(build_earnings_verdict / report 等,拿 run_id 后用)。",
+                   _obj({"run_id": {"type": "string"}}, ["run_id"]), _run_status),
+    CapabilitySpec("theme_debates",
+                   "主题级投资争论天平:该主题旗舰公司同一争论 key 的 lean 聚合 + 翻转清单(Genny 争论层)。",
+                   _obj({"theme": _THEME}, ["theme"]), _theme_debates),
+    CapabilitySpec("exploration_frontier",
+                   "前沿研究综合(arXiv/X 合成的 research fronts);domain 省略则总览。",
+                   _obj({"domain": {"type": "string", "description": "探索域 id,如 'ai'/'physics'"}}),
+                   _exploration_frontier),
+    CapabilitySpec("fenny_quote",
+                   "结构化票据(FCN 等)进程内定价:termsheet + market 为 Fenny schema 对象。"
+                   "用于'这个结构报价多少/敲入概率多大'。",
+                   _obj({"termsheet": {"type": "object"}, "market": {"type": "object"}}, ["termsheet"]),
+                   _fenny_quote),
+    CapabilitySpec("start_report",
+                   "启动多智能体深度报告(scope→检索→分析师→辩论/风险→编辑→证据门→审批,分钟级)→ "
+                   "返回 run_id;经 run_status 跟踪,报告正文在 /api/report/{run_id}。",
+                   _obj({"company_id": _CID, "since": {"type": "string"}}, ["company_id"]),
+                   _start_report),
 
     # ── UA-P1 build 能力(kind=build/slow;经 capability_runs 异步跑;暂不直接暴露给 Chathy,
     #    Chathy 经 get_thesis(refresh)/earnings_verdict(refresh)/start_report 触达)──
