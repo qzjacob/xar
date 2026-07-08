@@ -322,9 +322,10 @@ export function QuoteDesk() {
   const prod = res?.product;
   const ccy = prod?.currency ?? "USD";
   const isSolve = mode === "solve";
-  // coupon is top-level on solve, at pricing.coupon_rate on quote; reoffer is solve-only.
+  // The /jobs/quote & /jobs/solve payloads both echo top-level coupon_rate + reoffer_fraction;
+  // fall back to pricing.coupon_rate defensively. reoffer is the (fee-derived) issue price.
   const couponVal = res?.coupon_rate ?? p?.coupon_rate ?? 0;
-  const reoffer = res?.reoffer_fraction; // number on solve, undefined on quote
+  const reoffer = res?.reoffer_fraction;
 
   return (
     <div className="grid grid-cols-1 gap-4 p-4 xl:grid-cols-[380px_1fr]">
@@ -676,7 +677,7 @@ export function QuoteDesk() {
                   icon={<TrendingDown size={13} />}
                   label={`${T.chanceLoss.cn}`}
                   value={pct(p.prob_knock_in)}
-                  sub="到期最差股票跌破保护线的估计概率"
+                  sub="最差股票触及保护线的概率;触及后到期仍低于行权价才亏损"
                   tone="warn"
                   tip={T.chanceLoss.tip}
                 />
@@ -687,23 +688,20 @@ export function QuoteDesk() {
                   sub="考虑提前收回后的平均存续期"
                   tip={T.expectedLife.tip}
                 />
-                {reoffer != null ? (
-                  <BigTile
-                    icon={<Wallet size={13} />}
-                    label={`${T.issuePrice.cn} Issue`}
-                    value={(reoffer * 100).toFixed(1) + "%"}
-                    sub="认购价(占面值);100% = 平价"
-                    tip={T.issuePrice.tip}
-                  />
-                ) : (
-                  <BigTile
-                    icon={<Wallet size={13} />}
-                    label={`${T.fairValue.cn} Fair value`}
-                    value={p.price_pct.toFixed(1) + "%"}
-                    sub="模型公平价值(占面值);100% = 平价"
-                    tip={T.fairValue.tip}
-                  />
-                )}
+                {/* Fair value always — it moves with the coupon and shows richness vs the
+                    issue price; reoffer_fraction is on BOTH quote & solve so it can't
+                    discriminate the mode (and a static ~98% would hide the real value). */}
+                <BigTile
+                  icon={<Wallet size={13} />}
+                  label={`${T.fairValue.cn} Fair value`}
+                  value={p.price_pct.toFixed(1) + "%"}
+                  sub={
+                    reoffer != null
+                      ? `模型公平价值(占面值);认购价约 ${(reoffer * 100).toFixed(0)}%`
+                      : "模型公平价值(占面值);100% = 平价"
+                  }
+                  tip={T.fairValue.tip}
+                />
               </div>
               <div className="border-t border-line px-4 py-3 text-xs text-slate-300">
                 <span className="font-semibold text-brand-900">一句话:</span>{" "}
@@ -818,7 +816,7 @@ export function QuoteDesk() {
                         ))}
                       </tr>
                       <tr className="border-t border-line">
-                        <td className="px-2 py-1.5 text-slate-400">本金亏损概率</td>
+                        <td className="px-2 py-1.5 text-slate-400">触及保护线概率</td>
                         {res.scenario_table.map((r, i) => (
                           <td key={i} className="px-2 py-1.5 text-right tnum text-neg">
                             {(r.prob_knock_in * 100).toFixed(0)}%

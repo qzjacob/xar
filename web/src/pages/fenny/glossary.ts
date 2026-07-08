@@ -101,8 +101,8 @@ export const FENNY_TERMS: Record<string, Term> = {
     tip: "票据在到期前被提前收回的估计概率——通常是好事(拿回本金+票息)。Estimated chance the note redeems early — usually a good outcome.",
   },
   chanceLoss: {
-    label: "Chance of loss zone", cn: "进入亏损区概率",
-    tip: "到期时最差股票跌破保护线、本金开始受损的估计概率。Estimated chance the worst stock ends below the protection level and principal is at risk.",
+    label: "Chance of breaching protection", cn: "触及保护线概率",
+    tip: "最差股票触及/跌破本金保护线的估计概率。注意:触及不等于一定亏损——只有到期时仍低于行权价才承受本金损失。Chance the worst stock breaches the protection level; a breach only becomes a loss if it's still below the strike at maturity.",
   },
   expectedLife: {
     label: "Expected life", cn: "预计存续期",

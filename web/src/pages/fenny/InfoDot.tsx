@@ -6,10 +6,15 @@ import { Info } from "lucide-react";
 export function InfoDot({ tip, className }: { tip: string; className?: string }) {
   if (!tip) return null;
   return (
-    <span className={"group relative inline-flex align-middle " + (className ?? "")}>
+    <span
+      className={"group relative inline-flex align-middle focus:outline-none " + (className ?? "")}
+      tabIndex={0}
+      role="note"
+      title={tip}
+    >
       <Info
         size={11}
-        className="cursor-help text-slate-500 transition-colors hover:text-accent-100"
+        className="cursor-help text-slate-500 transition-colors hover:text-accent-100 group-focus:text-accent-100"
         aria-hidden
       />
       <span className="sr-only">{tip}</span>
