@@ -49,6 +49,25 @@ def test_narrative_uses_llm_when_available():
     assert r["narrative"] == "AI market read."
 
 
+def test_default_narrative_pins_opus_codex_glm_deepseek(monkeypatch):
+    """默认(未注入 caller)的市场解读经 XAR 路由时,钉扎 Opus→Codex→GLM→DeepSeek。"""
+    import fcn.service.llm as flm
+    from xar.models import llm as xllm
+
+    captured = {}
+
+    def fake_complete(prompt, *, system=None, task=None, node=None, max_tokens=None, **k):
+        captured["pin"] = xllm._PIN.get()
+        return "pinned narrative."
+
+    monkeypatch.setattr(xllm, "complete", fake_complete)
+    monkeypatch.setattr(flm, "route_via_xar", True)
+    r = build_market_read(_prov(0.20, 0.24))          # no llm_caller → default narrative path
+    assert r["narrative_source"] == "llm" and r["narrative"] == "pinned narrative."
+    assert captured["pin"] == xllm.FENNY_NARRATIVE_PIN == (
+        "claude-opus-max", "codex-sub", "glm-5.2-sub", "deepseek-v4-pro")
+
+
 def test_no_surfaces_raises():
     prov = ManualProvider(spots={}, surfaces={}, rate=0.04)
     with pytest.raises(ValueError):

@@ -126,6 +126,11 @@ _PIN: contextvars.ContextVar[tuple[str, ...] | None] = contextvars.ContextVar(
 CLAUDE_MAX_PIN: tuple[str, ...] = ("claude-opus-max", "glm-5.2-sub", "glm-4.6-sub")
 # 同理钉扎 ChatGPT/Codex 订阅(深度研究候选);订阅/宿主不可用则降级 Claude-Max → GLM。
 CODEX_PIN: tuple[str, ...] = ("codex-sub", "claude-opus-max", "glm-5.2-sub")
+# Fenny 客户叙述(市场解读 / 票据面向非专业客户的措辞):Claude Opus 领衔 → Codex(gpt-5.5)
+# → GLM-5.2 → DeepSeek 依次回退。宿主/订阅不可用的头部候选(opus-max/codex-sub)在 complete()
+# 里被跳过、链条优雅轮转到 GLM/DeepSeek(docker 默认即如此)。措辞质量优先,故 opus 领衔。
+FENNY_NARRATIVE_PIN: tuple[str, ...] = (
+    "claude-opus-max", "codex-sub", "glm-5.2-sub", "deepseek-v4-pro")
 
 
 @contextmanager

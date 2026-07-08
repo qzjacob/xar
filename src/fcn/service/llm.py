@@ -52,6 +52,7 @@ def generate(
     max_tokens: int = 700,
     api_key: str | None = None,
     poster: Callable[[str, dict, dict], dict] | None = None,
+    narrative: bool = False,
 ) -> str | None:
     """Return Claude's text for ``prompt``, or ``None`` on any failure / missing key.
 
@@ -59,12 +60,23 @@ def generate(
     routed through XAR's task manager (`xar.models.llm.complete`, task=adhoc_strong) so
     Fenny shares the platform's multi-provider fallback + billing. Any failure returns
     ``None`` so the caller falls back to its deterministic template — contract preserved.
+
+    ``narrative=True`` (the Market Read client-facing prose) pins the XAR fallback order to
+    Claude Opus → Codex(gpt-5.5) → GLM-5.2 → DeepSeek — wording quality first, graceful
+    rotation when the host-only leaders are unavailable. Structured/advise calls leave it
+    False so they keep the platform's default adhoc_strong routing.
     """
     if route_via_xar and poster is None and not api_key:
         try:
             from xar.models.llm import complete
-            text = complete(prompt, system=system, task="adhoc_strong",
-                            node="fenny", max_tokens=max_tokens)
+            if narrative:
+                from xar.models.llm import FENNY_NARRATIVE_PIN, pinned
+                with pinned(FENNY_NARRATIVE_PIN):
+                    text = complete(prompt, system=system, task="adhoc_strong",
+                                    node="fenny", max_tokens=max_tokens)
+            else:
+                text = complete(prompt, system=system, task="adhoc_strong",
+                                node="fenny", max_tokens=max_tokens)
             return (text or "").strip() or None
         except Exception:  # noqa: BLE001 - any failure -> deterministic template fallback
             return None

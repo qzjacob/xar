@@ -22,6 +22,8 @@ prices the families above). Dividends/borrow are not needed here.
 
 from __future__ import annotations
 
+import functools
+
 import numpy as np
 
 from fcn.service import llm
@@ -172,7 +174,9 @@ def build_market_read(provider, indices=("SPY", "QQQ"), lang: str = "en", llm_ca
     metrics = compute_metrics(provider, indices)
     suit = suitability(metrics)
     system, prompt = _build_prompt(metrics, suit, lang)
-    caller = llm_caller if llm_caller is not None else llm.generate
+    # 面向客户的措辞 → 用叙述钉扎链(Opus→Codex→GLM→DeepSeek);注入的测试 caller 不受影响。
+    caller = (llm_caller if llm_caller is not None
+              else functools.partial(llm.generate, narrative=True))
     text = caller(prompt, system=system) if caller is not None else None
     narrative = text if text else _template_narrative(metrics, suit)
     return {
