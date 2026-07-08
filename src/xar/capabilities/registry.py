@@ -156,8 +156,8 @@ def _earnings_verdict(company_id: str, refresh: bool = False, force: bool = Fals
         return {"company_id": company_id, "verdict": None, "note": "观察窗内无临近财报事件。"}
     if refresh:
         from . import runs
-        sched = runs.schedule("build_earnings_verdict",
-                              {"company_id": company_id, "force": force}, origin="chathy")
+        sched = runs.launch("build_earnings_verdict",
+                            {"company_id": company_id, "force": force}, origin="chathy")
         return {"scheduled": True, "run_id": sched["run_id"], "status": sched["status"],
                 "note": "裁决为分钟级后台任务;用 run_status 查询,勿反复轮询,告知用户稍后再看。"}
     v = earnings.latest_verdict(company_id, ev["scheduled_for"])
@@ -205,7 +205,7 @@ def _fenny_quote(termsheet: dict, market: dict | None = None) -> dict:
 
 def _start_report(company_id: str, since: str | None = None) -> dict:
     from . import runs
-    sched = runs.schedule("report", {"company_id": company_id, "since": since}, origin="chathy")
+    sched = runs.launch("report", {"company_id": company_id, "since": since}, origin="chathy")
     return {"scheduled": True, "run_id": sched["run_id"], "status": sched["status"],
             "note": "深度报告为分钟级后台任务;用 run_status 查询。"}
 
@@ -358,9 +358,10 @@ CAPABILITIES: list[CapabilitySpec] = [
                    _obj({"domain": {"type": "string", "description": "探索域 id,如 'ai'/'physics'"}}),
                    _exploration_frontier),
     CapabilitySpec("fenny_quote",
-                   "结构化票据(FCN 等)进程内定价:termsheet + market 为 Fenny schema 对象。"
-                   "用于'这个结构报价多少/敲入概率多大'。",
-                   _obj({"termsheet": {"type": "object"}, "market": {"type": "object"}}, ["termsheet"]),
+                   "结构化票据(FCN 等)进程内定价:termsheet + market 均为 Fenny schema 对象"
+                   "(market 必填,含标的 assets)。用于'这个结构报价多少/敲入概率多大'。",
+                   _obj({"termsheet": {"type": "object"}, "market": {"type": "object"}},
+                        ["termsheet", "market"]),
                    _fenny_quote),
     CapabilitySpec("start_report",
                    "启动多智能体深度报告(scope→检索→分析师→辩论/风险→编辑→证据门→审批,分钟级)→ "
@@ -414,6 +415,9 @@ def execute(name: str, args: dict) -> str:
     spec = _BY_NAME.get(name)
     if spec is None:
         return json.dumps({"error": f"unknown tool '{name}'"})
+    if spec.kind == "build":
+        # build/slow 能力不得内联跑(会卡住 SSE turn);走 capabilities.runs / /api/run{name}(评审 #13)
+        return json.dumps({"error": f"'{name}' is a build capability; schedule it via /api/run/{name}"})
     try:
         result = spec.fn(**(args or {}))
     except TypeError as e:

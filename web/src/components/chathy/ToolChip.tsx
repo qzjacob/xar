@@ -4,13 +4,17 @@ import { Link } from "react-router-dom";
 import type { ToolActivity } from "../../types-chathy";
 
 // 从工具结果里挑出 company id → 深链回 Genny 公司页(UA-P4:跨模块闭环)。
-// 只取形如 "id"/"company_id" 的值,去重;错配 id 落到公司 not-found 态,无害。
+// 只认 company_id / cid 键(不认泛化的 "id",避免把 run_id 等误当公司);再排除 32 位 hex
+// (run_id 是 uuid4 hex,评审 #9)——错配 id 会落到公司 not-found 态,过滤后基本不发生。
 function companyIds(preview?: string): string[] {
   if (!preview) return [];
   const out = new Set<string>();
-  const re = /"(?:company_)?id"\s*:\s*"([a-z0-9_]{2,40})"/g;
+  const re = /"(?:company_id|cid)"\s*:\s*"([a-z0-9_]{2,40})"/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(preview)) !== null) out.add(m[1]);
+  while ((m = re.exec(preview)) !== null) {
+    const id = m[1];
+    if (!/^[0-9a-f]{32}$/.test(id)) out.add(id); // 排除 uuid4 hex(run_id)
+  }
   return [...out].slice(0, 8);
 }
 

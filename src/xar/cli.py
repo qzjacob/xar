@@ -40,7 +40,11 @@ def run_cmd(name: str, args: str = typer.Option("{}", "--args", help="JSON 参�
     if spec is None:
         print(f"[red]unknown capability {name}[/red]")
         raise typer.Exit(1)
-    a = json.loads(args)
+    try:
+        a = json.loads(args)
+    except json.JSONDecodeError as e:
+        print(f"[red]--args 不是合法 JSON:[/red] {e}")
+        raise typer.Exit(1) from None
     if spec.kind == "read" and spec.duration == "fast":
         print(registry.execute(name, a))
         return

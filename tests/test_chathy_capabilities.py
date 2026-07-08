@@ -42,7 +42,7 @@ def test_earnings_verdict_refresh_schedules_not_inline(seeded_db, monkeypatch):
     called = {"build": False}
     monkeypatch.setattr(earnings, "build_verdict",
                         lambda *a, **k: called.update(build=True) or {"status": "built"})
-    monkeypatch.setattr(runs, "schedule", lambda name, args, **kw: {"run_id": "r123", "status": "queued"})
+    monkeypatch.setattr(runs, "launch", lambda name, args, **kw: {"run_id": "r123", "status": "queued"})
     out = _exec("earnings_verdict", {"company_id": "now", "refresh": True})
     assert out["scheduled"] is True and out["run_id"] == "r123"
     assert called["build"] is False        # 不内联调 build_verdict
@@ -57,9 +57,15 @@ def test_run_status_roundtrip(seeded_db, monkeypatch):
 
 
 def test_start_report_schedules(seeded_db, monkeypatch):
-    monkeypatch.setattr(runs, "schedule", lambda name, args, **kw: {"run_id": "rep1", "status": "queued"})
+    monkeypatch.setattr(runs, "launch", lambda name, args, **kw: {"run_id": "rep1", "status": "queued"})
     out = _exec("start_report", {"company_id": "now"})
     assert out["scheduled"] is True and out["run_id"] == "rep1"
+
+
+def test_build_capability_not_inline_via_execute(seeded_db):
+    # 评审 #13:build 能力不得经 execute() 内联跑(会卡 SSE);返回错误提示走 /api/run
+    out = _exec("build_earnings_verdict", {"company_id": "now"})
+    assert "error" in out and "/api/run" in out["error"]
 
 
 def test_theme_debates_caps_by_company(seeded_db, monkeypatch):

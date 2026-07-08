@@ -52,6 +52,52 @@ def test_execute_error_never_raises(_fake_cap, monkeypatch):
     assert runs.status(s["run_id"])["status"] == "error"
 
 
+def test_atomic_claim_runs_fn_once(_fake_cap):
+    # 评审 #1/#5:同一 run_id 被两次 execute_run,原子认领只让第一次执行 fn
+    s = runs.schedule("ua_test_cap", {"x": 4})
+    out1 = runs.execute_run(s["run_id"])
+    out2 = runs.execute_run(s["run_id"])       # 已 done → 认领失败
+    assert out1["status"] == "done" and out1["result"]["doubled"] == 8
+    assert out2["status"] == "done" and out2.get("note") == "not claimed"
+    assert _fake_cap["n"] == 1                  # fn 只跑一次
+
+
+def test_launch_drains_queue(_fake_cap):
+    # 评审 #2:launch 新建 → 后台线程真正执行(无 API BackgroundTasks 也排空)
+    import time
+    s = runs.launch("ua_test_cap", {"x": 6})
+    assert s["status"] == "queued" and not s.get("dedup")
+    for _ in range(50):
+        if runs.status(s["run_id"])["status"] == "done":
+            break
+        time.sleep(0.1)
+    st = runs.status(s["run_id"])
+    assert st["status"] == "done" and st["result"]["doubled"] == 12
+
+
+def test_launch_dedupe_no_second_thread(_fake_cap, monkeypatch):
+    # 去重命中不再起线程(避免双跑);此处桩 schedule 返回 dedup
+    started = {"n": 0}
+    import threading
+    real = threading.Thread
+    monkeypatch.setattr(threading, "Thread",
+                        lambda *a, **k: started.update(n=started["n"] + 1) or real(*a, **k))
+    monkeypatch.setattr(runs, "schedule",
+                        lambda name, args, **kw: {"run_id": "x", "status": "running", "dedup": True})
+    runs.launch("ua_test_cap", {"x": 1})
+    assert started["n"] == 0
+
+
+def test_args_normalized_dedupe(seeded_db):
+    # 评审 #4:{cid} 与 {cid, force:false} 归一化后同哈希 → 去重(build_earnings_verdict force 默认 False)
+    from xar.storage import db as _db
+    _db.execute("DELETE FROM capability_runs WHERE capability='build_earnings_verdict'")
+    a = runs.schedule("build_earnings_verdict", {"company_id": "zzz_test"})
+    b = runs.schedule("build_earnings_verdict", {"company_id": "zzz_test", "force": False})
+    assert a["run_id"] == b["run_id"] and b.get("dedup") is True
+    _db.execute("DELETE FROM capability_runs WHERE capability='build_earnings_verdict'")
+
+
 def test_stale_running_reaped(_fake_cap):
     s = runs.schedule("ua_test_cap", {"x": 1})
     # 手动把它变成 40min 前的 running(模拟进程死)
