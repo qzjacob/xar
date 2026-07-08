@@ -9,6 +9,7 @@ import {
   LineChart,
   Network,
   PieChart,
+  Sparkles,
   Truck,
   Users,
 } from "lucide-react";
@@ -163,6 +164,21 @@ export function CompanyPage() {
               {company.nameCn && (
                 <span className="truncate text-sm text-slate-400">{company.nameCn}</span>
               )}
+              <button
+                type="button"
+                onClick={() =>
+                  navigate(
+                    "/?q=" +
+                      encodeURIComponent(
+                        `分析 ${company.name}(${company.id}):论点健康度、临近财报裁决与宏观勾稽语境`,
+                      ),
+                  )
+                }
+                className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-xs text-slate-400 hover:bg-white/5"
+                title="在 Chathy 里就这家公司发起全体系分析"
+              >
+                <Sparkles className="h-3 w-3" /> 问 Chathy
+              </button>
             </div>
             <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
               <Badge className="bg-brand-50 text-brand-900 ring-1 ring-inset ring-brand-100">
@@ -238,7 +254,7 @@ export function CompanyPage() {
       <ThesisSection cid={company.id} thesis={thesis} onRefetch={refetch} />
 
       {/* ==================== PRE-EARNINGS EVENT TRADING ================== */}
-      <EarningsSection earnings={detail.earnings} />
+      <EarningsSection cid={company.id} earnings={detail.earnings} onRefetch={refetch} />
 
       {/* ==================== ALT-DATA HIGH-FREQ SIGNALS =================== */}
       <AltDataPanel alt={detail.alt} />

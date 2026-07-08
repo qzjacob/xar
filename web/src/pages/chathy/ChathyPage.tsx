@@ -1,5 +1,6 @@
 import { Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { chathyApi, streamChat } from "../../lib/chathy";
 import { ModuleNav } from "../../components/ModuleNav";
 import { ChatMessage as MsgView } from "../../components/chathy/ChatMessage";
@@ -22,6 +23,8 @@ export function ChathyPage() {
   const [streaming, setStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const consumedRef = useRef(false);   // 一次性消费 ?q=(从 Genny 公司页「问 Chathy」深链而来)
 
   const refreshSessions = useCallback(async () => {
     try { setSessions(await chathyApi.listSessions()); } catch { /* ignore */ }
@@ -97,6 +100,16 @@ export function ChathyPage() {
     if (id === activeId) { setActiveId(null); setMessages([]); }
     refreshSessions();
   }, [activeId, refreshSessions]);
+
+  // 深链入口:/?q=… 从 Genny 公司页「问 Chathy」而来 → 自动发起一轮(消费后清参,只跑一次)
+  useEffect(() => {
+    const q = searchParams.get("q");
+    if (q && !consumedRef.current) {
+      consumedRef.current = true;
+      setSearchParams({}, { replace: true });
+      void send(q);
+    }
+  }, [searchParams, setSearchParams, send]);
 
   return (
     <div className="flex h-full flex-col bg-canvas">

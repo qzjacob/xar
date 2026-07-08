@@ -1,5 +1,7 @@
-import { CalendarClock, Gauge, Target, TrendingDown, TrendingUp } from "lucide-react";
+import { useState } from "react";
+import { CalendarClock, Gauge, Loader2, Play, Target, TrendingDown, TrendingUp } from "lucide-react";
 
+import { runCapability } from "../lib/runs";
 import type { EarningsBlock } from "../types";
 import { Badge, Card, SectionHeader } from "./ui";
 
@@ -18,10 +20,34 @@ function pct(x?: number | null, digits = 1): string {
   return x == null ? "—" : `${(x * 100).toFixed(digits)}%`;
 }
 
-export function EarningsSection({ earnings }: { earnings: EarningsBlock | null | undefined }) {
+export function EarningsSection({
+  cid,
+  earnings,
+  onRefetch,
+}: {
+  cid: string;
+  earnings: EarningsBlock | null | undefined;
+  onRefetch?: () => Promise<void> | void;
+}) {
+  const [running, setRunning] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
   if (!earnings) return null;
   const { event, verdict, beat, impliedMove, recentOutcomes } = earnings;
   const actionable = (verdict?.conviction ?? 0) >= 7;
+
+  async function runVerdict() {
+    setRunning(true);
+    setErr(null);
+    try {
+      const st = await runCapability("build_earnings_verdict", { company_id: cid, force: !!verdict });
+      if (st.status === "error") setErr(String(st.error ?? "run failed"));
+      else await onRefetch?.();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRunning(false);
+    }
+  }
 
   return (
     <Card>
@@ -35,7 +61,19 @@ export function EarningsSection({ earnings }: { earnings: EarningsBlock | null |
               }${event.daysTo}`
             : "窗口外(未临近财报)"
         }
+        right={
+          <button
+            type="button"
+            onClick={runVerdict}
+            disabled={running}
+            className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs text-slate-300 hover:bg-white/5 disabled:opacity-50"
+          >
+            {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+            {running ? "裁决生成中…" : verdict ? "重跑 (force)" : "跑 ET 裁决"}
+          </button>
+        }
       />
+      {err && <div className="px-4 pt-2 text-xs text-rose-400">{err}</div>}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {/* 裁决 */}
