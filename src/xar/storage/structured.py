@@ -189,7 +189,7 @@ def upsert_calendar(company_id, event_type, scheduled_for, *, title=None,
 def upcoming_calendar(company_ids=None, *, days=90, limit=200) -> list[dict]:
     """Scheduled events from today forward, optionally scoped to companies."""
     sql = ("SELECT id,company_id,event_type,scheduled_for,window_end,title,status,"
-           "importance,tech_route_tag,source FROM event_calendar "
+           "importance,tech_route_tag,source,meta FROM event_calendar "
            "WHERE scheduled_for >= CURRENT_DATE AND scheduled_for <= "
            "(CURRENT_DATE + (%s || ' days')::interval) AND status <> 'cancelled'")
     params: list = [days]

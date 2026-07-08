@@ -86,11 +86,15 @@ def test_price_missing_when_occurred_but_no_price(_clean, monkeypatch):
 
 
 def test_calibration_buckets(_clean):
-    # 两个已评分裁决:conviction 8(hit)+ conviction 5(miss)→ 7-8 桶 hit_rate=1.0
+    # 评分裁决:8.0(hit)+ 5.0(miss)+ **8.5 小数**(hit)→ 桶不漏小数(评审 #4/#7/#9)
     _insert_verdict("now", _PAST, "long", 8.0,
                     outcome={"status": "scored", "direction_hit": True, "reaction_pct": 6.0})
     _insert_verdict("snow", _PAST, "short", 5.0,
                     outcome={"status": "scored", "direction_hit": False, "reaction_pct": 3.0})
+    _insert_verdict("crm", _PAST, "long", 8.5,      # 半点 conviction 必须落 7-8 桶,不被丢
+                    outcome={"status": "scored", "direction_hit": True, "reaction_pct": 4.0})
     cal = earnings.calibration()
-    assert cal["7-8"]["hit_rate"] == 1.0 and cal["7-8"]["n"] == 1
+    assert cal["7-8"]["n"] == 2 and cal["7-8"]["hit_rate"] == 1.0   # 8.0 + 8.5 都进桶
     assert cal["4-6"]["hit_rate"] == 0.0 and cal["4-6"]["decided"] == 1
+    # 全部 scored 计数守恒(无小数落空)
+    assert sum(cal[k]["n"] for k in cal) == 3

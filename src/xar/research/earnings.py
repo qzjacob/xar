@@ -226,9 +226,11 @@ def dossier_earnings(cid: str, event: dict) -> dict | None:
     hdr = {"company": c["name"], "ticker": (_ticker(cid) or ""), "event_date": str(event_date),
            "session": session or "unknown", "days_to": days_to}
     panel["event"] = hdr
+    # 只有真实 cal_id 才在正文露出 [calendar:id](否则会给判官一个 known_ids 里没有的 id → 必违规,评审 #10)
+    cal_tag = f"[calendar:{cal_id}] " if cal_id else ""
     if cal_id:
         known.add(f"calendar:{cal_id}")
-    parts.append(f"## 财报事件\n[calendar:{cal_id}] {c['name']} ({_ticker(cid)}) 财报日 {event_date} "
+    parts.append(f"## 财报事件\n{cal_tag}{c['name']} ({_ticker(cid)}) 财报日 {event_date} "
                  f"场次={session or '未知'} 距今 {days_to} 天")
 
     def _sect(fn):
@@ -505,15 +507,25 @@ def build_verdict(cid: str, *, event: dict | None = None, force: bool = False,
     anchors = len({e for dim in v.dimensions for e in dim.evidence})
     quality = {"evidence_anchors": anchors, "dimensions": len(v.dimensions),
                "n_facts": d["n_facts"]}
-    version = (prev["version"] + 1) if prev else 1
     model = (pin[0] if pin else "token")
-    db.execute(
-        "INSERT INTO earnings_verdicts(company_id, event_date, calendar_id, version, direction, "
-        "conviction, expected_move, content, quality, model, run_id, as_of) "
-        "VALUES(%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s)",
-        (cid, event_date, event.get("id"), version, v.direction, v.conviction, expected_move,
-         v.model_dump_json(), _json_quality(quality), model, run_id, d["as_of"]))
-    log.info("verdict %s v%d: %s conviction=%.1f anchors=%d",
+    # version 用**原子子查询**算(不用跨 LLM 调用的陈旧 prev.version)+ RETURNING 拿真实版本;
+    # 真并发下输家撞 UNIQUE(company_id,event_date,version)→ 捕获返回 raced,不炸 judge_due 批(评审 #2)。
+    try:
+        row = db.query(
+            "INSERT INTO earnings_verdicts(company_id, event_date, calendar_id, version, direction, "
+            "conviction, expected_move, content, quality, model, run_id, as_of) "
+            "SELECT %s,%s,%s, COALESCE((SELECT max(version) FROM earnings_verdicts "
+            "  WHERE company_id=%s AND event_date=%s),0)+1, %s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s "
+            "RETURNING version",
+            (cid, event_date, event.get("id"), cid, event_date, v.direction, v.conviction,
+             expected_move, v.model_dump_json(), _json_quality(quality), model, run_id, d["as_of"]))
+    except Exception as e:  # noqa: BLE001 — 并发输家:UNIQUE 冲突
+        if "unique" in str(e).lower() or "duplicate" in str(e).lower():
+            return {"status": "raced", "company_id": cid, "event_date": str(event_date),
+                    "reason": "concurrent build lost the version race"}
+        raise
+    version = row[0]["version"] if row else None
+    log.info("verdict %s v%s: %s conviction=%.1f anchors=%d",
              cid, version, v.direction, v.conviction, anchors)
     return {"status": "built", "company_id": cid, "event_date": str(event_date), "version": version,
             "direction": v.direction, "conviction": v.conviction, "model": model, "quality": quality}
@@ -570,7 +582,8 @@ def score_outcomes() -> dict:
     out = {"scored": 0, "event_moved": 0, "price_missing": 0, "pending": 0}
     for v in pend:
         cid, ed = v["company_id"], v["event_date"]
-        occ = _occurred_on(cid, ed)
+        # 对齐容差与超期天数:否则 earnings 实际滑期 4-5 天会被永久误判 event_moved(评审 #8)。
+        occ = _occurred_on(cid, ed, tol_days=s.earnings_outcome_max_days)
         overdue = (today - ed).days > s.earnings_outcome_max_days
         if occ is None:
             if overdue:   # 超期仍无 occurred 行 → 收尾(可能改期/未披露)
@@ -619,7 +632,8 @@ def _stamp_outcome(vid: int, outcome: dict) -> None:
                (json.dumps(outcome, ensure_ascii=False, default=str), vid))
 
 
-_CONVICTION_BUCKETS = ((0, 3), (4, 6), (7, 8), (9, 10))
+# 连续半开区间 [lo, hi) 覆盖整个 0-10(含小数 conviction 如 6.5/8.5),最后一桶含 10(评审 #4/#7/#9)。
+_CONVICTION_BUCKETS = (("0-3", 0.0, 4.0), ("4-6", 4.0, 7.0), ("7-8", 7.0, 9.0), ("9-10", 9.0, 10.01))
 
 
 def calibration() -> dict:
@@ -627,14 +641,14 @@ def calibration() -> dict:
     rows = db.query(
         "SELECT conviction, direction, outcome FROM earnings_verdicts "
         "WHERE outcome IS NOT NULL AND outcome->>'status'='scored'")
-    buckets = {f"{lo}-{hi}": {"n": 0, "hits": 0, "decided": 0, "reactions": []}
-               for lo, hi in _CONVICTION_BUCKETS}
+    buckets = {label: {"n": 0, "hits": 0, "decided": 0, "reactions": []}
+               for label, _, _ in _CONVICTION_BUCKETS}
     for r in rows:
         conv = float(r["conviction"])
-        lo_hi = next((b for b in _CONVICTION_BUCKETS if b[0] <= conv <= b[1]), None)
-        if lo_hi is None:
+        label = next((lbl for lbl, lo, hi in _CONVICTION_BUCKETS if lo <= conv < hi), None)
+        if label is None:
             continue
-        b = buckets[f"{lo_hi[0]}-{lo_hi[1]}"]
+        b = buckets[label]
         o = r["outcome"] or {}
         b["n"] += 1
         rp = o.get("reaction_pct")

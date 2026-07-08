@@ -244,7 +244,10 @@ def pull_analyst(company_id: str, *, tk=None) -> int:
 
 # --- corporate actions + earnings dates -> event_calendar ---------------------
 def _session_from_ts(idx) -> str | None:
-    """财报时间戳 → 场次:hour≥16 盘后(amc)/ hour 有值且<9:30 盘前(bmo)/ 无 hour 不判。"""
+    """财报时间戳 → 场次:hour≥16 盘后(amc)/ 9:30 前但**有真实盘中时间**盘前(bmo)/ 否则不判。
+
+    hour==0 多半是 yfinance 对未来/纯日期给的午夜占位,不是真盘前 —— 只有 1..9:29 才判 bmo,
+    避免把日期行误标 bmo(评审 #11)。"""
     try:
         h = getattr(idx, "hour", None)
         if h is None:
@@ -252,7 +255,7 @@ def _session_from_ts(idx) -> str | None:
         mn = getattr(idx, "minute", 0) or 0
         if h >= 16:
             return "amc"
-        if h < 9 or (h == 9 and mn < 30):
+        if 1 <= h < 9 or (h == 9 and mn < 30):
             return "bmo"
     except Exception:  # noqa: BLE001
         return None
