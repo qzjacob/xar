@@ -64,6 +64,35 @@ def graph_retrieve(state: RunState) -> None:
             for s in sem
         ],
     })
+    # UA-P5:补喂论点 / 季报事件 / 宏观勾稽三块(报告 ≠ 降级);各 fail-soft(层不可用不沉整轮)
+    g = state.get("graph")
+    try:
+        from ..research import thesis as _th
+        from ..research.thesis_health import health_v3
+        row = _th.latest(cid)
+        if row:
+            h = health_v3(cid) or {}
+            g["thesis"] = {"stance": row["stance"], "conviction": row["conviction"],
+                           "one_liner": row.get("one_liner"), "health": h.get("overall"),
+                           "debates": [{"key": d.get("key"), "status": d.get("status"),
+                                        "lean": d.get("lean_now")} for d in (h.get("debates") or [])][:3]}
+    except Exception as e:  # noqa: BLE001
+        log.warning("graph_retrieve thesis %s: %s", cid, str(e)[:120])
+    try:
+        from ..api import dashboard
+        blk = dashboard._earnings_block(cid)
+        if blk:
+            g["earnings"] = {k: blk.get(k) for k in ("event", "verdict", "impliedMove", "beat")}
+    except Exception as e:  # noqa: BLE001
+        log.warning("graph_retrieve earnings %s: %s", cid, str(e)[:120])
+    try:
+        from ..ingestion.registry import company_by_id
+        from ..macro import view as macro_view
+        themes = (company_by_id(cid) or {}).get("themes") or []
+        g["macro"] = [macro_view.compact_theme_macro(macro_view.theme_macro_view(t))
+                      for t in themes[:2]]
+    except Exception as e:  # noqa: BLE001
+        log.warning("graph_retrieve macro %s: %s", cid, str(e)[:120])
     log.info("graph_retrieve: %d events, %d semantic facts, %d suppliers",
              len(evs), len(sem), len(sc["suppliers"]))
 
@@ -93,6 +122,28 @@ def _graph_brief(state: RunState) -> str:
             body = s.get("narrative") or s.get("content")
             lines.append(f"- [{s['as_of']}] {s['category']} "
                          f"({s['polarity']}/{s['orientation']}): {body}")
+    # UA-P5:投资论点 / 季报事件 / 宏观勾稽三砖(报告吃到全体系分析)
+    th = g.get("thesis")
+    if th:
+        lines.append(f"\n投资论点: stance={th.get('stance')} conviction={th.get('conviction')}/5 "
+                     f"健康={th.get('health')} — {th.get('one_liner') or ''}")
+        for d in th.get("debates", []):
+            lines.append(f"  · 争论[{d.get('key')}]={d.get('status')}(lean {d.get('lean')})")
+    ea = g.get("earnings")
+    if ea and (ea.get("event") or ea.get("verdict")):
+        ev, v = ea.get("event") or {}, ea.get("verdict") or {}
+        lines.append(f"\n季报事件: 下一财报 {ev.get('date')}(T{ev.get('daysTo')}) "
+                     f"隐含波动={ea.get('impliedMove')}")
+        if v:
+            lines.append(f"  · 裁决: {v.get('direction')}@{v.get('conviction')}/10 (v{v.get('version')})")
+    macro = [m for m in (g.get("macro") or []) if m]
+    if macro:
+        lines.append("\n宏观勾稽(活读数;soft=未识别·勿作因果):")
+        for mv in macro:
+            for m in (mv.get("metrics") or [])[:4]:
+                if m.get("value") is not None:
+                    lines.append(f"  · {m.get('metric_key')}={m.get('value')} 斜率={m.get('slope')} "
+                                 f"· {m.get('watermark') or ''}")
     return "\n".join(lines)
 
 
