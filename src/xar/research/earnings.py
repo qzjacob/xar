@@ -393,17 +393,27 @@ def dossier_earnings(cid: str, event: dict) -> dict | None:
 
 
 # ── ET-P3:裁决引擎 ────────────────────────────────────────────────────────────────
-_SYSTEM_EARNINGS = """你是对冲基金的财报事件交易判官。给你一份某公司季报前的 360° dossier(含接地事实 id)。
+def _system_earnings() -> str:
+    from ..ontology.earnings_events import EARNINGS_DIMENSIONS
+
+    dims = " / ".join(EARNINGS_DIMENSIONS)
+    return f"""你是对冲基金的财报事件交易判官。给你一份某公司季报前的 360° dossier(含接地事实 id)。
 输出一个 EarningsVerdict JSON。纪律:
 1. evidence 里的 id 必须逐字抄自 dossier(如 [estimate:now:eps_diluted] 抄成 "estimate:now:eps_diluted"),严禁编造;
-2. conviction(0-10)必须与证据密度耦合:≥7 分需 ≥6 个不同接地锚,且 asymmetry_zh 必须写清赔率为何不对称
+2. dimensions[].key 必须**严格取自**下列 8 个合法值之一(不得自造别名):
+   {dims}
+   至少覆盖 4 维,分数(-2..+2)与 note 一致;信息缺失的维度诚实写"数据不足"而非编造;
+3. conviction(0-10)必须与证据密度耦合:≥7 分需 ≥6 个不同接地锚,且 asymmetry_zh 必须写清赔率为何不对称
    (市场定价了什么、你认为错在哪、错的代价 vs 对的赔付);
-3. ≥7 分还必须给出盘前可观察的证伪条件(falsifiers_zh)——出现即应放弃交易;
-4. 没有 edge 就选 no_trade(conviction=0,写明 no_trade_reason_zh)。宁缺毋滥:本系统价值在极少数高把握时刻;
-5. 区分「预期差」与「好公司」:好公司 + 人尽皆知的高预期 + 期权定价充分 = 没有交易;
+4. ≥7 分还必须给出盘前可观察的证伪条件(falsifiers_zh)——出现即应放弃交易;
+5. 没有 edge 就选 no_trade(direction="no_trade" 且 conviction=0,写明 no_trade_reason_zh)。宁缺毋滥:
+   本系统价值在极少数高把握时刻,dossier 薄弱时选 no_trade 是正确答案;
+6. 区分「预期差」与「好公司」:好公司 + 人尽皆知的高预期 + 期权定价充分 = 没有交易;
    平庸公司 + 过度悲观的预期 + 便宜的 implied move 可能才是交易;
-6. move_view_zh 必须表态:implied move 相对你预期的分布是贵/便宜/合理——方向对了也可能被期权定价吃掉;
-7. dimensions 至少覆盖 4 维,分数与 note 一致;信息缺失的维度诚实写"数据不足"而非编造。"""
+7. move_view_zh 必须表态:implied move 相对你预期的分布是贵/便宜/合理——方向对了也可能被期权定价吃掉。"""
+
+
+_SYSTEM_EARNINGS = None   # 运行时经 _system_earnings() 生成(含合法维度枚举)
 
 
 def latest_verdict(cid: str, event_date) -> dict | None:
@@ -477,7 +487,7 @@ def build_verdict(cid: str, *, event: dict | None = None, force: bool = False,
         ctx = llm.pinned(pin) if pin else contextlib.nullcontext()
         try:
             with ctx:
-                v = llm.complete_json(prompt + suffix, EarningsVerdict, system=_SYSTEM_EARNINGS,
+                v = llm.complete_json(prompt + suffix, EarningsVerdict, system=_system_earnings(),
                                       task=TaskClass.EARNINGS_JUDGE, node="earnings_judge",
                                       run_id=run_id, max_tokens=6000)
         except Exception as e:  # noqa: BLE001

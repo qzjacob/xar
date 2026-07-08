@@ -108,15 +108,22 @@ def _window_names() -> list[tuple[str, str, date, str | None]]:
 
     s = get_settings()
     rows = structured.upcoming_calendar(list(EARNINGS_UNIVERSE), days=s.earnings_watch_days, limit=200)
+    # 每公司只取**最早**的一次 earnings(与 dossier 的 _next_earnings 对齐;避免同公司近邻双行
+    # 各写一次、后者按 period_end=今天 覆盖前者 → dossier 按最早事件日过滤取不到快照)。
+    rows = sorted((r for r in rows if r.get("event_type") == "earnings"),
+                  key=lambda r: r["scheduled_for"])
     out = []
+    seen: set[str] = set()
     for r in rows:
-        if r.get("event_type") != "earnings":
+        cid = r["company_id"]
+        if cid in seen:
             continue
-        b = binding_for(r["company_id"])
+        b = binding_for(cid)
         tkr = b.options_ticker if b else None
         if not tkr:
             continue
-        out.append((r["company_id"], tkr, r["scheduled_for"], (r.get("meta") or {}).get("session")))
+        seen.add(cid)
+        out.append((cid, tkr, r["scheduled_for"], (r.get("meta") or {}).get("session")))
     return out
 
 

@@ -29,7 +29,7 @@ _MIN_ANCHORS = 6
 
 
 class DimensionRead(BaseModel):
-    key: str                                    # ∈ EARNINGS_DIMENSIONS
+    key: str = Field(description="必须 ∈ " + " / ".join(EARNINGS_DIMENSIONS))
     score: float = Field(ge=-2, le=2)           # -2 强空 .. +2 强多
     note_zh: str
     evidence: list[str] = Field(default_factory=list)   # dossier 接地 id,逐字抄
