@@ -72,9 +72,11 @@ interface Product {
   tickers: string[];
 }
 interface QuoteResult {
-  coupon_rate: number;
-  coupon_rate_se: number;
-  reoffer_fraction: number;
+  // top-level coupon_rate / reoffer_fraction are present only on the SOLVE response;
+  // on a plain QUOTE the coupon lives at pricing.coupon_rate (reads below are null-safe).
+  coupon_rate?: number;
+  coupon_rate_se?: number;
+  reoffer_fraction?: number;
   pricing: Pricing;
   fees: Record<string, number>;
   payoff_diagram: Payoff;
@@ -320,6 +322,9 @@ export function QuoteDesk() {
   const prod = res?.product;
   const ccy = prod?.currency ?? "USD";
   const isSolve = mode === "solve";
+  // coupon is top-level on solve, at pricing.coupon_rate on quote; reoffer is solve-only.
+  const couponVal = res?.coupon_rate ?? p?.coupon_rate ?? 0;
+  const reoffer = res?.reoffer_fraction; // number on solve, undefined on quote
 
   return (
     <div className="grid grid-cols-1 gap-4 p-4 xl:grid-cols-[380px_1fr]">
@@ -647,7 +652,7 @@ export function QuoteDesk() {
                 <BigTile
                   icon={<Wallet size={13} />}
                   label={`${T.coupon.cn} ${T.coupon.label}`}
-                  value={pct(res.coupon_rate, 2) + " p.a."}
+                  value={pct(couponVal, 2) + " p.a."}
                   sub={isSolve ? "公平票息(模型解出)" : "你每年可收到的利息"}
                   tone="pos"
                   tip={T.coupon.tip}
@@ -682,17 +687,27 @@ export function QuoteDesk() {
                   sub="考虑提前收回后的平均存续期"
                   tip={T.expectedLife.tip}
                 />
-                <BigTile
-                  icon={<Wallet size={13} />}
-                  label={`${T.issuePrice.cn} Issue`}
-                  value={(res.reoffer_fraction * 100).toFixed(1) + "%"}
-                  sub="认购价(占面值);100% = 平价"
-                  tip={T.issuePrice.tip}
-                />
+                {reoffer != null ? (
+                  <BigTile
+                    icon={<Wallet size={13} />}
+                    label={`${T.issuePrice.cn} Issue`}
+                    value={(reoffer * 100).toFixed(1) + "%"}
+                    sub="认购价(占面值);100% = 平价"
+                    tip={T.issuePrice.tip}
+                  />
+                ) : (
+                  <BigTile
+                    icon={<Wallet size={13} />}
+                    label={`${T.fairValue.cn} Fair value`}
+                    value={p.price_pct.toFixed(1) + "%"}
+                    sub="模型公平价值(占面值);100% = 平价"
+                    tip={T.fairValue.tip}
+                  />
+                )}
               </div>
               <div className="border-t border-line px-4 py-3 text-xs text-slate-300">
                 <span className="font-semibold text-brand-900">一句话:</span>{" "}
-                {verdict(res.coupon_rate, p.prob_knock_in, p.prob_autocall)}
+                {verdict(couponVal, p.prob_knock_in, p.prob_autocall)}
                 <span className="ml-1 text-slate-500">
                   指示性报价,最终条款以成交日为准。
                 </span>
@@ -837,7 +852,7 @@ export function QuoteDesk() {
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     <Stat
                       label={isSolve ? "Fair coupon" : "Coupon"}
-                      value={pct(res.coupon_rate, 2) + " p.a."}
+                      value={pct(couponVal, 2) + " p.a."}
                       sub={
                         isSolve && res.coupon_rate_se
                           ? "± " + (res.coupon_rate_se * 100).toFixed(3) + "%"
@@ -849,7 +864,7 @@ export function QuoteDesk() {
                     <Stat label="PV" value={money(p.pv, ccy)} sub={"± " + money(p.pv_se, ccy)} />
                     <Stat
                       label="Reoffer"
-                      value={(res.reoffer_fraction * 100).toFixed(2) + "%"}
+                      value={reoffer != null ? (reoffer * 100).toFixed(2) + "%" : "—"}
                       sub="issue price"
                     />
                     <Stat label="Prob. autocall" value={pct(p.prob_autocall)} tone="pos" />
