@@ -67,12 +67,11 @@ def _clean(seeded_db):
 
 
 def test_pull_writes_signal_period_end_today(_clean, monkeypatch):
-    from xar.storage import db, structured
+    from xar.storage import db
 
-    # 观察窗内一个 earnings(future 2099)+ session amc
+    # 桩 _window_names(隔离真实 'now' 日历行:dedup-to-earliest 会挑真实事件而非测试事件)
     fut = dt.date.today() + dt.timedelta(days=4)
-    structured.upsert_calendar("now", "earnings", fut, title="NOW earnings",
-                               status="scheduled", source="yahoo", meta={"session": "amc"})
+    monkeypatch.setattr(im, "_window_names", lambda: [("now", "NOW", fut, "amc")])
     monkeypatch.setattr(im, "available", lambda: True)
     monkeypatch.setattr("xar.providers.yahoo._handle", lambda cid, tk: ("NOW", _FakeTk()))
     out = im.pull()
