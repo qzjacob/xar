@@ -7,6 +7,8 @@ import { SectionHeader } from "../../components/ui/SectionHeader";
 import { Badge } from "../../components/ui/Badge";
 import { cn } from "../../lib/format";
 import type { Job, AssetMarketInput } from "../../types-fenny";
+import { FENNY_TERMS as T } from "./glossary";
+import { InfoDot } from "./InfoDot";
 
 // ── result shape (from /jobs/market_read → build_market_read) ─────────────────
 interface IndexMetric {
@@ -59,10 +61,26 @@ function pct(x: number, d = 1): string {
   return `${(x * 100).toFixed(d)}%`;
 }
 
-function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function Metric({
+  label,
+  cn: cnLabel,
+  value,
+  hint,
+  tip,
+}: {
+  label: string;
+  cn?: string;
+  value: string;
+  hint?: string;
+  tip?: string;
+}) {
   return (
     <div className="rounded-lg border border-line bg-surface-2 px-3 py-2">
-      <div className="text-2xs uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="flex items-center gap-1 text-2xs uppercase tracking-wide text-slate-500">
+        {label}
+        {cnLabel && <span className="normal-case text-slate-400">{cnLabel}</span>}
+        {tip && <InfoDot tip={tip} />}
+      </div>
       <div className="mt-0.5 text-lg font-semibold text-brand-900 tnum">{value}</div>
       {hint && <div className="text-2xs text-slate-400">{hint}</div>}
     </div>
@@ -230,20 +248,78 @@ export function MarketRead() {
 
       {res && m && (
         <>
-          {/* ── headline metrics ─────────────────────────────── */}
+          {/* ── narrative first — the plain-language market read (client-facing) ── */}
+          <Card>
+            <SectionHeader
+              title="Market Read"
+              titleCn="市场解读"
+              icon={<Sparkles size={15} />}
+              right={
+                <Badge
+                  className={res.narrative_source === "llm" ? "bg-accent-600/15 text-accent-100" : "bg-surface-2 text-slate-400"}
+                  title={res.narrative_source === "llm" ? "AI 撰写(Opus→Codex→GLM→DeepSeek 择优)" : "无 LLM 时的确定性模板"}
+                >
+                  {res.narrative_source === "llm" ? "AI 解读" : "模板"}
+                </Badge>
+              }
+            />
+            <p className="whitespace-pre-wrap p-4 text-sm leading-relaxed text-brand-900">{res.narrative}</p>
+          </Card>
+
+          {/* ── suitability — which note fits, with plain drivers ── */}
+          <Card>
+            <SectionHeader
+              title="Which note fits now"
+              titleCn="现在适合哪种票据"
+              icon={<Gauge size={15} />}
+              right={<InfoDot tip={T.suitability.tip} />}
+            />
+            <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
+              {Object.entries(res.suitability).map(([fam, s]) => (
+                <div key={fam} className="rounded-lg border border-line bg-surface-2 p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-brand-900">{fam}</span>
+                    <Badge className={labelTone(s.label)}>
+                      {s.label === "favorable" ? "适合" : s.label === "unfavorable" ? "不适合" : "一般"}
+                    </Badge>
+                  </div>
+                  <div className="mt-1 flex items-baseline gap-1">
+                    <span className="text-2xl font-semibold text-brand-900 tnum">{s.score}</span>
+                    <span className="text-2xs text-slate-500">/100</span>
+                  </div>
+                  <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-canvas">
+                    <div
+                      className={cn(
+                        "h-full rounded-full",
+                        s.label === "favorable" ? "bg-pos" : s.label === "unfavorable" ? "bg-neg" : "bg-warn-100",
+                      )}
+                      style={{ width: `${s.score}%` }}
+                    />
+                  </div>
+                  <ul className="mt-2 space-y-1">
+                    {s.drivers.map((d, i) => (
+                      <li key={i} className="text-2xs leading-snug text-slate-400">· {d}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* ── headline metrics (the technical read, plain-labelled) ── */}
           <Card>
             <SectionHeader
               title="Market Metrics"
-              titleCn="市场指标"
+              titleCn="市场指标(技术面)"
               icon={<Activity size={15} />}
               right={<Badge className="bg-surface-2 text-slate-400">source · {res.source}</Badge>}
             />
             <div className="grid grid-cols-2 gap-2 p-4 sm:grid-cols-3 lg:grid-cols-5">
-              <Metric label="Vol Level (3M)" value={pct(m.vol_level, 0)} hint="avg ATM" />
-              <Metric label="Put Skew" value={`+${(m.skew * 100).toFixed(1)}pt`} hint="at 90%" />
-              <Metric label="Term Slope" value={`${(m.term_slope * 100).toFixed(1)}pt`} hint="1Y−1M" />
-              <Metric label="VIX Proxy" value={m.vix_proxy.toFixed(1)} hint="SPY 30D ATM" />
-              <Metric label="Risk-Free" value={pct(m.rate, 2)} />
+              <Metric label={T.volLevel.label} cn={T.volLevel.cn} value={pct(m.vol_level, 0)} hint="avg ATM" tip={T.volLevel.tip} />
+              <Metric label={T.putSkew.label} cn={T.putSkew.cn} value={`+${(m.skew * 100).toFixed(1)}pt`} hint="at 90%" tip={T.putSkew.tip} />
+              <Metric label={T.termSlope.label} cn={T.termSlope.cn} value={`${(m.term_slope * 100).toFixed(1)}pt`} hint="1Y−1M" tip={T.termSlope.tip} />
+              <Metric label={T.vixProxy.label} cn={T.vixProxy.cn} value={m.vix_proxy.toFixed(1)} hint="SPY 30D ATM" tip={T.vixProxy.tip} />
+              <Metric label={T.riskFree.label} cn={T.riskFree.cn} value={pct(m.rate, 2)} tip={T.riskFree.tip} />
             </div>
           </Card>
 
@@ -290,56 +366,6 @@ export function MarketRead() {
               </div>
             </Card>
           </div>
-
-          {/* ── suitability ──────────────────────────────────── */}
-          <Card>
-            <SectionHeader title="Note Suitability" titleCn="结构适配度" icon={<Gauge size={15} />} />
-            <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
-              {Object.entries(res.suitability).map(([fam, s]) => (
-                <div key={fam} className="rounded-lg border border-line bg-surface-2 p-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold text-brand-900">{fam}</span>
-                    <Badge className={labelTone(s.label)}>{s.label}</Badge>
-                  </div>
-                  <div className="mt-1 flex items-baseline gap-1">
-                    <span className="text-2xl font-semibold text-brand-900 tnum">{s.score}</span>
-                    <span className="text-2xs text-slate-500">/100</span>
-                  </div>
-                  <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-canvas">
-                    <div
-                      className={cn(
-                        "h-full rounded-full",
-                        s.label === "favorable" ? "bg-pos" : s.label === "unfavorable" ? "bg-neg" : "bg-warn-100",
-                      )}
-                      style={{ width: `${s.score}%` }}
-                    />
-                  </div>
-                  <ul className="mt-2 space-y-1">
-                    {s.drivers.map((d, i) => (
-                      <li key={i} className="text-2xs leading-snug text-slate-400">
-                        · {d}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          {/* ── narrative ────────────────────────────────────── */}
-          <Card>
-            <SectionHeader
-              title="Market Read"
-              titleCn="市场解读"
-              icon={<Sparkles size={15} />}
-              right={
-                <Badge className={res.narrative_source === "llm" ? "bg-accent-600/15 text-accent-100" : "bg-surface-2 text-slate-400"}>
-                  {res.narrative_source === "llm" ? "LLM" : "template"}
-                </Badge>
-              }
-            />
-            <p className="whitespace-pre-wrap p-4 text-sm leading-relaxed text-brand-900">{res.narrative}</p>
-          </Card>
         </>
       )}
     </div>
