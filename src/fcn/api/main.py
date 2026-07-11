@@ -429,12 +429,20 @@ def _run_rank_job(req: RankRequest, jid: str) -> None:
         universe = req.tickers or [a.ticker for a in (req.assets or [])]
         use_cache = False
     elif req.source == "auto":
-        # 全部美股+ETF:FMP 实时 spot + 实际波动率(realized)+ company-screener 全宇宙,
-        # 市值下限由请求给定(前端以"亿美元"输入)。
+        # 全部美股+ETF:FMP 实时 spot + 实际波动率(realized);宇宙优先 FMP company-screener
+        # (全市场),该端点在当前数据档位被 402 拦时退回内置大盘种子池(~200 名,含市值),
+        # 并在结果里标注 universe_source —— 绝不无声降级。市值下限由请求给定。
         provider = _fmp_live(req.funding)   # rate ← live treasury; shared/TTL-cached
-        universe = MARKET_CACHE.get_or_compute(
-            ("fmp-universe", req.min_market_cap),
-            lambda: provider.screen_universe(min_market_cap=req.min_market_cap),
+
+        def _auto_universe() -> tuple[list, str]:
+            try:
+                return provider.screen_universe(min_market_cap=req.min_market_cap), "fmp-screener"
+            except Exception:  # noqa: BLE001 — screener paywalled → bundled large-cap seed
+                return (FinnhubProvider(rate=req.rate).screen_universe(
+                    min_market_cap=req.min_market_cap), "seed-large-cap")
+
+        universe, universe_source = MARKET_CACHE.get_or_compute(
+            ("auto-universe", req.min_market_cap), _auto_universe,
         )
         use_cache = True
     else:
@@ -460,6 +468,7 @@ def _run_rank_job(req: RankRequest, jid: str) -> None:
     if req.source == "auto":
         res["vol_basis"] = "realized"
         res["rate"] = round(provider.risk_free_rate(), 5)
+        res["universe_source"] = universe_source
     update(jid, status="done", stage="done", partial=res)
 
 

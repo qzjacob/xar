@@ -18,11 +18,17 @@ _VOL_FLOOR, _VOL_CAP = 0.08, 1.50
 # GOOGL is free; BRK.B needs the dash form). Resolving a requested ticker to a data-equivalent sibling
 # lets the desk keep REAL spot+vol instead of silently degrading the whole basket to a flat assumption
 # (which was mis-pricing worst-of baskets — a lower flat vol read as a LOWER coupon for MORE names).
+# Index ETFs (except SPY) are also tier-gated, but the RAW index symbols are free — and for vol /
+# correlation / trend purposes the index IS the ETF's data-equivalent (levels differ; returns match).
 _ALIASES = {
     "GOOG": "GOOGL",   # Alphabet Class C → Class A (same issuer; near-identical price & vol)
     "BRK.B": "BRK-B", "BRK.A": "BRK-A",
     "BF.B": "BF-B", "BF.A": "BF-A",
     "HEI.A": "HEI-A", "LEN.B": "LEN-B",
+    # ETF → underlying index (entitled on the current FMP tier; SPY itself is entitled)
+    "QQQ": "^IXIC", "QQQM": "^IXIC", "ONEQ": "^IXIC",   # Nasdaq composite as the Nasdaq proxy
+    "IWM": "^RUT", "DIA": "^DJI",
+    "VOO": "^GSPC", "VTI": "^GSPC", "SPLG": "^GSPC", "IVV": "^GSPC",
 }
 
 

@@ -21,6 +21,7 @@ interface IndexMetric {
   put_skew_3m: number;
   realized_21d?: number;
   iv_rv_gap?: number;
+  resolved_as?: string; // data proxy actually used (e.g. QQQ → ^IXIC index)
 }
 interface Metrics {
   per_index: IndexMetric[];
@@ -403,7 +404,14 @@ export function MarketRead() {
                   <tbody>
                     {m.per_index.map((p) => (
                       <tr key={p.ticker} className="border-t border-line text-right">
-                        <td className="py-1.5 text-left font-medium text-brand-900">{p.ticker}</td>
+                        <td className="py-1.5 text-left font-medium text-brand-900">
+                          {p.ticker}
+                          {p.resolved_as && (
+                            <span className="ml-1 text-2xs text-slate-500" title="数据代理:该代码在数据源被限制,使用其对应指数的真实数据">
+                              →{p.resolved_as}
+                            </span>
+                          )}
+                        </td>
                         <td className="py-1.5 text-slate-400">{p.spot.toFixed(2)}</td>
                         <td className="py-1.5 text-brand-900">{pct(p.atm_1m, 1)}</td>
                         <td className="py-1.5 text-brand-900">{pct(p.atm_3m, 1)}</td>

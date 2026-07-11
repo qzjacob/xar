@@ -69,6 +69,16 @@ def _index_metrics(provider, ticker: str) -> dict | None:
                 out["iv_rv_gap"] = round(atm_1m - rv, 4)  # >0 = implied richer than realized
         except Exception:  # noqa: BLE001 - realized vol is best-effort
             pass
+    # disclose data-equivalent proxies (e.g. QQQ → ^IXIC index) so an index level shown
+    # under an ETF ticker is never silent
+    resolver = getattr(provider, "resolved_symbol", None)
+    if callable(resolver):
+        try:
+            sym = resolver(ticker)
+            if sym and sym != ticker:
+                out["resolved_as"] = sym
+        except Exception:  # noqa: BLE001
+            pass
     return out
 
 
@@ -317,8 +327,10 @@ def build_market_read(provider, indices=("SPY", "QQQ"), lang: str = "en", llm_ca
     timing = timing_view(metrics, trend, lang)
     system, prompt = _build_prompt(metrics, suit, lang, trend=trend, timing=timing)
     # 面向客户的措辞 → 用叙述钉扎链(Opus→Codex→GLM→DeepSeek);注入的测试 caller 不受影响。
+    # max_tokens=6000:链里的 GLM-5.2/DeepSeek 是思考型模型,700 的预算会被思考耗尽而
+    # 返回空文(实测 2200 仍空、6000 正常)——预算只设上限,非思考模型不受影响。
     caller = (llm_caller if llm_caller is not None
-              else functools.partial(llm.generate, narrative=True))
+              else functools.partial(llm.generate, narrative=True, max_tokens=6000))
     text = caller(prompt, system=system) if caller is not None else None
     narrative = text if text else _template_narrative(metrics, suit)
     return {

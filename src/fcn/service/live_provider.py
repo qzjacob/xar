@@ -60,6 +60,11 @@ class FMPLiveProvider:
             _ = spot
         return self._syms[t]
 
+    def resolved_symbol(self, ticker: str) -> str:
+        """The effective data symbol for a requested ticker (e.g. QQQ → ^IXIC) — lets
+        callers disclose the proxy instead of silently showing index levels as ETF spots."""
+        return self._sym(ticker)
+
     # --- MarketDataProvider protocol -------------------------------------------
     def spot(self, ticker: str) -> float:
         return float(self.fmp.spot(self._sym(ticker)))

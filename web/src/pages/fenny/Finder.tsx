@@ -35,6 +35,7 @@ interface RankResult {
   liquidity_note?: string;
   vol_basis?: string;
   rate?: number;
+  universe_source?: string; // "fmp-screener" (full market) | "seed-large-cap" (bundled ~200)
 }
 
 // 观察频率 — mirrors the quote desk's obs-frequency choices
@@ -315,6 +316,11 @@ export function Finder() {
                 跳过 {result.skipped.length} 个(无实时数据):{" "}
                 {result.skipped.slice(0, 20).map((s) => s.ticker).join(", ")}
                 {result.skipped.length > 20 ? " …" : ""}
+              </p>
+            )}
+            {result?.universe_source === "seed-large-cap" && (
+              <p className="border-t border-line px-4 py-2 text-2xs text-slate-500">
+                注:全市场筛选器在当前数据档位不可用,已退回内置大盘股+ETF 种子池(约 200 名,含真实市值);市值下限仍生效。
               </p>
             )}
             {result?.liquidity_note && (
