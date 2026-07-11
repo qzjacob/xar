@@ -30,6 +30,8 @@ export interface QuoteResult {
   coupon_rate?: number;
   coupon_rate_se?: number;
   reoffer_fraction?: number;
+  solved_strike?: number;      // fraction of fixing, when Solve For = Strike
+  strike_bracketed?: boolean;  // false = the solved strike hit the [50%,120%] bound
   pricing: Pricing;
   fees?: Record<string, number>;
   payoff_diagram: Payoff;

@@ -32,12 +32,11 @@ const TABS: { key: string; label: string; variant?: string }[] = [
 ];
 
 const SOLVE_OPTS: { key: SolveFor; label: string; live: boolean }[] = [
-  { key: "coupon", label: "Coupon p.a. (%)", live: true },
-  { key: "note_price", label: "Note Price (%)", live: true },
-  { key: "strike", label: "Strike (%)", live: false }, // needs a strike root-finder (coming soon)
+  { key: "coupon", label: "Coupon p.a. (%)", live: true },  // input strike → output coupon
+  { key: "strike", label: "Strike (%)", live: true },       // input coupon → output strike
 ];
 
-type SolveFor = "coupon" | "note_price" | "strike";
+type SolveFor = "coupon" | "strike";
 
 // rec = record-only: the cell is stored/labels the note but does NOT move the indicative price
 // (single-curve pricing / scale-free barriers), marked so the desk isn't misled.
@@ -47,12 +46,12 @@ const COLS: Col[] = [
   { key: "currency", label: "Currency", cn: "币种", w: "w-[68px]", rec: true, tip: "票据币种;当前定价单曲线,USD 为主,改币种不改变指示报价(仅登记)。" },
   { key: "underlying", label: "Underlying", cn: "标的", w: "w-[184px]", tip: "挂钩 1–4 只股票;多只时由表现最差的一只决定结果(worst-of)。" },
   { key: "solveFor", label: "Solve For", cn: "求解目标", w: "w-[132px]", tip: "选择让引擎反解的参数:票息(支持)、发行价(支持)、行权价(即将支持)。其余为输入。" },
-  { key: "strikePct", label: "Strike (%)", cn: "行权价", w: "w-[76px]", solvable: true, tip: "行权价,占初始定价%(100=平价)。到期最差股票低于此价,按跌幅承受下行。" },
+  { key: "strikePct", label: "Strike (%)", cn: "行权价", w: "w-[76px]", solvable: true, tip: "行权价,占标的最新市价%(100=当前价)。到期最差股票低于此价按跌幅承受下行。与票息双向互解:Solve For=Coupon 时为输入,=Strike 时由引擎反解。" },
   { key: "koType", label: "KO Type", cn: "敲出观察", w: "w-[116px]", tip: "敲出(提前收回)观察方式。Period End = 每个观察日期末观察(离散);当前仅支持此方式。" },
   { key: "koPct", label: "KO (%)", cn: "敲出线", w: "w-[72px]", tip: "敲出/提前收回线,占初始%(100=回到初始即收回)。" },
   { key: "couponPct", label: "Coupon p.a. (%)", cn: "年化票息", w: "w-[92px]", solvable: true, tip: "年化票息%。Solve For=Coupon 时由引擎反解;否则为输入。" },
   { key: "grossMarginPct", label: "Gross Margin (%)", cn: "毛利率", w: "w-[92px]", tip: "券商毛利率%。与发行价一起决定引擎定价目标:PV=(发行价−毛利)/100。" },
-  { key: "notePricePct", label: "Note Price (%)", cn: "发行价", w: "w-[88px]", solvable: true, tip: "发行/认购价,占面值%(99=1 点折价)。Solve For=Note Price 时输出模型公平价值。" },
+  { key: "notePricePct", label: "Note Price (%)", cn: "发行价", w: "w-[88px]", tip: "发行/认购价,占面值%(99=1 点折价)。与毛利一起定出引擎定价目标 PV=(发行价−毛利)/100。" },
   { key: "tenorM", label: "Tenor (m)", cn: "期限(月)", w: "w-[72px]", tip: "票据期限,月。到期日 = 定价日 + 期限。" },
   { key: "barrierType", label: "Barrier Type", cn: "敲入类型", w: "w-[116px]", tip: "敲入(下行保护)观察方式:NONE=无独立敲入线(按行权价结算);European=仅到期观察;American=存续期内每日观察。" },
   { key: "kiPct", label: "KI (%)", cn: "敲入线", w: "w-[72px]", tip: "敲入线,占初始%(如 65)。Barrier Type=NONE 时不适用。" },
@@ -150,16 +149,19 @@ async function priceOne(
     ticker: t, spot: 100, atm_vol: a.atmVol, skew_slope: -0.4, skew_curv: 0.3,
   }));
   const market = { source: a.live ? "live" : "manual", rate: a.rate, rho: a.rho, assets };
-  const knobs: Record<string, number> = { gross_margin_pct: row.grossMarginPct };
-  if (row.solveFor === "coupon") knobs.note_price_pct = row.notePricePct;
   const onP = (j: Job) => onStage(j.stage || "pricing");
+  // both note_price + gross_margin define the reoffer target PV=(note_price-margin)/100 that the
+  // solve (of coupon OR strike) prices to. coupon mode: ts.coupon.rate=null → solve coupon.
+  // strike mode: ts.coupon.rate=couponPct → solve the fair strike (couple KI to strike for NONE).
   const body: Record<string, unknown> = {
-    termsheet: ts, market, mc: { n_paths: 40_000 }, include_greeks: true,
-    include_scenario: true, ...knobs,
+    termsheet: ts, market, mc: { n_paths: 40_000 }, include_greeks: true, include_scenario: true,
+    gross_margin_pct: row.grossMarginPct, note_price_pct: row.notePricePct,
   };
-  if (row.solveFor === "coupon") return (await fennyApi.solve(body, onP)) as unknown as QuoteResult;
-  body.coupon_rate = row.couponPct / 100;
-  return (await fennyApi.quote(body, onP)) as unknown as QuoteResult;
+  if (row.solveFor === "strike") {
+    body.solve_for = "strike";
+    body.couple_ki_to_strike = row.barrierType === "NONE";
+  }
+  return (await fennyApi.solve(body, onP)) as unknown as QuoteResult;
 }
 
 const INPUT =
@@ -359,7 +361,7 @@ export function QuoteDesk() {
                     <span className="truncate normal-case text-slate-400">{c.label}</span>
                     {c.solvable && <span className="grid h-3 w-3 place-items-center rounded-full bg-accent-600/30 text-[8px] font-bold text-accent-100" title="可求解 Solvable">S</span>}
                     {c.rec && <span className="rounded bg-slate-700/50 px-1 text-[8px] font-normal normal-case text-slate-400" title="仅登记 · 不影响指示报价">记</span>}
-                    <InfoDot tip={c.tip} />
+                    <InfoDot tip={c.tip} down />
                   </div>
                   <div className="truncate text-[9px] normal-case text-slate-600">{c.cn}</div>
                 </div>
@@ -406,9 +408,10 @@ export function QuoteDesk() {
                       {SOLVE_OPTS.map((o) => <option key={o.key} value={o.key} disabled={!o.live}>{o.label}{o.live ? "" : " (即将)"}</option>)}
                     </select>
                   </div>
-                  {/* strike % */}
+                  {/* strike % — input when solving coupon; solved output when solving strike */}
                   <div className={cn(COLS[3].w, "shrink-0")}>
-                    <NumCell value={r.strikePct} step="1" onChange={(v) => patch(r.id, { strikePct: +v })} disabled={r.solveFor === "strike"} />
+                    <NumCell value={r.solveFor === "strike" && r.result?.solved_strike != null ? +((r.result.solved_strike * 100).toFixed(1)) : r.strikePct}
+                      step="1" onChange={(v) => patch(r.id, { strikePct: +v })} disabled={r.solveFor === "strike"} />
                   </div>
                   {/* KO type */}
                   <div className={cn(COLS[4].w, "shrink-0")}>
@@ -426,11 +429,9 @@ export function QuoteDesk() {
                   </div>
                   {/* gross margin */}
                   <div className={cn(COLS[7].w, "shrink-0")}><NumCell value={r.grossMarginPct} step="0.05" onChange={(v) => patch(r.id, { grossMarginPct: +v })} /></div>
-                  {/* note price — solved = fair value + gross margin (consistent with coupon
-                      mode's reoffer=(note_price-margin)/100), so Gross Margin moves this output. */}
+                  {/* note price — always an input (with gross margin, sets the reoffer target) */}
                   <div className={cn(COLS[8].w, "shrink-0")}>
-                    <NumCell value={r.solveFor === "note_price" && r.result ? +((r.result.pricing.price_pct + r.grossMarginPct).toFixed(2)) : r.notePricePct}
-                      step="0.5" onChange={(v) => patch(r.id, { notePricePct: +v })} disabled={r.solveFor === "note_price"} />
+                    <NumCell value={r.notePricePct} step="0.5" onChange={(v) => patch(r.id, { notePricePct: +v })} />
                   </div>
                   {/* tenor */}
                   <div className={cn(COLS[9].w, "shrink-0")}><NumCell value={r.tenorM} step="1" onChange={(v) => patch(r.id, { tenorM: Math.max(1, +v) })} /></div>
@@ -481,8 +482,8 @@ export function QuoteDesk() {
                         <button type="button" onClick={() => patch(r.id, { open: !r.open })}
                           className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 py-1.5 text-left text-2xs">
                           <ChevronDown size={13} className={cn("text-slate-400 transition-transform", r.open && "rotate-180")} />
-                          <ResStat label={r.solveFor === "note_price" ? "发行价" : "票息"}
-                            value={r.solveFor === "note_price" ? (r.result.pricing.price_pct + r.grossMarginPct).toFixed(2) + "%" : ((r.result.coupon_rate ?? 0) * 100).toFixed(2) + "% p.a."} tone="pos" />
+                          <ResStat label={r.solveFor === "strike" ? "行权价" : "票息"}
+                            value={r.solveFor === "strike" ? ((r.result.solved_strike ?? 0) * 100).toFixed(1) + "%" : ((r.result.coupon_rate ?? 0) * 100).toFixed(2) + "% p.a."} tone="pos" />
                           <ResStat label="公平价值" value={r.result.pricing.price_pct.toFixed(2) + "%"} />
                           <ResStat label="提前收回" value={(r.result.pricing.prob_autocall * 100).toFixed(1) + "%"} tone="pos" />
                           <ResStat label={r.barrierType === "NONE" ? "本金亏损" : "触及保护线"} value={(r.result.pricing.prob_knock_in * 100).toFixed(1) + "%"} tone="warn" />
