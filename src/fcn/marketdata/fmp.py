@@ -72,6 +72,7 @@ class FMPProvider:
         self._get = self.getter or _http_get
         self._spot_cache: dict[str, float] = {}
         self._hist_cache: dict[str, np.ndarray] = {}
+        self._close_cache: dict[str, tuple[list[str], np.ndarray]] = {}
 
     def _call(self, path: str, params: dict):
         if not self.api_key:
@@ -106,16 +107,29 @@ class FMPProvider:
     def funding_rate(self) -> float:
         return self.rate if self.funding is None else self.funding
 
+    def history_closes(self, ticker: str) -> tuple[list[str], np.ndarray]:
+        """(dates, closes) oldest→newest from the light EOD endpoint (cached).
+
+        Dates are ISO strings; used by the monthly-trend timing view (market read)
+        besides the plain returns/vol path below.
+        """
+        if ticker in self._close_cache:
+            return self._close_cache[ticker]
+        data = self._call("historical-price-eod/light", {"symbol": ticker})
+        rows = data["historical"] if isinstance(data, dict) and "historical" in data else data
+        rows = rows[: self.lookback_days]
+        # the FMP "light" EOD endpoint returns the close under `price` (not `close`); accept both.
+        closes = np.array([float(r.get("close", r.get("price"))) for r in rows], dtype=float)
+        dates = [str(r.get("date", "")) for r in rows]
+        closes = closes[::-1]  # FMP returns most-recent-first
+        dates = dates[::-1]
+        self._close_cache[ticker] = (dates, closes)
+        return dates, closes
+
     def history_returns(self, ticker: str) -> np.ndarray:
         if ticker in self._hist_cache:
             return self._hist_cache[ticker]
-        data = self._call("historical-price-eod/light", {"symbol": ticker})
-        rows = data["historical"] if isinstance(data, dict) and "historical" in data else data
-        # the FMP "light" EOD endpoint returns the close under `price` (not `close`); accept both.
-        closes = np.array(
-            [float(r.get("close", r.get("price"))) for r in rows[: self.lookback_days]],
-            dtype=float)
-        closes = closes[::-1]  # FMP returns most-recent-first
+        _, closes = self.history_closes(ticker)
         rets = np.diff(np.log(closes))
         self._hist_cache[ticker] = rets
         return rets

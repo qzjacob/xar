@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { Activity, Gauge, LineChart, Plus, Sparkles, Trash2 } from "lucide-react";
+import { Activity, CalendarClock, Gauge, LineChart, Plus, Sparkles, X } from "lucide-react";
 import { fennyApi } from "../../lib/fenny";
 import { PlotlyChart } from "../../components/charts/PlotlyChart";
 import { Card } from "../../components/ui/Card";
 import { SectionHeader } from "../../components/ui/SectionHeader";
 import { Badge } from "../../components/ui/Badge";
 import { cn } from "../../lib/format";
-import type { Job, AssetMarketInput } from "../../types-fenny";
+import type { Job } from "../../types-fenny";
 import { FENNY_TERMS as T } from "./glossary";
 import { InfoDot } from "./InfoDot";
 
@@ -29,31 +29,53 @@ interface Metrics {
   term_slope: number;
   vix_proxy: number;
   rate: number;
+  vol_basis?: string; // "realized" (auto) | "implied"
 }
 interface Suit {
   score: number;
   label: string;
   drivers: string[];
 }
+interface TrendSample {
+  month: string;
+  spot: number;
+  rv21: number;
+}
+interface Trend {
+  per_index: { ticker: string; samples: TrendSample[] }[];
+  vol_now: number;
+  vol_mom: number;
+  px_3m: number;
+  months: string[];
+}
+interface Timing {
+  stance: "enter_now" | "wait" | "neutral";
+  label: string;
+  score: number;
+  drivers: string[];
+}
 interface MarketReadResult {
   metrics: Metrics;
   suitability: Record<string, Suit>;
+  trend: Trend | null;
+  timing: Record<string, Timing> | null;
   narrative: string;
   narrative_source: string;
   indices: string[];
   source: string;
 }
 
-const INPUT = "w-full rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-xs text-brand-900 tnum";
-
-const DEFAULT_ASSETS: AssetMarketInput[] = [
-  { ticker: "SPY", spot: 560, atm_vol: 0.16, skew_slope: -0.6, skew_curv: 0.4 },
-  { ticker: "QQQ", spot: 480, atm_vol: 0.2, skew_slope: -0.7, skew_curv: 0.5 },
-];
+const INPUT = "rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-xs text-brand-900";
 
 function labelTone(label: string): string {
   if (label === "favorable") return "bg-pos/10 text-pos";
   if (label === "unfavorable") return "bg-neg/10 text-neg";
+  return "bg-warn-100/10 text-warn-100";
+}
+
+function stanceTone(stance: string): string {
+  if (stance === "enter_now") return "bg-pos/10 text-pos";
+  if (stance === "wait") return "bg-neg/10 text-neg";
   return "bg-warn-100/10 text-warn-100";
 }
 
@@ -88,40 +110,30 @@ function Metric({
 }
 
 export function MarketRead() {
-  const [assets, setAssets] = useState<AssetMarketInput[]>(DEFAULT_ASSETS);
-  const [lang, setLang] = useState<"en" | "zh">("en");
-  const [rate, setRate] = useState(0.045);
+  // 全自动取数:指数 spot / 实际波动率 / 利率全部实时抓取(FMP),无需手工输入。
+  const [tickers, setTickers] = useState<string[]>(["SPY", "QQQ"]);
+  const [draft, setDraft] = useState("");
+  const [lang, setLang] = useState<"en" | "zh">("zh");
   const [loading, setLoading] = useState(false);
   const [stage, setStage] = useState<string>("");
   const [err, setErr] = useState<string | null>(null);
   const [res, setRes] = useState<MarketReadResult | null>(null);
 
-  function patch(i: number, k: keyof AssetMarketInput, v: string) {
-    setAssets((a) =>
-      a.map((row, j) =>
-        j === i ? { ...row, [k]: k === "ticker" ? v.toUpperCase() : Number(v) } : row,
-      ),
-    );
+  function addTicker() {
+    const t = draft.trim().toUpperCase();
+    if (t && !tickers.includes(t) && tickers.length < 6) setTickers((a) => [...a, t]);
+    setDraft("");
   }
-  function addRow() {
-    setAssets((a) => [...a, { ticker: "IWM", spot: 200, atm_vol: 0.22, skew_slope: -0.6, skew_curv: 0.5 }]);
-  }
-  function removeRow(i: number) {
-    setAssets((a) => (a.length > 1 ? a.filter((_, j) => j !== i) : a));
+  function removeTicker(t: string) {
+    setTickers((a) => (a.length > 1 ? a.filter((x) => x !== t) : a));
   }
 
   async function run() {
     setLoading(true);
     setErr(null);
-    setStage("submitting");
+    setStage("fetching real market data");
     try {
-      const body = {
-        indices: assets.map((a) => a.ticker),
-        source: "manual" as const,
-        rate,
-        lang,
-        assets,
-      };
+      const body = { indices: tickers, source: "auto" as const, lang };
       const out = (await fennyApi.marketRead(body, (j: Job) => setStage(j.stage || j.status))) as unknown as MarketReadResult;
       setRes(out);
     } catch (e) {
@@ -133,115 +145,84 @@ export function MarketRead() {
   }
 
   const m = res?.metrics;
+  const realized = m?.vol_basis === "realized";
   const chart = m
     ? [
-        { x: m.per_index.map((p) => p.ticker), y: m.per_index.map((p) => p.atm_1m * 100), type: "bar", name: "1M ATM" },
-        { x: m.per_index.map((p) => p.ticker), y: m.per_index.map((p) => p.atm_3m * 100), type: "bar", name: "3M ATM" },
-        { x: m.per_index.map((p) => p.ticker), y: m.per_index.map((p) => p.atm_1y * 100), type: "bar", name: "1Y ATM" },
+        { x: m.per_index.map((p) => p.ticker), y: m.per_index.map((p) => p.atm_1m * 100), type: "bar", name: "1M" },
+        { x: m.per_index.map((p) => p.ticker), y: m.per_index.map((p) => p.atm_3m * 100), type: "bar", name: "3M" },
+        { x: m.per_index.map((p) => p.ticker), y: m.per_index.map((p) => p.atm_1y * 100), type: "bar", name: "1Y" },
       ]
+    : [];
+  const trendChart = res?.trend
+    ? res.trend.per_index.map((p) => ({
+        x: p.samples.map((s) => s.month),
+        y: p.samples.map((s) => s.rv21 * 100),
+        type: "scatter",
+        mode: "lines+markers",
+        name: p.ticker,
+      }))
     : [];
 
   return (
     <div className="flex flex-col gap-4 p-4 sm:p-6">
-      <div>
-        <h1 className="text-base font-semibold text-brand-900">Market Read</h1>
-        <p className="text-xs text-slate-400">
-          Map index vol surfaces to note-suitability, with an LLM market commentary.
-        </p>
-      </div>
-
-      {/* ── inputs ─────────────────────────────────────────────── */}
+      {/* ── header + zero-input controls ─────────────────────────── */}
       <Card>
-        <SectionHeader
-          title="Index Inputs"
-          titleCn="指数输入"
-          icon={<Gauge size={15} />}
-          right={
-            <div className="flex items-center gap-2">
-              <div className="flex overflow-hidden rounded-lg border border-line">
-                {(["en", "zh"] as const).map((l) => (
-                  <button
-                    key={l}
-                    onClick={() => setLang(l)}
-                    className={cn(
-                      "px-2.5 py-1 text-2xs font-medium",
-                      lang === l ? "bg-accent-600 text-white" : "bg-surface-2 text-slate-400",
-                    )}
-                  >
-                    {l === "en" ? "EN" : "中文"}
-                  </button>
-                ))}
-              </div>
-              <button
-                onClick={run}
-                disabled={loading}
-                className="rounded-lg bg-accent-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-              >
-                {loading ? "Reading…" : "Read Market"}
-              </button>
-            </div>
-          }
-        />
-        <div className="overflow-x-auto p-4">
-          <table className="w-full min-w-[560px] text-xs">
-            <thead>
-              <tr className="text-left text-2xs uppercase tracking-wide text-slate-500">
-                <th className="pb-2 pr-3 font-medium">Index</th>
-                <th className="pb-2 pr-3 font-medium">Spot</th>
-                <th className="pb-2 pr-3 font-medium">ATM Vol</th>
-                <th className="pb-2 pr-3 font-medium">Skew Slope</th>
-                <th className="pb-2 pr-3 font-medium">Skew Curv</th>
-                <th className="pb-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {assets.map((a, i) => (
-                <tr key={i}>
-                  <td className="py-1 pr-3">
-                    <input className={INPUT} value={a.ticker} onChange={(e) => patch(i, "ticker", e.target.value)} />
-                  </td>
-                  <td className="py-1 pr-3">
-                    <input className={INPUT} type="number" value={a.spot} onChange={(e) => patch(i, "spot", e.target.value)} />
-                  </td>
-                  <td className="py-1 pr-3">
-                    <input className={INPUT} type="number" step="0.01" value={a.atm_vol} onChange={(e) => patch(i, "atm_vol", e.target.value)} />
-                  </td>
-                  <td className="py-1 pr-3">
-                    <input className={INPUT} type="number" step="0.1" value={a.skew_slope ?? -0.5} onChange={(e) => patch(i, "skew_slope", e.target.value)} />
-                  </td>
-                  <td className="py-1 pr-3">
-                    <input className={INPUT} type="number" step="0.1" value={a.skew_curv ?? 0.5} onChange={(e) => patch(i, "skew_curv", e.target.value)} />
-                  </td>
-                  <td className="py-1">
-                    <button onClick={() => removeRow(i)} className="text-slate-500 hover:text-neg" title="Remove">
-                      <Trash2 size={14} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="mt-3 flex items-center gap-4">
-            <button onClick={addRow} className="flex items-center gap-1 text-2xs text-accent-100 hover:underline">
-              <Plus size={13} /> add index
-            </button>
-            <label className="flex items-center gap-2 text-2xs text-slate-400">
-              risk-free rate
-              <input
-                className={cn(INPUT, "w-24")}
-                type="number"
-                step="0.005"
-                value={rate}
-                onChange={(e) => setRate(Number(e.target.value))}
-              />
-            </label>
+        <div className="flex flex-wrap items-center gap-3 p-4">
+          <div className="mr-auto">
+            <h1 className="text-base font-semibold text-brand-900">Market Read · 市场解读</h1>
+            <p className="text-xs text-slate-400">
+              实时抓取指数真实数据(现价·实际波动率·国债利率),生成适配度与
+              <span className="text-accent-100">月度择时</span>解读 — 无需手工输入。
+            </p>
           </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {tickers.map((t) => (
+              <span key={t} className="flex items-center gap-1 rounded-lg border border-line bg-surface-2 px-2 py-1 text-xs text-brand-900">
+                {t}
+                <button onClick={() => removeTicker(t)} className="text-slate-500 hover:text-neg" aria-label={`remove ${t}`}>
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
+            <input
+              className={cn(INPUT, "w-20 uppercase")}
+              placeholder="+指数"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addTicker()}
+              onBlur={addTicker}
+            />
+            <button onClick={addTicker} className="text-slate-500 hover:text-accent-100" aria-label="add index">
+              <Plus size={14} />
+            </button>
+          </div>
+          <div className="flex overflow-hidden rounded-lg border border-line">
+            {(["zh", "en"] as const).map((l) => (
+              <button
+                key={l}
+                onClick={() => setLang(l)}
+                className={cn(
+                  "px-2.5 py-1 text-2xs font-medium",
+                  lang === l ? "bg-accent-600 text-white" : "bg-surface-2 text-slate-400",
+                )}
+              >
+                {l === "en" ? "EN" : "中文"}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={run}
+            disabled={loading}
+            className="rounded-lg bg-accent-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+          >
+            {loading ? "解读中…" : "解读市场"}
+          </button>
         </div>
       </Card>
 
       {loading && (
         <div className="text-xs text-slate-400">
-          Reading surfaces… <span className="text-accent-100">{stage}</span>
+          抓取实时数据并解读… <span className="text-accent-100">{stage}</span>
         </div>
       )}
       {err && <div className="text-xs text-neg">Error: {err}</div>}
@@ -265,6 +246,81 @@ export function MarketRead() {
             />
             <p className="whitespace-pre-wrap p-4 text-sm leading-relaxed text-brand-900">{res.narrative}</p>
           </Card>
+
+          {/* ── 择时 — per product family timing from monthly trends ── */}
+          {res.timing && (
+            <Card>
+              <SectionHeader
+                title="Timing"
+                titleCn="择时观点(月度趋势)"
+                icon={<CalendarClock size={15} />}
+                right={
+                  res.trend && (
+                    <span className="text-2xs text-slate-500 tnum">
+                      波动率环比 {(res.trend.vol_mom * 100).toFixed(1)}pt · 近3月 {(res.trend.px_3m * 100).toFixed(1)}%
+                    </span>
+                  )
+                }
+              />
+              <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-5">
+                {Object.entries(res.timing).map(([fam, t]) => (
+                  <div key={fam} className="rounded-lg border border-line bg-surface-2 p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-brand-900">{fam}</span>
+                      <Badge className={stanceTone(t.stance)}>{t.label}</Badge>
+                    </div>
+                    <ul className="mt-2 space-y-1">
+                      {t.drivers.map((d, i) => (
+                        <li key={i} className="text-2xs leading-snug text-slate-400">· {d}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {/* ── monthly trend: realized vol by month + table ── */}
+          {res.trend && (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <Card>
+                <SectionHeader title="Realized Vol by Month (%)" titleCn="月度实际波动率" icon={<LineChart size={15} />} />
+                <div className="p-2">
+                  <PlotlyChart data={trendChart} height={240} layout={{ yaxis: { ticksuffix: "%" } }} />
+                </div>
+              </Card>
+              <Card>
+                <SectionHeader title="Month-End Levels" titleCn="月末数据" icon={<CalendarClock size={15} />} />
+                <div className="overflow-x-auto p-4">
+                  <table className="w-full min-w-[380px] text-xs tnum">
+                    <thead>
+                      <tr className="text-right text-2xs uppercase tracking-wide text-slate-500">
+                        <th className="pb-2 text-left font-medium">Month</th>
+                        {res.trend.per_index.map((p) => (
+                          <th key={p.ticker} className="pb-2 font-medium" colSpan={2}>{p.ticker} (px / vol)</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {res.trend.months.map((mo) => (
+                        <tr key={mo} className="border-t border-line text-right">
+                          <td className="py-1.5 text-left font-medium text-brand-900">{mo}</td>
+                          {res.trend!.per_index.map((p) => {
+                            const s = p.samples.find((x) => x.month === mo);
+                            return (
+                              <td key={p.ticker} className="py-1.5 text-slate-400" colSpan={2}>
+                                {s ? `${s.spot.toFixed(0)} / ${(s.rv21 * 100).toFixed(0)}%` : "—"}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            </div>
+          )}
 
           {/* ── suitability — which note fits, with plain drivers ── */}
           <Card>
@@ -312,14 +368,18 @@ export function MarketRead() {
               title="Market Metrics"
               titleCn="市场指标(技术面)"
               icon={<Activity size={15} />}
-              right={<Badge className="bg-surface-2 text-slate-400">source · {res.source}</Badge>}
+              right={
+                <Badge className="bg-surface-2 text-slate-400" title={realized ? "无期权隐含波动率数据源时,以历史实际波动率为诚实代理" : undefined}>
+                  {realized ? "实际波动率(历史)" : `source · ${res.source}`}
+                </Badge>
+              }
             />
             <div className="grid grid-cols-2 gap-2 p-4 sm:grid-cols-3 lg:grid-cols-5">
-              <Metric label={T.volLevel.label} cn={T.volLevel.cn} value={pct(m.vol_level, 0)} hint="avg ATM" tip={T.volLevel.tip} />
+              <Metric label={T.volLevel.label} cn={T.volLevel.cn} value={pct(m.vol_level, 0)} hint="avg 3M" tip={T.volLevel.tip} />
               <Metric label={T.putSkew.label} cn={T.putSkew.cn} value={`+${(m.skew * 100).toFixed(1)}pt`} hint="at 90%" tip={T.putSkew.tip} />
               <Metric label={T.termSlope.label} cn={T.termSlope.cn} value={`${(m.term_slope * 100).toFixed(1)}pt`} hint="1Y−1M" tip={T.termSlope.tip} />
-              <Metric label={T.vixProxy.label} cn={T.vixProxy.cn} value={m.vix_proxy.toFixed(1)} hint="SPY 30D ATM" tip={T.vixProxy.tip} />
-              <Metric label={T.riskFree.label} cn={T.riskFree.cn} value={pct(m.rate, 2)} tip={T.riskFree.tip} />
+              <Metric label={T.vixProxy.label} cn={T.vixProxy.cn} value={m.vix_proxy.toFixed(1)} hint="SPY 30D" tip={T.vixProxy.tip} />
+              <Metric label={T.riskFree.label} cn={T.riskFree.cn} value={pct(m.rate, 2)} hint="1Y treasury·实时" tip={T.riskFree.tip} />
             </div>
           </Card>
 
@@ -360,7 +420,7 @@ export function MarketRead() {
             </Card>
 
             <Card>
-              <SectionHeader title="ATM Vol Term (%)" titleCn="平价波动率期限" icon={<LineChart size={15} />} />
+              <SectionHeader title="Vol Term (%)" titleCn="波动率期限" icon={<LineChart size={15} />} />
               <div className="p-2">
                 <PlotlyChart data={chart} height={260} layout={{ barmode: "group", yaxis: { ticksuffix: "%" } }} />
               </div>

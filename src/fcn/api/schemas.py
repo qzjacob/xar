@@ -101,28 +101,37 @@ class SolveRequest(_ReofferKnobs):
 
 
 class RankStructureInput(BaseModel):
-    """Fixed FCN structure every candidate is screened against (closed-form FCN screen)."""
+    """Fixed FCN structure every candidate is screened against.
 
-    product: str = "fcn"  # only the closed-form FCN screen is supported by ranking
+    Mirrors the Quotation Desk params: 敲出线 ``ko_pct`` / 期限 ``tenor_months`` /
+    敲入类型 ``ki_style`` / 敲入线 ``protection_pct`` / 观察频率 ``frequency`` /
+    行权价 ``strike_pct``. Plain no-autocall European-KI coupon screens run
+    closed-form; autocall / American KI / solve-strike go through the finder mini-MC.
+    """
+
+    product: str = "fcn"
     tenor_months: int = 6
     frequency: str = "quarterly"
-    protection_pct: float = Field(0.70, gt=0, le=1.5)  # KI barrier as fraction of start
-    strike_pct: float = Field(1.0, gt=0, le=1.5)
+    protection_pct: float = Field(0.70, gt=0, le=1.5)  # KI barrier as fraction of start (敲入线)
+    strike_pct: float = Field(1.0, gt=0, le=1.5)       # 行权价
     reoffer_pct: float = Field(1.0, gt=0, le=1.2)  # issue price / value as fraction of par
     div_yield: float = 0.0
     borrow: float = 0.0
+    ko_pct: float | None = Field(None, gt=0, le=2.0)   # 敲出线; None = 无敲出
+    ki_style: Literal["none", "european", "american"] = "european"  # 敲入类型 (none = 无保护)
+    coupon_pa: float | None = Field(None, ge=0, le=2.0)  # fixed coupon → rank by solved strike
 
 
 class RankRequest(BaseModel):
     structure: RankStructureInput = RankStructureInput()
-    source: str = "live"  # "live" (Massive vols + FMP screener) | "manual"
+    source: str = "live"  # "live" (Massive) | "auto" (FMP real spot+realized vol) | "manual"
     rate: float = 0.045
     funding: float | None = None
     top_n: int = Field(10, ge=1, le=50)
-    rank_by: str = "coupon"  # coupon | prob_capital_at_risk | iv_at_barrier | marketCap
+    rank_by: str = "coupon"  # coupon | strike | prob_capital_at_risk | iv_at_barrier | marketCap
     filters: dict | None = None
     max_candidates: int = Field(200, ge=1, le=1500)
-    min_market_cap: float = 2e10
+    min_market_cap: float = 2e10  # 市值下限 (USD); "auto" passes this to the FMP screener
     asof: str = "today"
     # manual mode (offline / tests): supply per-name market + the universe to rank
     assets: list[AssetMarketInput] | None = None
@@ -131,7 +140,7 @@ class RankRequest(BaseModel):
 
 class MarketReadRequest(BaseModel):
     indices: list[str] = ["SPY", "QQQ"]
-    source: str = "live"  # "live" (Massive surfaces) | "manual"
+    source: str = "live"  # "live" (Massive surfaces) | "auto" (FMP realized) | "manual"
     rate: float = 0.045
     lang: str = "en"  # "en" | "zh"
     asof: str = "today"
@@ -169,12 +178,14 @@ class SolveResponse(BaseModel):
 class OptionsMarketInputs(BaseModel):
     """Common market context for every Options Desk request.
 
-    ``source='live'`` reads Massive; ``'manual'`` synthesises a parametric
-    surface from ``atm_vol/skew_slope/skew_curv`` at ``spot``. ``spot`` is
-    optional: in live mode it comes from the provider, in manual mode it falls
-    back to the strategy payload then 100.0.
+    ``source='live'`` reads Massive; ``'auto'`` fetches the latest REAL spot +
+    realized vol from FMP (no manual price input — the surface is the desk
+    parametric skew around the realized ATM term structure); ``'manual'``
+    synthesises a parametric surface from ``atm_vol/skew_slope/skew_curv`` at
+    ``spot``. ``spot`` is optional: in live/auto modes it comes from the
+    provider, in manual mode it falls back to the strategy payload then 100.0.
     """
-    source: str = "live"            # "live" (Massive) | "manual"
+    source: str = "live"            # "live" (Massive) | "auto" (FMP real data) | "manual"
     spot: float | None = None        # manual-mode spot (None → from strategy / 100)
     rate: float = 0.045
     div_yield: float = 0.0

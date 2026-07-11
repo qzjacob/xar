@@ -37,6 +37,7 @@ from fcn.marketdata.cache import MARKET_CACHE, fetch_concurrent
 _FREQ_PER_YEAR = {"monthly": 12, "quarterly": 4, "semiannual": 2, "annual": 1}
 _RANK_KEYS = {  # rank key -> (result field, descending?)
     "coupon": ("coupon", True),
+    "strike": ("strike", False),  # lowest fair strike first = biggest downside buffer at the same coupon
     "prob_capital_at_risk": ("prob_capital_at_risk", False),  # safest first
     "iv_at_barrier": ("iv_at_barrier", True),
     "marketCap": ("marketCap", True),
@@ -49,12 +50,17 @@ class RankStructure:
 
     product: str = "fcn"  # only the closed-form FCN screen is supported here
     tenor_months: int = 6
-    frequency: str = "quarterly"  # coupon / observation frequency
-    protection_pct: float = 0.70  # KI / protection barrier as a fraction of start
-    strike_pct: float = 1.0  # conversion strike as a fraction of start
+    frequency: str = "quarterly"  # coupon / observation frequency (观察频率)
+    protection_pct: float = 0.70  # KI / protection barrier as a fraction of start (敲入线)
+    strike_pct: float = 1.0  # conversion strike as a fraction of start (行权价)
     reoffer_pct: float = 1.0  # issue price / value as a fraction of par
     div_yield: float = 0.0  # default per-name dividend yield (provider may override)
     borrow: float = 0.0
+    # Desk-mirroring extensions (Quotation Desk param names). Any of these set → the
+    # per-name pricer switches from the closed-form to the finder mini-MC (finder_mc).
+    ko_pct: float | None = None      # 敲出线 autocall barrier as fraction of start; None = no autocall
+    ki_style: str = "european"       # 敲入类型: none (无保护) | european | american
+    coupon_pa: float | None = None   # fixed annual coupon → solve the fair strike per name
 
 
 def _coupon_schedule(tenor_years: float, frequency: str) -> tuple[list[float], list[float]]:
@@ -78,14 +84,15 @@ def _barrier_vol(provider, ticker: str, t: float, log_moneyness: float) -> float
 
 
 def _price_one(provider, ticker: str, structure: RankStructure) -> dict | None:
-    """Solve the indicative fair coupon for one name. Returns ``None`` (skip) when no
-    usable live surface exists for the name."""
+    """Solve the indicative fair coupon (or strike) for one name. Returns ``None``
+    (skip) when no usable live surface exists for the name."""
     spot = provider.spot(ticker)
     if not spot or spot <= 0:
         return None
     t = structure.tenor_months / 12.0
-    x_barrier = math.log(structure.protection_pct)  # barrier log-moneyness vs spot
-    sigma = _barrier_vol(provider, ticker, t, x_barrier)
+    # sample sigma at the effective downside barrier (无保护 → the strike itself)
+    barrier = structure.strike_pct if structure.ki_style == "none" else structure.protection_pct
+    sigma = _barrier_vol(provider, ticker, t, math.log(barrier))
     if sigma is None or sigma <= 0:
         return None
 
@@ -93,6 +100,25 @@ def _price_one(provider, ticker: str, structure: RankStructure) -> dict | None:
     borrow = provider.borrow(ticker) or structure.borrow
     rate = provider.risk_free_rate()
     funding = provider.funding_rate()
+
+    # Desk-mirroring structures (autocall / American KI / solve-strike) go through the
+    # finder mini-MC; the plain no-autocall European-KI coupon screen stays closed-form.
+    if (structure.ko_pct is not None or structure.ki_style != "european"
+            or structure.coupon_pa is not None):
+        from fcn.service.finder_mc import screen_price
+
+        priced = screen_price(
+            spot=spot, sigma=sigma, rate=rate, funding=funding,
+            div_yield=q, borrow=borrow,
+            tenor_years=t, frequency=structure.frequency,
+            ko=structure.ko_pct, ki=structure.protection_pct, ki_style=structure.ki_style,
+            strike=structure.strike_pct, reoffer=structure.reoffer_pct,
+            coupon_pa=structure.coupon_pa,
+        )
+        if priced is None:
+            return None
+        return {"ticker": ticker, "spot": round(float(spot), 4), **priced}
+
     times, taus = _coupon_schedule(t, structure.frequency)
 
     value = single_name_european_note(
@@ -221,9 +247,9 @@ def _apply_filters(rows: list[dict], filters: dict) -> list[dict]:
     kind = filters.get("kind")  # "stock" | "etf" | "all"/None
     out = []
     for r in rows:
-        if min_coupon is not None and r["coupon"] < min_coupon:
+        if min_coupon is not None and r.get("coupon", 0.0) < min_coupon:
             continue
-        if max_prob_loss is not None and r["prob_capital_at_risk"] > max_prob_loss:
+        if max_prob_loss is not None and r.get("prob_capital_at_risk", 0.0) > max_prob_loss:
             continue
         if sector and r.get("sector") != sector:
             continue

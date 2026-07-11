@@ -93,36 +93,22 @@ function ErrLine({ msg }: { msg: string | null }) {
 }
 
 // ---------------------------------------------------------------------------
-// shared market-input state
+// shared market-input state — 实时真实数据:现价/波动率/利率全部自动抓取(FMP),
+// 只需输入标的代码;不再手工填价格参数。
 // ---------------------------------------------------------------------------
 
 interface Market {
   ticker: string;
-  spot: number;
-  atm_vol: number;
-  skew_slope: number;
-  skew_curv: number;
-  rate: number;
 }
 
 const DEFAULT_MARKET: Market = {
   ticker: "AAPL",
-  spot: 230,
-  atm_vol: 0.3,
-  skew_slope: -0.4,
-  skew_curv: 0.3,
-  rate: 0.045,
 };
 
 function marketBody(m: Market): Dict {
   return {
     ticker: m.ticker.trim().toUpperCase() || "AAPL",
-    source: "manual",
-    spot: m.spot,
-    atm_vol: m.atm_vol,
-    skew_slope: m.skew_slope,
-    skew_curv: m.skew_curv,
-    rate: m.rate,
+    source: "auto", // FMP 实时:真实 spot + 实际波动率期限结构 + 国债利率
   };
 }
 
@@ -134,58 +120,17 @@ function MarketFields({
   set: (patch: Partial<Market>) => void;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+    <div className="flex flex-wrap items-end gap-3">
       <Field label="Ticker">
         <input
-          className={inputCls}
+          className={cn(inputCls, "w-28 uppercase")}
           value={m.ticker}
           onChange={(e) => set({ ticker: e.target.value })}
         />
       </Field>
-      <Field label="Spot">
-        <input
-          type="number"
-          className={cn(inputCls, "tnum")}
-          value={m.spot}
-          onChange={(e) => set({ spot: Number(e.target.value) })}
-        />
-      </Field>
-      <Field label="ATM Vol">
-        <input
-          type="number"
-          step="0.01"
-          className={cn(inputCls, "tnum")}
-          value={m.atm_vol}
-          onChange={(e) => set({ atm_vol: Number(e.target.value) })}
-        />
-      </Field>
-      <Field label="Skew Slope">
-        <input
-          type="number"
-          step="0.1"
-          className={cn(inputCls, "tnum")}
-          value={m.skew_slope}
-          onChange={(e) => set({ skew_slope: Number(e.target.value) })}
-        />
-      </Field>
-      <Field label="Skew Curv">
-        <input
-          type="number"
-          step="0.1"
-          className={cn(inputCls, "tnum")}
-          value={m.skew_curv}
-          onChange={(e) => set({ skew_curv: Number(e.target.value) })}
-        />
-      </Field>
-      <Field label="Rate">
-        <input
-          type="number"
-          step="0.005"
-          className={cn(inputCls, "tnum")}
-          value={m.rate}
-          onChange={(e) => set({ rate: Number(e.target.value) })}
-        />
-      </Field>
+      <span className="pb-1.5 text-2xs text-slate-500">
+        现价·波动率·利率 = 实时真实数据(自动抓取,无需输入)
+      </span>
     </div>
   );
 }

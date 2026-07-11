@@ -1,26 +1,24 @@
 import { useState } from "react";
-import { ListOrdered, Play, Plus, X, Trophy, AlertTriangle } from "lucide-react";
+import { ListOrdered, Play, Trophy, AlertTriangle } from "lucide-react";
 import { fennyApi } from "../../lib/fenny";
 import { Card } from "../../components/ui/Card";
 import { SectionHeader } from "../../components/ui/SectionHeader";
 import { cn, heat } from "../../lib/format";
 import type { Job } from "../../types-fenny";
 
-// One candidate row in the manual (offline) universe. spot + atm_vol drive the coupon;
-// skew params default to the parametric put-skew surface used across the desk.
-interface Candidate {
-  ticker: string;
-  spot: number;
-  atm_vol: number;
-}
-
+// Ranked row from /jobs/rank. coupon (rank_by=coupon) or strike (rank_by=strike) is
+// the headline; MC rows (敲出/美式敲入/解行权价) additionally carry autocall stats.
 interface RankedRow {
   ticker: string;
+  name?: string;
   spot: number;
-  coupon: number; // fair annualized coupon, fraction (0.38 = 38.1% p.a.)
-  iv_at_barrier: number; // fraction
-  prob_capital_at_risk: number; // fraction
-  buffer_pct: number; // fraction
+  coupon?: number; // fair annualized coupon, fraction
+  strike?: number; // fair strike as fraction of spot (rank_by=strike)
+  prob_autocall?: number;
+  expected_life?: number;
+  iv_at_barrier: number;
+  prob_capital_at_risk: number;
+  buffer_pct: number;
   marketCap: number;
   sector: string;
   isEtf: boolean;
@@ -35,23 +33,23 @@ interface RankResult {
   skipped?: { ticker: string; reason: string }[];
   rank_by?: string;
   liquidity_note?: string;
+  vol_basis?: string;
+  rate?: number;
 }
 
-const DEFAULT_CANDIDATES: Candidate[] = [
-  { ticker: "AAPL", spot: 230, atm_vol: 0.28 },
-  { ticker: "NVDA", spot: 120, atm_vol: 0.5 },
-  { ticker: "MSFT", spot: 440, atm_vol: 0.24 },
-  { ticker: "TSLA", spot: 250, atm_vol: 0.6 },
-  { ticker: "AMD", spot: 160, atm_vol: 0.45 },
+// 观察频率 — mirrors the quote desk's obs-frequency choices
+const FREQUENCIES: { value: string; label: string }[] = [
+  { value: "monthly", label: "每月 Monthly" },
+  { value: "quarterly", label: "每季 Quarterly" },
+  { value: "semiannual", label: "半年 Semiannual" },
+  { value: "annual", label: "每年 Annual" },
 ];
 
-const RANK_BY_OPTIONS: { value: string; label: string }[] = [
-  { value: "coupon", label: "Indicative coupon" },
-  { value: "prob_capital_at_risk", label: "Prob. capital at risk (safest first)" },
-  { value: "iv_at_barrier", label: "IV at barrier" },
+const KI_STYLES: { value: string; label: string }[] = [
+  { value: "none", label: "无保护 NONE" },
+  { value: "european", label: "欧式(到期观察)" },
+  { value: "american", label: "美式(每日观察)" },
 ];
-
-const FREQUENCIES = ["monthly", "quarterly", "semiannual", "annual"];
 
 const inputCls =
   "rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-xs text-brand-900 focus:border-accent-600 focus:outline-none";
@@ -67,58 +65,56 @@ function mktCap(n: number | undefined): string {
   return `$${(n / 1e6).toFixed(0)}M`;
 }
 
+function Lab({ children, tip }: { children: React.ReactNode; tip?: string }) {
+  return (
+    <span className="flex items-center gap-1" title={tip}>
+      {children}
+    </span>
+  );
+}
+
 export function Finder() {
-  // Fixed structure every candidate is screened against.
-  const [tenorMonths, setTenorMonths] = useState(6);
-  const [frequency, setFrequency] = useState("quarterly");
-  const [protectionPct, setProtectionPct] = useState(0.7);
-  const [strikePct, setStrikePct] = useState(1.0);
-  const [rate, setRate] = useState(0.045);
+  // 结构参数 — 与报价台同名:敲出线/期限/敲入类型/敲入线/观察频率/行权价
+  const [tenorMonths, setTenorMonths] = useState(6);          // 期限
+  const [frequency, setFrequency] = useState("monthly");      // 观察频率
+  const [koPct, setKoPct] = useState<string>("100");          // 敲出线 (% of spot; 空 = 无敲出)
+  const [kiStyle, setKiStyle] = useState("european");         // 敲入类型
+  const [kiPct, setKiPct] = useState(65);                     // 敲入线
+  const [strikePct, setStrikePct] = useState(80);             // 行权价 (排票息时固定)
+  const [couponPa, setCouponPa] = useState(12);               // 票息 % p.a. (排行权价时固定)
+  const [rankBy, setRankBy] = useState<"coupon" | "strike">("coupon");
+  // 底层标的 = 全部美股+ETF(FMP 全市场筛选),按市值下限过滤(亿美元)
+  const [mktCapYi, setMktCapYi] = useState(200);              // 市值下限,亿美元 (200亿 = $20bn)
+  const [kind, setKind] = useState<"all" | "stock" | "etf">("all");
   const [topN, setTopN] = useState(10);
-  const [rankBy, setRankBy] = useState("coupon");
-  const [candidates, setCandidates] = useState<Candidate[]>(DEFAULT_CANDIDATES);
 
   const [loading, setLoading] = useState(false);
   const [stage, setStage] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RankResult | null>(null);
 
-  function updateCandidate(i: number, patch: Partial<Candidate>) {
-    setCandidates((cs) => cs.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
-  }
-  function addCandidate() {
-    setCandidates((cs) => [...cs, { ticker: "", spot: 100, atm_vol: 0.3 }]);
-  }
-  function removeCandidate(i: number) {
-    setCandidates((cs) => cs.filter((_, idx) => idx !== i));
-  }
-
   async function run() {
     setLoading(true);
     setError(null);
-    setStage("submitting");
-    const clean = candidates.filter((c) => c.ticker.trim());
+    setStage("fetching universe");
     try {
       const body = {
         structure: {
           product: "fcn",
           tenor_months: tenorMonths,
           frequency,
-          protection_pct: protectionPct,
-          strike_pct: strikePct,
+          protection_pct: kiStyle === "none" ? strikePct / 100 : kiPct / 100,
+          strike_pct: strikePct / 100,
+          ko_pct: koPct.trim() === "" ? null : Number(koPct) / 100,
+          ki_style: kiStyle,
+          coupon_pa: rankBy === "strike" ? couponPa / 100 : null,
         },
-        source: "manual" as const,
-        rate,
+        source: "auto" as const, // 实时真实数据:FMP spot + 实际波动率 + 全市场筛选器
         top_n: topN,
         rank_by: rankBy,
-        tickers: clean.map((c) => c.ticker.trim().toUpperCase()),
-        assets: clean.map((c) => ({
-          ticker: c.ticker.trim().toUpperCase(),
-          spot: c.spot,
-          atm_vol: c.atm_vol,
-          skew_slope: -0.4,
-          skew_curv: 0.3,
-        })),
+        min_market_cap: mktCapYi * 1e8, // 亿美元 → USD
+        max_candidates: 100,
+        filters: kind === "all" ? null : { kind },
       };
       const res = (await fennyApi.rank(body, (j: Job) => setStage(j.stage))) as RankResult;
       setResult(res);
@@ -131,23 +127,24 @@ export function Finder() {
   }
 
   const ranked = result?.ranked ?? [];
-  // Coupon heat is normalized within the visible set so the leader is greenest.
-  const coupons = ranked.map((r) => r.coupon);
-  const minC = Math.min(...coupons);
-  const maxC = Math.max(...coupons);
-  const heatFor = (c: number) => {
-    const t = maxC > minC ? ((c - minC) / (maxC - minC)) * 100 : 60;
-    return heat(t, "good-high", 0.2);
+  const byStrike = (result?.rank_by ?? rankBy) === "strike";
+  // Heat: coupon → higher greener; strike → lower greener (bigger buffer)
+  const vals = ranked.map((r) => (byStrike ? r.strike ?? 0 : r.coupon ?? 0));
+  const minV = Math.min(...vals);
+  const maxV = Math.max(...vals);
+  const heatFor = (v: number) => {
+    const t = maxV > minV ? ((v - minV) / (maxV - minV)) * 100 : 60;
+    return heat(byStrike ? 100 - t : t, "good-high", 0.2);
   };
 
   return (
     <div className="min-h-full bg-canvas p-4">
       <div className="mx-auto flex max-w-6xl flex-col gap-4">
-        {/* ---- Structure + screen controls ---- */}
+        {/* ---- Structure (desk params) + universe controls ---- */}
         <Card>
           <SectionHeader
             title="Underlying Finder"
-            titleCn="标的筛选"
+            titleCn="标的筛选 · 全美股+ETF 实时数据"
             icon={<ListOrdered size={16} />}
             right={
               <button
@@ -159,158 +156,90 @@ export function Finder() {
                 )}
               >
                 <Play size={13} />
-                {loading ? stage || "ranking…" : "Rank"}
+                {loading ? stage || "筛选中…" : "筛选 Rank"}
               </button>
             }
           />
           <div className="p-4">
             <p className="mb-3 text-xs text-slate-400">
-              Fix the protection barrier and tenor, then rank a candidate set by which
-              underlying pays the richest indicative FCN coupon. Manual mode — works offline
-              off a parametric skew surface.
+              固定结构参数(与报价台同名),在<span className="text-brand-900">全部美股+ETF</span>
+              (按市值下限过滤)中筛选:按<span className="text-brand-900">票息最高</span>
+              或同票息下<span className="text-brand-900">行权价最低(下行缓冲最大)</span>排序。
+              现价与波动率为实时真实数据。
             </p>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
               <label className="flex flex-col gap-1 text-2xs text-slate-500">
-                Tenor (months)
-                <input
-                  type="number"
-                  min={1}
-                  value={tenorMonths}
-                  onChange={(e) => setTenorMonths(Number(e.target.value))}
-                  className={inputCls}
-                />
+                <Lab tip="票据期限,月">期限 (月)</Lab>
+                <input type="number" min={1} value={tenorMonths}
+                  onChange={(e) => setTenorMonths(Number(e.target.value))} className={inputCls} />
               </label>
               <label className="flex flex-col gap-1 text-2xs text-slate-500">
-                Frequency
-                <select
-                  value={frequency}
-                  onChange={(e) => setFrequency(e.target.value)}
-                  className={inputCls}
-                >
+                <Lab tip="敲出/派息观察频率">观察频率</Lab>
+                <select value={frequency} onChange={(e) => setFrequency(e.target.value)} className={inputCls}>
                   {FREQUENCIES.map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
+                    <option key={f.value} value={f.value}>{f.label}</option>
                   ))}
                 </select>
               </label>
               <label className="flex flex-col gap-1 text-2xs text-slate-500">
-                Protection %
-                <input
-                  type="number"
-                  step={0.05}
-                  value={protectionPct}
-                  onChange={(e) => setProtectionPct(Number(e.target.value))}
-                  className={inputCls}
-                />
+                <Lab tip="自动敲出线,% 期初价;留空 = 无敲出">敲出线 KO %</Lab>
+                <input type="number" step={1} value={koPct} placeholder="无"
+                  onChange={(e) => setKoPct(e.target.value)} className={cn(inputCls, "tnum")} />
               </label>
               <label className="flex flex-col gap-1 text-2xs text-slate-500">
-                Strike %
-                <input
-                  type="number"
-                  step={0.05}
-                  value={strikePct}
-                  onChange={(e) => setStrikePct(Number(e.target.value))}
-                  className={inputCls}
-                />
+                <Lab tip="下行保护的观察方式">敲入类型</Lab>
+                <select value={kiStyle} onChange={(e) => setKiStyle(e.target.value)} className={inputCls}>
+                  {KI_STYLES.map((k) => (
+                    <option key={k.value} value={k.value}>{k.label}</option>
+                  ))}
+                </select>
               </label>
               <label className="flex flex-col gap-1 text-2xs text-slate-500">
-                Rate
-                <input
-                  type="number"
-                  step={0.005}
-                  value={rate}
-                  onChange={(e) => setRate(Number(e.target.value))}
-                  className={inputCls}
-                />
+                <Lab tip="敲入/保护线,% 期初价">敲入线 KI %</Lab>
+                <input type="number" step={1} value={kiPct} disabled={kiStyle === "none"}
+                  onChange={(e) => setKiPct(Number(e.target.value))}
+                  className={cn(inputCls, "tnum", kiStyle === "none" && "opacity-40")} />
               </label>
-              <label className="flex flex-col gap-1 text-2xs text-slate-500">
-                Top N
-                <input
-                  type="number"
-                  min={1}
-                  max={50}
-                  value={topN}
-                  onChange={(e) => setTopN(Number(e.target.value))}
-                  className={inputCls}
-                />
-              </label>
-            </div>
-            <div className="mt-3 flex flex-col gap-1 text-2xs text-slate-500 sm:max-w-xs">
-              Rank by
-              <select
-                value={rankBy}
-                onChange={(e) => setRankBy(e.target.value)}
-                className={inputCls}
-              >
-                {RANK_BY_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </Card>
-
-        {/* ---- Candidate universe editor ---- */}
-        <Card>
-          <SectionHeader
-            title="Candidate universe"
-            titleCn="候选池"
-            right={
-              <button
-                onClick={addCandidate}
-                className="flex items-center gap-1 rounded-lg border border-line bg-surface-2 px-2 py-1 text-2xs text-brand-900 hover:bg-surface-2/70"
-              >
-                <Plus size={12} /> Add name
-              </button>
-            }
-          />
-          <div className="p-3">
-            <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 px-1 pb-1 text-2xs uppercase tracking-wide text-slate-500">
-              <span>Ticker</span>
-              <span>Spot</span>
-              <span>ATM vol</span>
-              <span />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              {candidates.map((c, i) => (
-                <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] items-center gap-2">
-                  <input
-                    value={c.ticker}
-                    onChange={(e) => updateCandidate(i, { ticker: e.target.value })}
-                    placeholder="TICK"
-                    className={cn(inputCls, "uppercase")}
-                  />
-                  <input
-                    type="number"
-                    step={1}
-                    value={c.spot}
-                    onChange={(e) => updateCandidate(i, { spot: Number(e.target.value) })}
-                    className={cn(inputCls, "tnum")}
-                  />
-                  <input
-                    type="number"
-                    step={0.01}
-                    value={c.atm_vol}
-                    onChange={(e) => updateCandidate(i, { atm_vol: Number(e.target.value) })}
-                    className={cn(inputCls, "tnum")}
-                  />
-                  <button
-                    onClick={() => removeCandidate(i)}
-                    className="rounded-lg p-1.5 text-slate-500 hover:bg-surface-2 hover:text-neg"
-                    aria-label="remove"
-                  >
-                    <X size={13} />
-                  </button>
-                </div>
-              ))}
-              {candidates.length === 0 && (
-                <p className="px-1 py-2 text-xs text-slate-500">
-                  No candidates — add at least one name to rank.
-                </p>
+              {rankBy === "coupon" ? (
+                <label className="flex flex-col gap-1 text-2xs text-slate-500">
+                  <Lab tip="转换行权价,% 期初价(排序票息时固定)">行权价 %</Lab>
+                  <input type="number" step={1} value={strikePct}
+                    onChange={(e) => setStrikePct(Number(e.target.value))} className={cn(inputCls, "tnum")} />
+                </label>
+              ) : (
+                <label className="flex flex-col gap-1 text-2xs text-slate-500">
+                  <Lab tip="固定年化票息(排序行权价时固定)">票息 % p.a.</Lab>
+                  <input type="number" step={0.5} value={couponPa}
+                    onChange={(e) => setCouponPa(Number(e.target.value))} className={cn(inputCls, "tnum")} />
+                </label>
               )}
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              <label className="flex flex-col gap-1 text-2xs text-slate-500">
+                <Lab tip="两种排序:票息最高优先,或同票息下行权价最低优先">排序类型</Lab>
+                <select value={rankBy} onChange={(e) => setRankBy(e.target.value as "coupon" | "strike")} className={inputCls}>
+                  <option value="coupon">票息最高 Coupon</option>
+                  <option value="strike">行权价最低 Strike</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-2xs text-slate-500">
+                <Lab tip="按总市值过滤底层标的池,单位:亿美元(如 100 = $10bn)">市值下限 (亿美元)</Lab>
+                <input type="number" step={50} min={10} value={mktCapYi}
+                  onChange={(e) => setMktCapYi(Number(e.target.value))} className={cn(inputCls, "tnum")} />
+              </label>
+              <label className="flex flex-col gap-1 text-2xs text-slate-500">
+                <Lab tip="标的类型">类型</Lab>
+                <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)} className={inputCls}>
+                  <option value="all">全部(股票+ETF)</option>
+                  <option value="stock">仅股票</option>
+                  <option value="etf">仅 ETF</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-2xs text-slate-500">
+                <Lab tip="返回前 N 名">Top N</Lab>
+                <input type="number" min={1} max={50} value={topN}
+                  onChange={(e) => setTopN(Number(e.target.value))} className={inputCls} />
+              </label>
             </div>
           </div>
         </Card>
@@ -330,23 +259,27 @@ export function Finder() {
               icon={<Trophy size={16} />}
               right={
                 <span className="text-2xs text-slate-500">
-                  {result?.ranked_count ?? ranked.length} of {result?.considered ?? "—"} screened ·
-                  by {result?.rank_by ?? rankBy}
+                  宇宙 {result?.universe_size ?? "—"} · 已筛 {result?.considered ?? "—"} ·
+                  {byStrike ? " 行权价最低优先" : " 票息最高优先"}
+                  {result?.vol_basis === "realized" && " · 实际波动率"}
                 </span>
               }
             />
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-xs">
+              <table className="w-full min-w-[720px] text-xs">
                 <thead>
                   <tr className="border-b border-line text-2xs uppercase tracking-wide text-slate-500">
                     <th className="px-3 py-2 text-left">#</th>
-                    <th className="px-3 py-2 text-left">Ticker</th>
-                    <th className="px-3 py-2 text-right">Spot</th>
-                    <th className="px-3 py-2 text-right">Coupon p.a.</th>
-                    <th className="px-3 py-2 text-right">Prob. cap. at risk</th>
-                    <th className="px-3 py-2 text-right">IV @ barrier</th>
-                    <th className="px-3 py-2 text-right">Buffer</th>
-                    <th className="px-3 py-2 text-right">Mkt cap</th>
+                    <th className="px-3 py-2 text-left">标的</th>
+                    <th className="px-3 py-2 text-right">现价</th>
+                    <th className="px-3 py-2 text-right">{byStrike ? "行权价" : "票息 p.a."}</th>
+                    {ranked.some((r) => r.prob_autocall != null) && (
+                      <th className="px-3 py-2 text-right">敲出概率</th>
+                    )}
+                    <th className="px-3 py-2 text-right">亏损概率</th>
+                    <th className="px-3 py-2 text-right">波动率</th>
+                    <th className="px-3 py-2 text-right">缓冲</th>
+                    <th className="px-3 py-2 text-right">市值</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -355,31 +288,23 @@ export function Finder() {
                       <td className="px-3 py-2 text-slate-500 tnum">{r.rank}</td>
                       <td className="px-3 py-2">
                         <span className="font-medium text-brand-900">{r.ticker}</span>
-                        {r.isEtf && (
-                          <span className="ml-1.5 text-2xs text-slate-500">ETF</span>
+                        {r.isEtf && <span className="ml-1.5 text-2xs text-slate-500">ETF</span>}
+                        {r.name && r.name !== r.ticker && (
+                          <span className="ml-1.5 text-2xs text-slate-500">{r.name.slice(0, 22)}</span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-right text-brand-900 tnum">
-                        {r.spot.toFixed(2)}
+                      <td className="px-3 py-2 text-right text-brand-900 tnum">{r.spot.toFixed(2)}</td>
+                      <td className="px-3 py-2 text-right font-semibold tnum"
+                        style={heatFor(byStrike ? r.strike ?? 0 : r.coupon ?? 0)}>
+                        {byStrike ? pct(r.strike, 1) : pct(r.coupon)}
                       </td>
-                      <td
-                        className="px-3 py-2 text-right font-semibold tnum"
-                        style={heatFor(r.coupon)}
-                      >
-                        {pct(r.coupon)}
-                      </td>
-                      <td className="px-3 py-2 text-right text-warn-100 tnum">
-                        {pct(r.prob_capital_at_risk)}
-                      </td>
-                      <td className="px-3 py-2 text-right text-slate-400 tnum">
-                        {pct(r.iv_at_barrier)}
-                      </td>
-                      <td className="px-3 py-2 text-right text-slate-400 tnum">
-                        {pct(r.buffer_pct, 0)}
-                      </td>
-                      <td className="px-3 py-2 text-right text-slate-400 tnum">
-                        {mktCap(r.marketCap)}
-                      </td>
+                      {ranked.some((x) => x.prob_autocall != null) && (
+                        <td className="px-3 py-2 text-right text-slate-400 tnum">{pct(r.prob_autocall, 0)}</td>
+                      )}
+                      <td className="px-3 py-2 text-right text-warn-100 tnum">{pct(r.prob_capital_at_risk)}</td>
+                      <td className="px-3 py-2 text-right text-slate-400 tnum">{pct(r.iv_at_barrier, 0)}</td>
+                      <td className="px-3 py-2 text-right text-slate-400 tnum">{pct(r.buffer_pct, 0)}</td>
+                      <td className="px-3 py-2 text-right text-slate-400 tnum">{mktCap(r.marketCap)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -387,20 +312,19 @@ export function Finder() {
             </div>
             {result?.skipped && result.skipped.length > 0 && (
               <p className="border-t border-line px-4 py-2 text-2xs text-slate-500">
-                Skipped {result.skipped.length}:{" "}
-                {result.skipped.map((s) => s.ticker).join(", ")}
+                跳过 {result.skipped.length} 个(无实时数据):{" "}
+                {result.skipped.slice(0, 20).map((s) => s.ticker).join(", ")}
+                {result.skipped.length > 20 ? " …" : ""}
               </p>
             )}
             {result?.liquidity_note && (
-              <p className="border-t border-line px-4 py-2 text-2xs text-slate-500">
-                {result.liquidity_note}
-              </p>
+              <p className="border-t border-line px-4 py-2 text-2xs text-slate-500">{result.liquidity_note}</p>
             )}
           </Card>
         )}
 
         {loading && ranked.length === 0 && (
-          <p className="px-1 text-xs text-slate-400">Ranking… {stage}</p>
+          <p className="px-1 text-xs text-slate-400">全市场筛选中(首次约 20-40 秒)… {stage}</p>
         )}
       </div>
     </div>

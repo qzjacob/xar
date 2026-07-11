@@ -414,16 +414,29 @@ def _manual_provider(assets, rate: float, funding: float | None) -> ManualProvid
 
 def _run_rank_job(req: RankRequest, jid: str) -> None:
     s = req.structure
+    # Solve the strike only when ranking by strike (needs a fixed coupon; default 12%).
+    # Otherwise coupon_pa stays None so every row carries a solved coupon.
+    coupon_pa = (s.coupon_pa if s.coupon_pa is not None else 0.12) if req.rank_by == "strike" else None
     structure = RankStructure(
         product=s.product, tenor_months=s.tenor_months, frequency=s.frequency,
         protection_pct=s.protection_pct, strike_pct=s.strike_pct, reoffer_pct=s.reoffer_pct,
         div_yield=s.div_yield, borrow=s.borrow,
+        ko_pct=s.ko_pct, ki_style=s.ki_style, coupon_pa=coupon_pa,
     )
     update(jid, stage="screening")
     if req.source == "manual":
         provider = _manual_provider(req.assets, req.rate, req.funding)
         universe = req.tickers or [a.ticker for a in (req.assets or [])]
         use_cache = False
+    elif req.source == "auto":
+        # 全部美股+ETF:FMP 实时 spot + 实际波动率(realized)+ company-screener 全宇宙,
+        # 市值下限由请求给定(前端以"亿美元"输入)。
+        provider = _fmp_live(req.funding)   # rate ← live treasury; shared/TTL-cached
+        universe = MARKET_CACHE.get_or_compute(
+            ("fmp-universe", req.min_market_cap),
+            lambda: provider.screen_universe(min_market_cap=req.min_market_cap),
+        )
+        use_cache = True
     else:
         years = max(0.5, s.tenor_months / 12.0)
         provider = MassiveProvider(
@@ -444,6 +457,9 @@ def _run_rank_job(req: RankRequest, jid: str) -> None:
         on_progress=lambda done, total: update(jid, stage=f"ranking {done}/{total}"),
     )
     res["source"] = req.source
+    if req.source == "auto":
+        res["vol_basis"] = "realized"
+        res["rate"] = round(provider.risk_free_rate(), 5)
     update(jid, status="done", stage="done", partial=res)
 
 
@@ -451,6 +467,9 @@ def _run_market_read_job(req: MarketReadRequest, jid: str) -> None:
     update(jid, stage="reading")
     if req.source == "manual":
         provider = _manual_provider(req.assets, req.rate, None)
+    elif req.source == "auto":
+        # 全自动:实时 spot + 实际波动率期限结构 + 国债利率(FMP),无需手工输入。
+        provider = _fmp_live()   # rate ← live 1Y treasury; shared/TTL-cached
     else:
         provider = MassiveProvider(rate=req.rate, asof=_parse_asof(req.asof), max_maturity_years=1.5)
     res = build_market_read(provider, indices=tuple(req.indices), lang=req.lang)
@@ -515,19 +534,51 @@ def _options_provider(req, ticker: str, asof: date) -> MassiveProvider:
     )
 
 
+def _fmp_live(funding: float | None = None):
+    """Shared FMPLiveProvider (auto mode), TTL-cached so one job's spot/history/treasury
+    fetches are reused by the next few minutes' requests instead of re-hitting FMP."""
+    from fcn.service.live_provider import FMPLiveProvider
+
+    return MARKET_CACHE.get_or_compute(
+        ("fmp-live-provider", funding), lambda: FMPLiveProvider(rate=None, funding=funding),
+    )
+
+
+def _auto_options_market(req, ticker: str):
+    """(spot, surface, rate) from real FMP data for options ``source='auto'``.
+
+    Latest real spot + realized-vol ATM term structure wrapped in the desk skew,
+    plus the live treasury rate — no manual price input. Raises FMPUnavailable
+    (→ job error) when the name cannot be resolved at all.
+    """
+    prov = _fmp_live()
+    spot = prov.spot(ticker)            # raises when unresolvable
+    surface = prov.vol_surface(ticker)
+    if surface is None:                 # too little history → fall back to the request's skew
+        surface = ParametricSkewSurface(atm=req.atm_vol, slope=req.skew_slope, curv=req.skew_curv)
+    return spot, surface, prov.risk_free_rate()
+
+
 def _build_options_chain(req, *, provider: "MassiveProvider | None" = None) -> "OptionChain":
-    """Build an OptionChain from a request — live (Massive) or abstract.
+    """Build an OptionChain from a request — live (Massive), auto (FMP real data),
+    or abstract (manual parametric).
 
     In live mode the caller may pass a shared ``provider`` so the chain and the
     analytics history don't each construct (and authenticate) a separate client.
     """
     asof = _parse_asof_options(req)
     ticker, spot = _options_ticker_spot(req)
-    if getattr(req, "source", "live") == "live":
+    source = getattr(req, "source", "live")
+    if source == "live":
         prov = provider or _options_provider(req, ticker, asof)
         return OptionChain.from_massive(prov, ticker, rate=req.rate,
                                         div_yield=req.div_yield, borrow=req.borrow,
                                         max_maturity_years=req.max_maturity_years, asof=asof)
+    if source == "auto":
+        # 实时真实数据(FMP):spot + 实际波动率期限结构,合成链在真实价位上
+        real_spot, surface, rate = _auto_options_market(req, ticker)
+        return OptionChain.abstract(ticker, real_spot, surface, rate=rate,
+                                    div_yield=req.div_yield, borrow=req.borrow, asof=asof)
     # Manual mode: synthesise from a parametric surface.
     surface = ParametricSkewSurface(atm=req.atm_vol, slope=req.skew_slope, curv=req.skew_curv)
     return OptionChain.abstract(ticker, spot, surface, rate=req.rate,
@@ -549,15 +600,24 @@ def _build_options_analytics(
     # Try building the surface from the chain's own contracts first (free).
     surface = chain.to_surface()
     if surface is not None:
-        # Fetch realized-vol history only (single Massive call, best-effort),
-        # reusing the chain's provider rather than building a second one.
+        # Fetch realized-vol history only (single call, best-effort), reusing the
+        # chain's provider rather than building a second one. Auto mode reads the
+        # same FMP daily closes the chain's realized vols came from.
         history = None
-        if getattr(req, "source", "live") == "live":
+        req_source = getattr(req, "source", "live")
+        if req_source == "live":
             prov = provider or _options_provider(req, ticker, _parse_asof_options(req))
             try:
                 raw = prov._daily_closes(ticker)
                 if raw is not None and len(raw) > 0:
                     history = np.asarray(raw, dtype=float)
+            except Exception:  # noqa: BLE001 - history is best-effort
+                history = None
+        elif req_source == "auto":
+            try:
+                history = np.asarray(_fmp_live()._daily_closes(ticker), dtype=float)
+                if history.size == 0:
+                    history = None
             except Exception:  # noqa: BLE001 - history is best-effort
                 history = None
         source = "live-history" if history is not None else "chain"
