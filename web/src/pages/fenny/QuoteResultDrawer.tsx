@@ -33,6 +33,7 @@ export interface QuoteResult {
   infeasible?: boolean;        // fair coupon would be < 0 (floored to 0)
   solved_strike?: number;      // fraction of fixing, when Solve For = Strike
   strike_bracketed?: boolean;  // false = the solved strike hit the [50%,120%] bound
+  data_note?: string;          // set client-side when some names couldn't resolve to live data
   pricing: Pricing;
   fees?: Record<string, number>;
   payoff_diagram: Payoff;

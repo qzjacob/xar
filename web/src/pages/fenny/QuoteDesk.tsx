@@ -147,22 +147,33 @@ async function priceOne(
     ...u, strike: strikeFrac,
   }));
   ts.knock_in = { barrier: kiFrac, style: kiStyle, settlement: "cash" };
-  const assume = () => tickers.map((t) => ({
+  const assumeAsset = (t: string) => ({
     ticker: t, spot: 100, atm_vol: a.atmVol, skew_slope: -0.4, skew_curv: 0.3,
-  }));
+  });
   let market: Record<string, unknown>;
+  let dataNote: string | undefined;
   if (a.live) {
-    // real spot + realized vol + correlation from FMP (no manual input). If any name fails to
-    // resolve, fall back to the stated assumption so the underlying count still matches.
+    // real spot + realized vol + correlation from FMP (no manual input). Merge PER NAME: keep every
+    // resolved name's real vol, fill ONLY the names FMP couldn't price with the stated assumption.
+    // (Discarding the whole basket on one miss silently mispriced worst-of — a lower flat vol read
+    // as a LOWER coupon for MORE names, the exact reversal a partial resolve used to produce.)
     onStage("fetching real market data");
     const rm = await fennyApi.resolveMarket(tickers);
     const rmAssets = (rm.assets as Record<string, unknown>[]) ?? [];
-    market = rmAssets.length === tickers.length
-      ? { source: "manual", rate: (rm.rate as number) ?? a.rate, rho: a.rho,
-          assets: rmAssets, correlation: (rm.correlation as number[][] | null) ?? undefined }
-      : { source: "manual", rate: a.rate, rho: a.rho, assets: assume() };
+    const byTicker = new Map(rmAssets.map((x) => [String(x.ticker), x]));
+    const missing = tickers.filter((t) => !byTicker.has(t));
+    const assets = tickers.map((t) => byTicker.get(t) ?? assumeAsset(t));
+    market = {
+      source: "manual", rate: (rm.rate as number) ?? a.rate, rho: a.rho, assets,
+      // the correlation matrix from resolve_market only spans resolved names; use it only when the
+      // whole basket resolved, otherwise fall back to the uniform ρ so the matrix size stays valid.
+      correlation: missing.length === 0 ? ((rm.correlation as number[][] | null) ?? undefined) : undefined,
+    };
+    if (missing.length) {
+      dataNote = `${missing.join("、")} 无实时行情，已用假设波动率 ${(a.atmVol * 100).toFixed(0)}%（其余为实时数据）`;
+    }
   } else {
-    market = { source: "manual", rate: a.rate, rho: a.rho, assets: assume() };
+    market = { source: "manual", rate: a.rate, rho: a.rho, assets: tickers.map(assumeAsset) };
   }
   const onP = (j: Job) => onStage(j.stage || "pricing");
   // both note_price + gross_margin define the reoffer target PV=(note_price-margin)/100 that the
@@ -176,7 +187,8 @@ async function priceOne(
     body.solve_for = "strike";
     body.couple_ki_to_strike = row.barrierType === "NONE";
   }
-  return (await fennyApi.solve(body, onP)) as unknown as QuoteResult;
+  const res = (await fennyApi.solve(body, onP)) as unknown as QuoteResult;
+  return dataNote ? { ...res, data_note: dataNote } : res;
 }
 
 const INPUT =
@@ -516,6 +528,9 @@ export function QuoteDesk() {
                         )}
                         {r.solveFor === "strike" && r.result.strike_bracketed === false && (
                           <div className="py-0.5 text-[10px] text-warn-100">⚠ 求解行权价触及区间边界 [50%,120%],结果为夹逼值</div>
+                        )}
+                        {r.result.data_note && (
+                          <div className="py-0.5 text-[10px] text-warn-100">⚠ {r.result.data_note}</div>
                         )}
                         {r.open && <QuoteResultDrawer result={r.result} ccy={r.currency} variant={variant} barrierNone={r.barrierType === "NONE"} />}
                       </>
