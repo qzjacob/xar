@@ -40,12 +40,15 @@ def _simulate(sigma: float, drift_rate: float, tenor_years: float,
     """
     rng = np.random.default_rng(_SEED)
     if daily:
-        n_steps = max(len(obs_times), int(round(252 * tenor_years)))
+        # cap the monitoring grid at ~1y of daily steps (weekly-ish granularity beyond) and
+        # halve the paths — 16 concurrent rank workers × long-tenor float64 path arrays would
+        # otherwise take ~GBs; screening accuracy is rank-stable thanks to CRN.
+        n_steps = min(max(len(obs_times), int(round(252 * tenor_years))), 252)
         grid = np.linspace(tenor_years / n_steps, tenor_years, n_steps)
     else:
         grid = obs_times
     dt = np.diff(np.concatenate([[0.0], grid]))
-    half = _N_PATHS // 2
+    half = (_N_PATHS // 4) if daily else (_N_PATHS // 2)
     z = rng.standard_normal((half, len(grid)))
     z = np.vstack([z, -z])                                   # antithetic
     incr = (drift_rate - 0.5 * sigma * sigma) * dt + sigma * np.sqrt(dt) * z
@@ -86,7 +89,9 @@ def screen_price(
     n_obs = max(1, int(round(ppy * tenor_years)))
     obs_times = np.array([min((i + 1) / ppy, tenor_years) for i in range(n_obs)])
     obs_times[-1] = tenor_years
-    tau = 1.0 / ppy
+    # per-period accruals from actual observation gaps — a clamped final observation
+    # (tenor not a multiple of the frequency) must not over-accrue a full period
+    taus = np.diff(np.concatenate([[0.0], obs_times]))
 
     # Barrier NONE (无保护) = downside starts at the strike itself, observed at maturity.
     ki_eff = strike if ki_style == "none" else ki
@@ -108,7 +113,7 @@ def screen_price(
 
     df_obs = np.exp(-disc_rate * obs_times)
     # FCN coupons are unconditional and accrue per period until call/maturity
-    cum_cpn = np.cumsum(tau * df_obs)                       # PV of coupons paid through obs i
+    cum_cpn = np.cumsum(taus * df_obs)                      # PV of coupons paid through obs i
     n_paid = np.where(called, first + 1, n_obs)             # called at obs i → i+1 coupons paid
     coupon_unit_pv = cum_cpn[n_paid - 1]
 
@@ -171,9 +176,12 @@ def screen_price(
                 break
         k = 0.5 * (lo + hi)
     conv = (~called) & ((terminal < k) if ki_style == "none" else (ki_breached & (terminal < k)))
-    return {
+    out = {
         **base,
         "strike": round(float(k), 4),
         "bracketed": bracketed,
         "prob_capital_at_risk": round(float(conv.mean()), 4),
     }
+    if ki_style == "none":
+        out["buffer_pct"] = round(1.0 - float(k), 4)   # 无保护: buffer measured to the SOLVED strike
+    return out

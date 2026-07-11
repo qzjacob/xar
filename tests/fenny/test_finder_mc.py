@@ -90,3 +90,45 @@ def test_plain_structure_still_closed_form():
     r = rank_underlyings(_prov(), st, universe=["LOWV", "HIGHV"], rank_by="coupon", use_cache=False)
     assert [x["ticker"] for x in r["ranked"]] == ["HIGHV", "LOWV"]
     assert all("prob_autocall" not in x for x in r["ranked"])  # closed-form rows have no MC fields
+
+
+def test_unbracketed_strike_solves_rank_last():
+    # The dangerous clamp is the 0.40 floor (a name so rich even the lowest strike overshoots
+    # the target): ascending strike order would put that FAILED solve at #1. Clamped
+    # (bracketed=False) rows must rank after every genuine solve, whichever bound they hit.
+    prov = ManualProvider(
+        spots={"MID": 100.0, "RICH": 100.0},
+        surfaces={"MID": ParametricSkewSurface(atm=0.45, slope=-0.4, curv=0.3),
+                  "RICH": ParametricSkewSurface(atm=1.2, slope=-0.4, curv=0.3)},
+        rate=0.04,
+    )
+    st = RankStructure(tenor_months=6, frequency="monthly", protection_pct=0.65,
+                       ko_pct=1.0, ki_style="european", coupon_pa=0.12)
+    r = rank_underlyings(prov, st, universe=["MID", "RICH"], rank_by="strike", use_cache=False)
+    rows = {x["ticker"]: x for x in r["ranked"]}
+    assert rows["RICH"]["bracketed"] is False and rows["RICH"]["strike"] == pytest.approx(0.40)
+    # the clamped 0.40 must NOT outrank the genuine solve despite being numerically lower
+    assert r["ranked"][0]["ticker"] == "MID"
+    assert r["ranked"][-1]["ticker"] == "RICH"
+
+
+def test_min_coupon_filter_does_not_kill_strike_rows():
+    st = RankStructure(tenor_months=6, frequency="monthly", protection_pct=0.65,
+                       ko_pct=1.0, ki_style="european", coupon_pa=0.12)
+    r = rank_underlyings(_prov(), st, universe=["LOWV", "HIGHV"], rank_by="strike",
+                         filters={"min_coupon": 0.05}, use_cache=False)
+    assert len(r["ranked"]) == 2  # strike rows carry no coupon → min_coupon must not drop them
+
+
+def test_etf_kind_filter_applies_before_truncation():
+    # 30 stocks (bigger caps) + 3 ETFs; max_candidates=5 with kind=etf must still find ETFs
+    spots = {f"S{i}": 100.0 for i in range(30)}
+    spots.update({f"E{i}": 100.0 for i in range(3)})
+    surfaces = {t: ParametricSkewSurface(atm=0.3, slope=-0.4, curv=0.3) for t in spots}
+    prov = ManualProvider(spots=spots, surfaces=surfaces, rate=0.04)
+    universe = ([{"ticker": f"S{i}", "marketCap": 1e12 - i, "isEtf": False} for i in range(30)]
+                + [{"ticker": f"E{i}", "marketCap": 1e10 - i, "isEtf": True} for i in range(3)])
+    st = RankStructure(tenor_months=6, frequency="quarterly", protection_pct=0.70)
+    r = rank_underlyings(prov, st, universe=universe, rank_by="coupon",
+                         filters={"kind": "etf"}, max_candidates=5, use_cache=False)
+    assert {x["ticker"] for x in r["ranked"]} == {"E0", "E1", "E2"}

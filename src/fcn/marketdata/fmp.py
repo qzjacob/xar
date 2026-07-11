@@ -119,10 +119,16 @@ class FMPProvider:
         rows = data["historical"] if isinstance(data, dict) and "historical" in data else data
         rows = rows[: self.lookback_days]
         # the FMP "light" EOD endpoint returns the close under `price` (not `close`); accept both.
-        closes = np.array([float(r.get("close", r.get("price"))) for r in rows], dtype=float)
-        dates = [str(r.get("date", "")) for r in rows]
-        closes = closes[::-1]  # FMP returns most-recent-first
-        dates = dates[::-1]
+        # Drop zero/negative/non-finite closes (halted names, bad vendor rows) — one such row
+        # would otherwise turn log-returns into ±inf and poison every realized-vol consumer.
+        pairs = []
+        for r in rows:
+            c = float(r.get("close", r.get("price")))
+            if np.isfinite(c) and c > 0:
+                pairs.append((str(r.get("date", "")), c))
+        pairs.reverse()  # FMP returns most-recent-first
+        dates = [d for d, _ in pairs]
+        closes = np.array([c for _, c in pairs], dtype=float)
         self._close_cache[ticker] = (dates, closes)
         return dates, closes
 

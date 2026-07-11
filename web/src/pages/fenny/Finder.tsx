@@ -14,6 +14,7 @@ interface RankedRow {
   spot: number;
   coupon?: number; // fair annualized coupon, fraction
   strike?: number; // fair strike as fraction of spot (rank_by=strike)
+  bracketed?: boolean; // false = strike solve clamped at the [40%,120%] bound (target unreachable)
   prob_autocall?: number;
   expected_life?: number;
   iv_at_barrier: number;
@@ -106,7 +107,8 @@ export function Finder() {
           frequency,
           protection_pct: kiStyle === "none" ? strikePct / 100 : kiPct / 100,
           strike_pct: strikePct / 100,
-          ko_pct: koPct.trim() === "" ? null : Number(koPct) / 100,
+          // NaN 守卫:非数字文本(如粘贴 "100%")不可静默变成 null(无敲出)
+          ko_pct: koPct.trim() === "" || !Number.isFinite(Number(koPct)) ? null : Number(koPct) / 100,
           ki_style: kiStyle,
           coupon_pa: rankBy === "strike" ? couponPa / 100 : null,
         },
@@ -298,6 +300,12 @@ export function Finder() {
                       <td className="px-3 py-2 text-right font-semibold tnum"
                         style={heatFor(byStrike ? r.strike ?? 0 : r.coupon ?? 0)}>
                         {byStrike ? pct(r.strike, 1) : pct(r.coupon)}
+                        {byStrike && r.bracketed === false && (
+                          <span className="ml-1 text-2xs font-normal text-warn-100"
+                            title="该票息下目标价无法在 [40%,120%] 行权价区间内实现,显示为夹逼值 — 已排到最后">
+                            ⚠夹逼
+                          </span>
+                        )}
                       </td>
                       {ranked.some((x) => x.prob_autocall != null) && (
                         <td className="px-3 py-2 text-right text-slate-400 tnum">{pct(r.prob_autocall, 0)}</td>

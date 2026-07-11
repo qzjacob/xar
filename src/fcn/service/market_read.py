@@ -173,12 +173,13 @@ def monthly_trend(provider, indices) -> dict | None:
         base = px[-4] if len(px) >= 4 else px[0]
         return px[-1] / base - 1.0 if base else 0.0
 
+    months = sorted({s["month"] for p in per_index for s in p["samples"]})
     return {
         "per_index": per_index,
         "vol_now": _avg_across(lambda s: s[-1]["rv21"]),
         "vol_mom": round(_avg_across(_vol_mom), 4),
         "px_3m": round(_avg_across(_px_3m), 4),
-        "months": [s["month"] for s in per_index[0]["samples"]],
+        "months": months,   # union across indices — a gap in the first index must not hide a month
     }
 
 
@@ -221,12 +222,15 @@ def timing_view(metrics: dict, trend: dict | None, lang: str = "en") -> dict:
             part -= 8
             part_drv.append("波动率抬升——上行期权变贵" if zh else "Vol building — upside options getting pricier")
     if px_3m is not None:
+        # income and participation react to momentum independently — and each branch set is
+        # monotone in drawdown depth (a crash must never score better than a mild dip)
         if px_3m < -0.08:
             income -= 15
             inc_drv.append(f"近3月指数回撤 {px_3m*100:.0f}%——敲入风险抬升" if zh
                            else f"3m index drawdown {px_3m*100:.0f}% — knock-in risk elevated")
         elif px_3m > 0.02:
             income += 6
+        if px_3m > 0.02:
             part += 10
             part_drv.append(f"近3月上涨 {px_3m*100:+.0f}%——动能利于上行参与" if zh
                             else f"3m momentum {px_3m*100:+.0f}% — favours upside participation")
@@ -250,21 +254,38 @@ def timing_view(metrics: dict, trend: dict | None, lang: str = "en") -> dict:
     return out
 
 
-def _template_narrative(metrics: dict, suit: dict) -> str:
+def _template_narrative(metrics: dict, suit: dict, lang: str = "en",
+                        timing: dict | None = None) -> str:
     vol, skew, term = metrics["vol_level"], metrics["skew"], metrics["term_slope"]
     top = max(suit.items(), key=lambda kv: kv[1]["score"])
-    regime = "elevated" if vol >= 0.24 else ("moderate" if vol >= 0.17 else "subdued")
-    ts = "backwardated (near-term stress priced in)" if term < -0.005 else (
-        "in contango (calm, upward-sloping)" if term > 0.005 else "broadly flat")
-    return (
-        f"Index implied volatility is {regime} (3M ATM ~{vol*100:.0f}%, VIX proxy "
-        f"{metrics['vix_proxy']:.0f}), with the term structure {ts} and a "
+    if lang == "zh":
+        regime = "偏高" if vol >= 0.24 else ("温和" if vol >= 0.17 else "偏低")
+        ts = "倒挂(近端计入压力)" if term < -0.005 else ("正向(远端更高、市况平静)" if term > 0.005 else "大体平坦")
+        text = (
+            f"指数波动率{regime}(3M ATM 约 {vol*100:.0f}%,VIX 代理 {metrics['vix_proxy']:.0f}),"
+            f"期限结构{ts},下行认沽偏斜{'陡峭' if skew >= 0.03 else '平缓'}(90% 行权价 +{skew*100:.1f} 个点)。"
+            f"对票据发行而言,当前环境使卖出下行波动的收益型结构票息{'增厚' if vol >= 0.22 else '偏薄'}。"
+            f"综合看目前最适配的产品族为 {top[0]}({top[1]['label']})。无风险利率约 {metrics['rate']*100:.1f}%。"
+        )
+        if timing:
+            tl = "、".join(f"{k}:{v['label']}" for k, v in timing.items())
+            text += f"择时(月度趋势):{tl}。"
+        return text + "以上仅为指示性,最终条款以交易日定价为准。"
+    text = (
+        f"Index implied volatility is "
+        f"{'elevated' if vol >= 0.24 else 'moderate' if vol >= 0.17 else 'subdued'} "
+        f"(3M ATM ~{vol*100:.0f}%, VIX proxy "
+        f"{metrics['vix_proxy']:.0f}), with the term structure "
+        f"{'backwardated (near-term stress priced in)' if term < -0.005 else 'in contango (calm, upward-sloping)' if term > 0.005 else 'broadly flat'} and a "
         f"{'steep' if skew >= 0.03 else 'shallow'} downside put skew (+{skew*100:.1f} vol pts at 90%). "
         f"For note issuance this {'richens' if vol >= 0.22 else 'thins'} coupons on income structures "
         f"that sell downside volatility. On balance the most suitable family right now looks like "
         f"{top[0]} ({top[1]['label']}). Risk-free rate ~{metrics['rate']*100:.1f}%. "
-        "Indicative only; final terms are struck on the trade date."
     )
+    if timing:
+        tl = "; ".join(f"{k}: {v['label']}" for k, v in timing.items())
+        text += f"Timing (monthly trend): {tl}. "
+    return text + "Indicative only; final terms are struck on the trade date."
 
 
 def _build_prompt(
@@ -332,7 +353,8 @@ def build_market_read(provider, indices=("SPY", "QQQ"), lang: str = "en", llm_ca
     caller = (llm_caller if llm_caller is not None
               else functools.partial(llm.generate, narrative=True, max_tokens=6000))
     text = caller(prompt, system=system) if caller is not None else None
-    narrative = text if text else _template_narrative(metrics, suit)
+    narrative = text if text else _template_narrative(metrics, suit, lang, timing)
+    resolved = {m["ticker"] for m in metrics["per_index"]}
     return {
         "metrics": metrics,
         "suitability": suit,
@@ -341,4 +363,6 @@ def build_market_read(provider, indices=("SPY", "QQQ"), lang: str = "en", llm_ca
         "narrative": narrative,
         "narrative_source": "llm" if text else "template",
         "indices": list(indices),
+        # requested indices the data source could not serve — dropped, but never silently
+        "unresolved": [t for t in indices if t not in resolved],
     }

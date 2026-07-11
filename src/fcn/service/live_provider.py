@@ -70,6 +70,8 @@ class FMPLiveProvider:
         return float(self.fmp.spot(self._sym(ticker)))
 
     def div_yield(self, ticker: str) -> float:
+        # Honest scope: FMP's tier gives no dividend curve, so auto mode prices at q=0
+        # (slightly rich forwards for dividend payers) — a screen-grade approximation.
         try:
             return float(self.fmp.div_yield(self._sym(ticker)))
         except Exception:  # noqa: BLE001
@@ -90,22 +92,25 @@ class FMPLiveProvider:
         t = ticker.strip().upper()
         if t in self._surfaces:
             return self._surfaces[t]
-        surface: VolSurface | None = None
         try:
             rets = self.fmp.history_returns(self._sym(t))
-            rv_1m = realized_vol(rets, window=21)
-            rv_3m = realized_vol(rets, window=63)
-            rv_1y = realized_vol(rets, window=252)
-            anchors = [(1.0 / 12.0, rv_1m), (0.25, rv_3m), (1.0, rv_1y)]
-            term = tuple((tt, v) for tt, v in anchors if v is not None)
-            if term:
-                atm = term[min(1, len(term) - 1)][1]   # prefer the 3M anchor as headline ATM
-                surface = ParametricSkewSurface(
-                    atm=atm, slope=self.skew_slope, curv=self.skew_curv, term=term,
-                )
-        except Exception:  # noqa: BLE001 — history unavailable → no surface → caller skips
-            surface = None
-        self._surfaces[t] = surface
+        except Exception:  # noqa: BLE001 — transient fetch failure: do NOT negative-cache,
+            return None    # the provider instance is shared/TTL-cached across requests
+        rv_1m = realized_vol(rets, window=21)
+        rv_3m = realized_vol(rets, window=63)
+        rv_1y = realized_vol(rets, window=252)
+        anchors = [(1.0 / 12.0, rv_1m), (0.25, rv_3m), (1.0, rv_1y)]
+        term = tuple((tt, v) for tt, v in anchors if v is not None)
+        surface: VolSurface | None = None
+        if term:
+            # extend the last anchor flat to 2Y — linear-in-variance interp would otherwise
+            # decay ATM as 1/sqrt(t) beyond the final anchor (clamped total variance)
+            term = (*term, (2.0, term[-1][1]))
+            atm = term[min(1, len(term) - 1)][1]   # prefer the 3M anchor as headline ATM
+            surface = ParametricSkewSurface(
+                atm=atm, slope=self.skew_slope, curv=self.skew_curv, term=term,
+            )
+        self._surfaces[t] = surface   # cache real outcomes only (surface, or genuinely-short history)
         return surface
 
     def risk_free_rate(self) -> float:
@@ -143,10 +148,12 @@ class FMPLiveProvider:
         out: list[dict] = []
         for month in sorted(last_idx)[-months:]:
             i = last_idx[month]
-            if i < 22:   # need a 21-return trailing window
+            if i < 21:   # closes[i-21 : i+1] = 22 points → a full 21-return trailing window
                 continue
             window = np.diff(np.log(closes[i - 21 : i + 1]))
             rv = float(np.std(window, ddof=1) * np.sqrt(252))
+            if not np.isfinite(rv):
+                continue
             out.append({"month": month, "spot": round(float(closes[i]), 2), "rv21": round(rv, 4)})
         return out
 

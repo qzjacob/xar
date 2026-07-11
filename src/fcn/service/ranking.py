@@ -178,13 +178,25 @@ def rank_underlyings(
         universe = screen() if callable(screen) else []
     meta = _normalise_universe(universe)
     universe_size = len(meta)
+    # Metadata-only filters (kind/sector) apply BEFORE the liquidity truncation — otherwise
+    # a 仅ETF screen would first cap to the top-N by market cap (mostly stocks) and only
+    # then filter, returning far fewer ETFs than the universe actually holds.
+    _f = filters or {}
+    kind, sector = _f.get("kind"), _f.get("sector")
+    if kind == "stock":
+        meta = [m for m in meta if not m.get("isEtf")]
+    elif kind == "etf":
+        meta = [m for m in meta if m.get("isEtf")]
+    if sector:
+        meta = [m for m in meta if m.get("sector") == sector]
     # Cap to the most liquid names (screener is already market-cap sorted; re-sort defensively).
     meta.sort(key=lambda d: d.get("marketCap", 0.0), reverse=True)
     considered = meta[: max(1, max_candidates)] if max_candidates else meta
 
-    # Cache key intentionally omits provider identity so live requests share results
-    # across calls; manual/tests pass use_cache=False to avoid cross-run contamination.
-    sig = (structure, round(provider.risk_free_rate(), 6), round(provider.funding_rate(), 6))
+    # Cache key includes the provider's vol basis (realized FMP vs implied Massive) so
+    # auto and live jobs never share per-name results; manual/tests pass use_cache=False.
+    sig = (structure, getattr(provider, "vol_basis", "implied"),
+           round(provider.risk_free_rate(), 6), round(provider.funding_rate(), 6))
 
     def price(meta_row: dict):
         ticker = meta_row["ticker"]
@@ -218,7 +230,13 @@ def rank_underlyings(
 
     ranked = _apply_filters(ranked, filters or {})
     field, descending = _RANK_KEYS.get(rank_by, _RANK_KEYS["coupon"])
-    ranked.sort(key=lambda r: r.get(field, 0.0), reverse=descending)
+    if rank_by == "strike":
+        # Demote unbracketed solves (clamped at the [0.40, 1.20] bounds): a strike where
+        # the target PV was NOT reachable must never outrank a genuine solve — ascending
+        # order would otherwise put exactly the failed names at #1.
+        ranked.sort(key=lambda r: (0 if r.get("bracketed", True) else 1, r.get(field, 9.9)))
+    else:
+        ranked.sort(key=lambda r: r.get(field, 0.0), reverse=descending)
     ranked = ranked[: max(1, top_n)]
     for i, row in enumerate(ranked, start=1):
         row["rank"] = i
@@ -247,7 +265,9 @@ def _apply_filters(rows: list[dict], filters: dict) -> list[dict]:
     kind = filters.get("kind")  # "stock" | "etf" | "all"/None
     out = []
     for r in rows:
-        if min_coupon is not None and r.get("coupon", 0.0) < min_coupon:
+        # min_coupon only applies to coupon rows — strike-solve rows carry no coupon and
+        # must not be filtered out by a defaulted 0.0
+        if min_coupon is not None and "coupon" in r and r["coupon"] < min_coupon:
             continue
         if max_prob_loss is not None and r.get("prob_capital_at_risk", 0.0) > max_prob_loss:
             continue

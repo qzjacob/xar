@@ -56,6 +56,8 @@ def realized_vol(rets: np.ndarray | None, window: int = 63) -> float | None:
     if r.size < 20:
         return None
     v = float(np.std(r, ddof=1) * np.sqrt(_TRADING_DAYS))
+    if not np.isfinite(v):   # a zero/negative close upstream → ±inf log-return → NaN vol
+        return None
     return float(np.clip(v, _VOL_FLOOR, _VOL_CAP))
 
 

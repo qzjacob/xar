@@ -128,8 +128,9 @@ function MarketFields({
           onChange={(e) => set({ ticker: e.target.value })}
         />
       </Field>
-      <span className="pb-1.5 text-2xs text-slate-500">
-        现价·波动率·利率 = 实时真实数据(自动抓取,无需输入)
+      <span className="pb-1.5 text-2xs text-slate-500"
+        title="ATM 波动率为历史实际波动率(21/63/252 日窗口的期限结构);偏斜/微笑为台面参数假设(该数据档位无期权隐含波动率)">
+        现价·ATM波动率(实际历史)·利率 实时抓取 — 偏斜为台面参数
       </span>
     </div>
   );

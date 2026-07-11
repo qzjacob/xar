@@ -414,9 +414,15 @@ def _manual_provider(assets, rate: float, funding: float | None) -> ManualProvid
 
 def _run_rank_job(req: RankRequest, jid: str) -> None:
     s = req.structure
-    # Solve the strike only when ranking by strike (needs a fixed coupon; default 12%).
-    # Otherwise coupon_pa stays None so every row carries a solved coupon.
-    coupon_pa = (s.coupon_pa if s.coupon_pa is not None else 0.12) if req.rank_by == "strike" else None
+    # rank_by="strike" needs a fixed coupon (default 12%). rank_by="coupon" needs coupon rows,
+    # so coupon_pa is cleared there. Other rank keys (prob/iv/marketCap) honour the caller's
+    # coupon_pa as-is (set → strike rows, unset → coupon rows) — both carry those fields.
+    if req.rank_by == "strike":
+        coupon_pa = s.coupon_pa if s.coupon_pa is not None else 0.12
+    elif req.rank_by == "coupon":
+        coupon_pa = None
+    else:
+        coupon_pa = s.coupon_pa
     structure = RankStructure(
         product=s.product, tenor_months=s.tenor_months, frequency=s.frequency,
         protection_pct=s.protection_pct, strike_pct=s.strike_pct, reoffer_pct=s.reoffer_pct,
@@ -563,8 +569,10 @@ def _auto_options_market(req, ticker: str):
     prov = _fmp_live()
     spot = prov.spot(ticker)            # raises when unresolvable
     surface = prov.vol_surface(ticker)
-    if surface is None:                 # too little history → fall back to the request's skew
-        surface = ParametricSkewSurface(atm=req.atm_vol, slope=req.skew_slope, curv=req.skew_curv)
+    if surface is None:
+        # Fail loudly instead of silently pricing off the schema's 30% assumption — the
+        # auto page promises real data, so "no usable history" must surface as an error.
+        raise FMPUnavailable(f"{ticker}: 历史数据不足,无法计算实际波动率(auto 模式不虚构假设值)")
     return spot, surface, prov.risk_free_rate()
 
 

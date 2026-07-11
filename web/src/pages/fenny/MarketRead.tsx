@@ -64,6 +64,7 @@ interface MarketReadResult {
   narrative_source: string;
   indices: string[];
   source: string;
+  unresolved?: string[]; // requested indices the data source could not serve
 }
 
 const INPUT = "rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-xs text-brand-900";
@@ -227,6 +228,11 @@ export function MarketRead() {
         </div>
       )}
       {err && <div className="text-xs text-neg">Error: {err}</div>}
+      {res?.unresolved && res.unresolved.length > 0 && (
+        <div className="text-xs text-warn-100">
+          ⚠ {res.unresolved.join("、")} 无可用实时数据,已从本次解读中剔除(其余为真实数据)
+        </div>
+      )}
 
       {res && m && (
         <>

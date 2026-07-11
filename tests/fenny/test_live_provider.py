@@ -127,3 +127,38 @@ def test_alias_and_screen_passthrough():
     assert p.vol_surface("GOOG") is not None
     uni = p.screen_universe(min_market_cap=1e10)
     assert uni and uni[0]["ticker"] == "AAA"
+
+
+def test_bad_close_row_cannot_poison_vol_with_nan():
+    # one zero close (halted name / bad vendor row) used to become log(0)=-inf → NaN vol that
+    # passed every guard and 500'd the job JSON; now the row is dropped at ingestion
+    series = _trending_series()
+    series[50] = 0.0
+    p = _provider({"SPY": series})
+    surf = p.vol_surface("SPY")
+    assert surf is not None
+    for t in (1 / 12, 0.25, 1.0):
+        v = surf.atm_vol(t)
+        assert np.isfinite(v) and 0.05 < v < 1.6
+    for s in p.monthly_samples("SPY"):
+        assert np.isfinite(s["rv21"]) and np.isfinite(s["spot"])
+
+
+def test_transient_fetch_error_not_negatively_cached():
+    calls = {"n": 0}
+
+    def flaky_getter(path, params, api_key):
+        if path.startswith("historical-price-eod"):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("transient 429")
+            return _mk_rows(_trending_series())
+        if path == "quote":
+            return [{"symbol": params["symbol"], "price": 100.0}]
+        if path == "treasury-rates":
+            return [{"year1": 4.0}]
+        raise AssertionError(path)
+
+    p = FMPLiveProvider(fmp=FMPProvider(api_key="x", getter=flaky_getter))
+    assert p.vol_surface("SPY") is None      # first call fails transiently
+    assert p.vol_surface("SPY") is not None  # retry succeeds — no sticky None cache
