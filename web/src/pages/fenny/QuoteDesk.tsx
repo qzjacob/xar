@@ -39,10 +39,12 @@ const SOLVE_OPTS: { key: SolveFor; label: string; live: boolean }[] = [
 
 type SolveFor = "coupon" | "note_price" | "strike";
 
-interface Col { key: string; label: string; cn: string; tip: string; w: string; solvable?: boolean }
+// rec = record-only: the cell is stored/labels the note but does NOT move the indicative price
+// (single-curve pricing / scale-free barriers), marked so the desk isn't misled.
+interface Col { key: string; label: string; cn: string; tip: string; w: string; solvable?: boolean; rec?: boolean }
 // header meta (single source for labels + ⓘ tooltips + the blue-S solvable markers)
 const COLS: Col[] = [
-  { key: "currency", label: "Currency", cn: "币种", w: "w-[68px]", tip: "票据币种;当前定价单曲线,USD 为主,其它仅登记。" },
+  { key: "currency", label: "Currency", cn: "币种", w: "w-[68px]", rec: true, tip: "票据币种;当前定价单曲线,USD 为主,改币种不改变指示报价(仅登记)。" },
   { key: "underlying", label: "Underlying", cn: "标的", w: "w-[184px]", tip: "挂钩 1–4 只股票;多只时由表现最差的一只决定结果(worst-of)。" },
   { key: "solveFor", label: "Solve For", cn: "求解目标", w: "w-[132px]", tip: "选择让引擎反解的参数:票息(支持)、发行价(支持)、行权价(即将支持)。其余为输入。" },
   { key: "strikePct", label: "Strike (%)", cn: "行权价", w: "w-[76px]", solvable: true, tip: "行权价,占初始定价%(100=平价)。到期最差股票低于此价,按跌幅承受下行。" },
@@ -55,8 +57,8 @@ const COLS: Col[] = [
   { key: "barrierType", label: "Barrier Type", cn: "敲入类型", w: "w-[116px]", tip: "敲入(下行保护)观察方式:NONE=无独立敲入线(按行权价结算);European=仅到期观察;American=存续期内每日观察。" },
   { key: "kiPct", label: "KI (%)", cn: "敲入线", w: "w-[72px]", tip: "敲入线,占初始%(如 65)。Barrier Type=NONE 时不适用。" },
   { key: "obsFreqM", label: "Obs. Freq (m)", cn: "观察频率(月)", w: "w-[104px]", tip: "敲出/派息观察频率,月。1=每月,3=每季,6=每半年,12=每年。" },
-  { key: "effOffset", label: "Eff. Date Offset", cn: "起息偏移(日)", w: "w-[112px]", tip: "成交日到定价(起息)日的营业日间隔;定价日 = 今天 + 偏移。" },
-  { key: "tags", label: "Tags", cn: "标签", w: "w-[104px]", tip: "自定义标签,仅登记,不影响定价。" },
+  { key: "effOffset", label: "Eff. Date Offset", cn: "起息偏移(日)", w: "w-[112px]", rec: true, tip: "成交日到定价(起息)日的营业日间隔;因存续期从定价日起算、障碍为相对水平,改此值不改变指示报价(仅登记)。" },
+  { key: "tags", label: "Tags", cn: "标签", w: "w-[104px]", rec: true, tip: "自定义标签,仅登记,不影响定价。" },
 ];
 
 interface Row {
@@ -86,11 +88,13 @@ interface Row {
 
 let _rid = 1;
 function makeRow(seed?: Partial<Row>): Row {
+  // id LAST so a seed (e.g. from dupRow spreading the source row) can never override the fresh
+  // id — a shared id would collide React keys and make patch()/delRow() hit both rows.
   return {
-    id: _rid++, currency: "USD", tickers: [], draft: "", solveFor: "coupon", strikePct: 100,
+    currency: "USD", tickers: [], draft: "", solveFor: "coupon", strikePct: 100,
     koType: "period_end", koPct: 100, couponPct: 12, grossMarginPct: 0.7, notePricePct: 99,
     tenorM: 6, barrierType: "NONE", kiPct: "", obsFreqM: 1, effOffset: 10, tags: [],
-    status: "idle", ...seed,
+    status: "idle", ...seed, id: _rid++,
   };
 }
 
@@ -187,8 +191,17 @@ export function QuoteDesk() {
   const variant = TABS.find((t) => t.key === tab)?.variant ?? "fcn";
   const liveTab = !!TABS.find((t) => t.key === tab)?.variant;
 
+  // editing any PRICE-AFFECTING cell invalidates a shown result (a disabled output cell must
+  // never display a number priced from different inputs); internal writes (stage/status/result/
+  // open/draft/tags) don't reset.
+  const PRICE_KEYS = new Set<keyof Row>([
+    "currency", "tickers", "solveFor", "strikePct", "koType", "koPct", "couponPct",
+    "grossMarginPct", "notePricePct", "tenorM", "barrierType", "kiPct", "obsFreqM", "effOffset",
+  ]);
   function patch(id: number, p: Partial<Row>) {
-    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...p } : r)));
+    const invalidates = Object.keys(p).some((k) => PRICE_KEYS.has(k as keyof Row));
+    const reset = invalidates ? { status: "idle" as const, result: null, error: null, open: false } : {};
+    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...p, ...reset } : r)));
   }
   function addRow() { setRows((rs) => [...rs, makeRow()]); }
   function dupRow(id: number) {
@@ -200,17 +213,18 @@ export function QuoteDesk() {
     });
   }
   function delRow(id: number) { setRows((rs) => (rs.length <= 1 ? rs : rs.filter((r) => r.id !== id))); }
+  const RESET = { status: "idle" as const, result: null, error: null, open: false };
   function addTicker(id: number, raw: string) {
     const t = raw.trim().toUpperCase().replace(/,$/, "");
     if (!t) return;
     setRows((rs) => rs.map((r) => {
       if (r.id !== id) return r;
       if (r.tickers.includes(t) || r.tickers.length >= 4) return { ...r, draft: "" };
-      return { ...r, tickers: [...r.tickers, t], draft: "" };
+      return { ...r, tickers: [...r.tickers, t], draft: "", ...RESET };
     }));
   }
   function rmTicker(id: number, t: string) {
-    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, tickers: r.tickers.filter((x) => x !== t) } : r)));
+    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, tickers: r.tickers.filter((x) => x !== t), ...RESET } : r)));
   }
 
   async function submitAll() {
@@ -344,6 +358,7 @@ export function QuoteDesk() {
                   <div className="flex items-center gap-0.5 leading-tight">
                     <span className="truncate normal-case text-slate-400">{c.label}</span>
                     {c.solvable && <span className="grid h-3 w-3 place-items-center rounded-full bg-accent-600/30 text-[8px] font-bold text-accent-100" title="可求解 Solvable">S</span>}
+                    {c.rec && <span className="rounded bg-slate-700/50 px-1 text-[8px] font-normal normal-case text-slate-400" title="仅登记 · 不影响指示报价">记</span>}
                     <InfoDot tip={c.tip} />
                   </div>
                   <div className="truncate text-[9px] normal-case text-slate-600">{c.cn}</div>
@@ -411,9 +426,10 @@ export function QuoteDesk() {
                   </div>
                   {/* gross margin */}
                   <div className={cn(COLS[7].w, "shrink-0")}><NumCell value={r.grossMarginPct} step="0.05" onChange={(v) => patch(r.id, { grossMarginPct: +v })} /></div>
-                  {/* note price */}
+                  {/* note price — solved = fair value + gross margin (consistent with coupon
+                      mode's reoffer=(note_price-margin)/100), so Gross Margin moves this output. */}
                   <div className={cn(COLS[8].w, "shrink-0")}>
-                    <NumCell value={r.solveFor === "note_price" && r.result ? +(r.result.pricing.price_pct.toFixed(2)) : r.notePricePct}
+                    <NumCell value={r.solveFor === "note_price" && r.result ? +((r.result.pricing.price_pct + r.grossMarginPct).toFixed(2)) : r.notePricePct}
                       step="0.5" onChange={(v) => patch(r.id, { notePricePct: +v })} disabled={r.solveFor === "note_price"} />
                   </div>
                   {/* tenor */}
@@ -466,7 +482,7 @@ export function QuoteDesk() {
                           className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 py-1.5 text-left text-2xs">
                           <ChevronDown size={13} className={cn("text-slate-400 transition-transform", r.open && "rotate-180")} />
                           <ResStat label={r.solveFor === "note_price" ? "发行价" : "票息"}
-                            value={r.solveFor === "note_price" ? r.result.pricing.price_pct.toFixed(2) + "%" : ((r.result.coupon_rate ?? 0) * 100).toFixed(2) + "% p.a."} tone="pos" />
+                            value={r.solveFor === "note_price" ? (r.result.pricing.price_pct + r.grossMarginPct).toFixed(2) + "%" : ((r.result.coupon_rate ?? 0) * 100).toFixed(2) + "% p.a."} tone="pos" />
                           <ResStat label="公平价值" value={r.result.pricing.price_pct.toFixed(2) + "%"} />
                           <ResStat label="提前收回" value={(r.result.pricing.prob_autocall * 100).toFixed(1) + "%"} tone="pos" />
                           <ResStat label={r.barrierType === "NONE" ? "本金亏损" : "触及保护线"} value={(r.result.pricing.prob_knock_in * 100).toFixed(1) + "%"} tone="warn" />
