@@ -90,9 +90,11 @@ function makeRow(seed?: Partial<Row>): Row {
   // id LAST so a seed (e.g. from dupRow spreading the source row) can never override the fresh
   // id — a shared id would collide React keys and make patch()/delRow() hit both rows.
   return {
+    // default to a PROTECTED FCN (European KI 65%) — the unprotected Barrier-NONE (KI at the strike)
+    // prices to a shockingly high coupon; a 65% protection barrier is the realistic FCN default.
     currency: "USD", tickers: [], draft: "", solveFor: "coupon", strikePct: 100,
     koType: "period_end", koPct: 100, couponPct: 12, grossMarginPct: 0.7, notePricePct: 99,
-    tenorM: 6, barrierType: "NONE", kiPct: "", obsFreqM: 1, effOffset: 10, tags: [],
+    tenorM: 6, barrierType: "european", kiPct: "65", obsFreqM: 1, effOffset: 10, tags: [],
     status: "idle", ...seed, id: _rid++,
   };
 }
@@ -145,10 +147,23 @@ async function priceOne(
     ...u, strike: strikeFrac,
   }));
   ts.knock_in = { barrier: kiFrac, style: kiStyle, settlement: "cash" };
-  const assets = tickers.map((t) => ({
+  const assume = () => tickers.map((t) => ({
     ticker: t, spot: 100, atm_vol: a.atmVol, skew_slope: -0.4, skew_curv: 0.3,
   }));
-  const market = { source: a.live ? "live" : "manual", rate: a.rate, rho: a.rho, assets };
+  let market: Record<string, unknown>;
+  if (a.live) {
+    // real spot + realized vol + correlation from FMP (no manual input). If any name fails to
+    // resolve, fall back to the stated assumption so the underlying count still matches.
+    onStage("fetching real market data");
+    const rm = await fennyApi.resolveMarket(tickers);
+    const rmAssets = (rm.assets as Record<string, unknown>[]) ?? [];
+    market = rmAssets.length === tickers.length
+      ? { source: "manual", rate: (rm.rate as number) ?? a.rate, rho: a.rho,
+          assets: rmAssets, correlation: (rm.correlation as number[][] | null) ?? undefined }
+      : { source: "manual", rate: a.rate, rho: a.rho, assets: assume() };
+  } else {
+    market = { source: "manual", rate: a.rate, rho: a.rho, assets: assume() };
+  }
   const onP = (j: Job) => onStage(j.stage || "pricing");
   // both note_price + gross_margin define the reoffer target PV=(note_price-margin)/100 that the
   // solve (of coupon OR strike) prices to. coupon mode: ts.coupon.rate=null → solve coupon.
@@ -185,8 +200,10 @@ export function QuoteDesk() {
   const [rows, setRows] = useState<Row[]>([makeRow()]);
   const [remark, setRemark] = useState("");
   const [showAssume, setShowAssume] = useState(false);
+  // default to LIVE (real spot + realized vol from FMP) so quotes reflect real market vol, not a
+  // flat assumption — the flat-30% assumption was the main driver of unrealistically-large coupons.
   const [assume, setAssume] = useState<Assumptions>({
-    notional: 1_000_000, rate: 0.045, rho: 0.5, atmVol: 0.30, live: false,
+    notional: 1_000_000, rate: 0.045, rho: 0.5, atmVol: 0.30, live: true,
   });
   const [running, setRunning] = useState(false);
 
@@ -488,7 +505,18 @@ export function QuoteDesk() {
                           <ResStat label="提前收回" value={(r.result.pricing.prob_autocall * 100).toFixed(1) + "%"} tone="pos" />
                           <ResStat label={r.barrierType === "NONE" ? "本金亏损" : "触及保护线"} value={(r.result.pricing.prob_knock_in * 100).toFixed(1) + "%"} tone="warn" />
                           <ResStat label="预计存续" value={r.result.pricing.expected_life.toFixed(1) + " 年"} />
+                          {r.result.pricing.expected_life < 0.5 && (
+                            <span className="text-[10px] text-warn-100" title="存续期很短:年化票息只在这段时间内派发,p.a. 数字会显得偏高">
+                              ⚠ 存续短·年化偏高
+                            </span>
+                          )}
                         </button>
+                        {r.solveFor === "coupon" && r.result.infeasible && (
+                          <div className="py-0.5 text-[10px] text-neg">⚠ 结构在此发行价/毛利下不可行(公平票息≤0),已置 0</div>
+                        )}
+                        {r.solveFor === "strike" && r.result.strike_bracketed === false && (
+                          <div className="py-0.5 text-[10px] text-warn-100">⚠ 求解行权价触及区间边界 [50%,120%],结果为夹逼值</div>
+                        )}
                         {r.open && <QuoteResultDrawer result={r.result} ccy={r.currency} variant={variant} barrierNone={r.barrierType === "NONE"} />}
                       </>
                     )}

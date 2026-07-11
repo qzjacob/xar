@@ -158,6 +158,15 @@ def market_live(tickers: list[str], max_maturity_years: float = 1.5) -> dict:
     return out
 
 
+@app.post("/api/v1/resolve_market")
+def resolve_market_ep(tickers: list[str], rate: float | None = None) -> dict:
+    """Resolve a live MarketInput (real spot + realized vol + correlation from FMP) for the given
+    tickers — so the desk/finder/market-read/options need no manual price or vol input."""
+    from fcn.service.market_resolver import resolve_market
+
+    return resolve_market(tickers, rate=rate)
+
+
 @app.get("/api/v1/schema/termsheet")
 def termsheet_schema() -> dict:
     return TermSheet.model_json_schema()
@@ -270,6 +279,7 @@ def solve(req: SolveRequest) -> dict:
     )
     return {
         "coupon_rate": sol.coupon_rate, "coupon_rate_se": sol.coupon_rate_se,
+        "infeasible": sol.infeasible,
         "reoffer_fraction": sol.reoffer_fraction, "pricing": ctx["pricing"], "fees": ctx["fees"],
         "payoff_diagram": ctx["payoff_diagram"], "scenario_table": scenario,
         "greeks": ctx["greeks"], "product": ctx["product"], "disclaimer": DISCLAIMER,
@@ -331,7 +341,7 @@ def _run_job(req, jid: str, solve_mode: bool) -> None:
         sol = solve_coupon(engine, ts, snap, reoffer)
         rate, pricing = sol.coupon_rate, sol.pricing
         extra = {"coupon_rate": sol.coupon_rate, "coupon_rate_se": sol.coupon_rate_se,
-                 "reoffer_fraction": sol.reoffer_fraction}
+                 "infeasible": sol.infeasible, "reoffer_fraction": sol.reoffer_fraction}
     else:
         rate = 0.0 if ts.participation is not None else (
             req.coupon_rate if (not solve_mode and getattr(req, "coupon_rate", None) is not None)

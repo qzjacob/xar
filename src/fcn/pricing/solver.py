@@ -25,6 +25,7 @@ class SolveResult:
     coupon_rate_se: float
     reoffer_fraction: float
     pricing: PricingResult
+    infeasible: bool = False   # True when the fair coupon would be < 0 (redemption already ≥ reoffer)
 
 
 @dataclass(frozen=True)
@@ -107,7 +108,13 @@ def solve_coupon(
     if factor <= 0:
         raise ValueError("coupon factor is non-positive; cannot solve for coupon")
     target_pv = reoffer_fraction * ts.notional
-    rate = (target_pv - base) / factor
+    raw = (target_pv - base) / factor
+    # Floor at zero: when the rate-independent redemption already exceeds the reoffer target (e.g.
+    # low vol + a protective KI that autocalls almost immediately), the "fair" coupon is negative —
+    # a nonsensical client quote. Report 0% + infeasible so the desk sees the structure doesn't work
+    # at this reoffer, rather than a bogus negative coupon.
+    infeasible = raw < 0.0
+    rate = max(0.0, raw)
 
     # Standard error of the solved rate via the SE of the (base, factor) means.
     n = res.redemption_pv.size
@@ -120,4 +127,5 @@ def solve_coupon(
         coupon_rate_se=rate_se,
         reoffer_fraction=reoffer_fraction,
         pricing=pricing,
+        infeasible=infeasible,
     )

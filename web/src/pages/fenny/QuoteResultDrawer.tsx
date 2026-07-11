@@ -30,6 +30,7 @@ export interface QuoteResult {
   coupon_rate?: number;
   coupon_rate_se?: number;
   reoffer_fraction?: number;
+  infeasible?: boolean;        // fair coupon would be < 0 (floored to 0)
   solved_strike?: number;      // fraction of fixing, when Solve For = Strike
   strike_bracketed?: boolean;  // false = the solved strike hit the [50%,120%] bound
   pricing: Pricing;

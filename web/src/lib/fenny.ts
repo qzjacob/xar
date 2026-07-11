@@ -38,6 +38,8 @@ export async function runJob(
 export const fennyApi = {
   health: () => jget<{ status: string }>("/health"),
   presetTermsheet: (preset: unknown) => jpost<Record<string, unknown>>("/build_termsheet", preset),
+  // resolve REAL spot + realized vol + correlation from FMP for the given tickers (no manual input)
+  resolveMarket: (tickers: string[]) => jpost<Record<string, unknown>>("/resolve_market", tickers),
   // async jobs
   quote: (body: unknown, onP?: (j: Job) => void, s?: AbortSignal) => runJob("quote", body, onP, s),
   solve: (body: unknown, onP?: (j: Job) => void, s?: AbortSignal) => runJob("solve", body, onP, s),

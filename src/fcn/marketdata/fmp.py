@@ -111,7 +111,10 @@ class FMPProvider:
             return self._hist_cache[ticker]
         data = self._call("historical-price-eod/light", {"symbol": ticker})
         rows = data["historical"] if isinstance(data, dict) and "historical" in data else data
-        closes = np.array([float(r["close"]) for r in rows[: self.lookback_days]], dtype=float)
+        # the FMP "light" EOD endpoint returns the close under `price` (not `close`); accept both.
+        closes = np.array(
+            [float(r.get("close", r.get("price"))) for r in rows[: self.lookback_days]],
+            dtype=float)
         closes = closes[::-1]  # FMP returns most-recent-first
         rets = np.diff(np.log(closes))
         self._hist_cache[ticker] = rets
