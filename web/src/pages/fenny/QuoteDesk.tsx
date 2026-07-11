@@ -1,971 +1,519 @@
 import { useState } from "react";
 import {
-  Calculator,
-  ChevronDown,
-  LineChart,
-  Loader2,
-  Play,
-  ShieldCheck,
-  Sigma,
-  Timer,
-  TrendingDown,
-  TrendingUp,
-  Trash2,
-  Wallet,
+  ChevronDown, Copy, Loader2, Lock, Play, Plus, Sliders, Trash2, X,
 } from "lucide-react";
 import { fennyApi } from "../../lib/fenny";
-import { PlotlyChart } from "../../components/charts/PlotlyChart";
 import { Card } from "../../components/ui/Card";
-import { SectionHeader } from "../../components/ui/SectionHeader";
 import { Badge } from "../../components/ui/Badge";
 import { cn } from "../../lib/format";
 import type { Job } from "../../types-fenny";
-import { FENNY_TERMS as T } from "./glossary";
 import { InfoDot } from "./InfoDot";
+import { QuoteResultDrawer, type QuoteResult } from "./QuoteResultDrawer";
 
-// --- shapes returned by /jobs/quote + /jobs/solve (see main.py _run_job) -----
-interface Pricing {
-  notional: number;
-  coupon_rate: number;
-  pv: number;
-  pv_se: number;
-  price_pct: number;
-  redemption_pv: number;
-  coupon_factor: number;
-  prob_autocall: number;
-  prob_knock_in: number;
-  expected_life: number;
-  n_paths: number;
-  method: string;
-}
-interface Payoff {
-  worst_of: number[];
-  redemption: number[];
-  ki: number;
-  strike: number;
-}
-interface ScenarioRow {
-  shock: number;
-  pv: number;
-  price_pct: number;
-  prob_autocall: number;
-  prob_knock_in: number;
-}
-interface Greeks {
-  delta: number[];
-  gamma: number[];
-  vega: number[];
-  theta: number;
-  rho: number;
-  carry: number;
-  corr_sens: number;
-  skew_vega?: number;
-  bucketed_vega?: Record<string, number>;
-}
-interface Product {
-  variant: string;
-  n_assets: number;
-  basket: string;
+// ── Fenny Quotation Desk — reference (Extramile) row-grid RFQ builder. Each row is one FCN
+// quote; Submit prices every row via the live Monte-Carlo pricer. Column set + defaults mirror
+// the reference exactly. Every visible cell either moves the priced number or is marked
+// record-only / coming-soon — no silent no-ops. ──────────────────────────────────────────────
+
+const TODAY = new Date().toISOString().slice(0, 10);
+const FREQ: Record<number, string> = { 1: "monthly", 3: "quarterly", 6: "semiannual", 12: "annual" };
+const CCYS = ["USD", "HKD", "EUR", "CNH", "JPY", "SGD", "AUD", "GBP"];
+
+// product tabs — live keys map to backend variants; the rest render disabled (the pricer supports
+// fcn / step-down(snowball) / phoenix; sharkfin/booster exist but aren't in this grid's scope).
+const TABS: { key: string; label: string; variant?: string }[] = [
+  { key: "fcn", label: "FCN", variant: "fcn" },
+  { key: "snowball", label: "Step-down FCN", variant: "snowball" },
+  { key: "phoenix", label: "Phoenix", variant: "phoenix" },
+  { key: "sharkfin", label: "Sharkfin" }, { key: "ben", label: "BEN" }, { key: "dcn", label: "DCN" },
+  { key: "eln", label: "ELN" }, { key: "wra", label: "WRA" }, { key: "scn", label: "Step-down SCN" },
+  { key: "aq", label: "AQ" }, { key: "dq", label: "DQ" }, { key: "van", label: "VAN" },
+  { key: "others", label: "Others" },
+];
+
+const SOLVE_OPTS: { key: SolveFor; label: string; live: boolean }[] = [
+  { key: "coupon", label: "Coupon p.a. (%)", live: true },
+  { key: "note_price", label: "Note Price (%)", live: true },
+  { key: "strike", label: "Strike (%)", live: false }, // needs a strike root-finder (coming soon)
+];
+
+type SolveFor = "coupon" | "note_price" | "strike";
+
+interface Col { key: string; label: string; cn: string; tip: string; w: string; solvable?: boolean }
+// header meta (single source for labels + ⓘ tooltips + the blue-S solvable markers)
+const COLS: Col[] = [
+  { key: "currency", label: "Currency", cn: "币种", w: "w-[68px]", tip: "票据币种;当前定价单曲线,USD 为主,其它仅登记。" },
+  { key: "underlying", label: "Underlying", cn: "标的", w: "w-[184px]", tip: "挂钩 1–4 只股票;多只时由表现最差的一只决定结果(worst-of)。" },
+  { key: "solveFor", label: "Solve For", cn: "求解目标", w: "w-[132px]", tip: "选择让引擎反解的参数:票息(支持)、发行价(支持)、行权价(即将支持)。其余为输入。" },
+  { key: "strikePct", label: "Strike (%)", cn: "行权价", w: "w-[76px]", solvable: true, tip: "行权价,占初始定价%(100=平价)。到期最差股票低于此价,按跌幅承受下行。" },
+  { key: "koType", label: "KO Type", cn: "敲出观察", w: "w-[116px]", tip: "敲出(提前收回)观察方式。Period End = 每个观察日期末观察(离散);当前仅支持此方式。" },
+  { key: "koPct", label: "KO (%)", cn: "敲出线", w: "w-[72px]", tip: "敲出/提前收回线,占初始%(100=回到初始即收回)。" },
+  { key: "couponPct", label: "Coupon p.a. (%)", cn: "年化票息", w: "w-[92px]", solvable: true, tip: "年化票息%。Solve For=Coupon 时由引擎反解;否则为输入。" },
+  { key: "grossMarginPct", label: "Gross Margin (%)", cn: "毛利率", w: "w-[92px]", tip: "券商毛利率%。与发行价一起决定引擎定价目标:PV=(发行价−毛利)/100。" },
+  { key: "notePricePct", label: "Note Price (%)", cn: "发行价", w: "w-[88px]", solvable: true, tip: "发行/认购价,占面值%(99=1 点折价)。Solve For=Note Price 时输出模型公平价值。" },
+  { key: "tenorM", label: "Tenor (m)", cn: "期限(月)", w: "w-[72px]", tip: "票据期限,月。到期日 = 定价日 + 期限。" },
+  { key: "barrierType", label: "Barrier Type", cn: "敲入类型", w: "w-[116px]", tip: "敲入(下行保护)观察方式:NONE=无独立敲入线(按行权价结算);European=仅到期观察;American=存续期内每日观察。" },
+  { key: "kiPct", label: "KI (%)", cn: "敲入线", w: "w-[72px]", tip: "敲入线,占初始%(如 65)。Barrier Type=NONE 时不适用。" },
+  { key: "obsFreqM", label: "Obs. Freq (m)", cn: "观察频率(月)", w: "w-[104px]", tip: "敲出/派息观察频率,月。1=每月,3=每季,6=每半年,12=每年。" },
+  { key: "effOffset", label: "Eff. Date Offset", cn: "起息偏移(日)", w: "w-[112px]", tip: "成交日到定价(起息)日的营业日间隔;定价日 = 今天 + 偏移。" },
+  { key: "tags", label: "Tags", cn: "标签", w: "w-[104px]", tip: "自定义标签,仅登记,不影响定价。" },
+];
+
+interface Row {
+  id: number;
   currency: string;
-  notional: number;
-  maturity: string;
   tickers: string[];
-}
-interface QuoteResult {
-  // Both /jobs/quote and /jobs/solve echo top-level coupon_rate + reoffer_fraction (fcn
-  // _run_job); still optional here + null-safe below in case a caller hits the sync endpoint.
-  coupon_rate?: number;
-  coupon_rate_se?: number;
-  reoffer_fraction?: number;
-  pricing: Pricing;
-  fees: Record<string, number>;
-  payoff_diagram: Payoff;
-  scenario_table: ScenarioRow[] | null;
-  greeks: Greeks | null;
-  product: Product;
-}
-
-interface Asset {
-  ticker: string;
-  spot: number;
-  atm_vol: number;
-  skew_slope: number;
-  skew_curv: number;
+  draft: string;
+  solveFor: SolveFor;
+  strikePct: number;
+  koType: "period_end" | "continuous";
+  koPct: number;
+  couponPct: number;
+  grossMarginPct: number;
+  notePricePct: number;
+  tenorM: number;
+  barrierType: "NONE" | "european" | "american";
+  kiPct: string;
+  obsFreqM: number;
+  effOffset: number;
+  tags: string[];
+  status: "idle" | "pricing" | "done" | "error";
+  stage?: string;
+  result?: QuoteResult | null;
+  error?: string | null;
+  open?: boolean;
 }
 
-type Variant = "fcn" | "phoenix" | "snowball";
+let _rid = 1;
+function makeRow(seed?: Partial<Row>): Row {
+  return {
+    id: _rid++, currency: "USD", tickers: [], draft: "", solveFor: "coupon", strikePct: 100,
+    koType: "period_end", koPct: 100, couponPct: 12, grossMarginPct: 0.7, notePricePct: 99,
+    tenorM: 6, barrierType: "NONE", kiPct: "", obsFreqM: 1, effOffset: 10, tags: [],
+    status: "idle", ...seed,
+  };
+}
 
-const INPUT =
-  "w-full rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-xs text-brand-900 outline-none focus:border-accent-500";
-
-// six months out from today, iso yyyy-mm-dd
 function isoPlusMonths(base: string, months: number): string {
   const d = new Date(base + "T00:00:00Z");
   d.setUTCMonth(d.getUTCMonth() + months);
   return d.toISOString().slice(0, 10);
 }
-const TODAY = new Date().toISOString().slice(0, 10);
-
-function money(n: number, ccy = "USD"): string {
-  const sym = ccy === "USD" ? "$" : ccy === "EUR" ? "€" : ccy === "GBP" ? "£" : "";
-  return sym + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+function addBizDays(base: string, n: number): string {
+  const d = new Date(base + "T00:00:00Z");
+  let added = 0;
+  while (added < n) {
+    d.setUTCDate(d.getUTCDate() + 1);
+    const wd = d.getUTCDay();
+    if (wd !== 0 && wd !== 6) added++;
+  }
+  return d.toISOString().slice(0, 10);
 }
-function pct(n: number, d = 1): string {
-  return (n * 100).toFixed(d) + "%";
+
+interface Assumptions { notional: number; rate: number; rho: number; atmVol: number; live: boolean }
+
+// row → live pricer. Uses build_termsheet then overrides strike + knock_in (NONE) on the full
+// TermSheet so Strike% and Barrier=NONE are honest without touching the preset schema.
+async function priceOne(
+  row: Row, variant: string, a: Assumptions, onStage: (s: string) => void,
+): Promise<QuoteResult> {
+  const tickers = row.tickers.slice(0, 4);
+  if (!tickers.length) throw new Error("先填至少一个标的");
+  const strikeDate = addBizDays(TODAY, row.effOffset);
+  const maturity = isoPlusMonths(strikeDate, row.tenorM);
+  const strikeFrac = row.strikePct / 100;
+  // Downside is priced only via the knock-in. Barrier NONE = no *separate* protection barrier,
+  // so the downside starts at the strike, observed at maturity (European KI at the strike) — an
+  // unprotected FCN. European/American use the explicit KI level (a protection buffer below strike).
+  const kiFrac = row.barrierType === "NONE"
+    ? strikeFrac
+    : row.kiPct === "" ? 0.65 : Number(row.kiPct) / 100;
+  const kiStyle = row.barrierType === "american" ? "american" : "european";
+  const preset = {
+    variant, tickers, notional: a.notional, currency: row.currency,
+    trade_date: TODAY, strike_date: strikeDate, maturity,
+    coupon_rate: row.solveFor === "coupon" ? null : row.couponPct / 100,
+    frequency: FREQ[row.obsFreqM] ?? "quarterly",
+    autocall_barrier: row.koPct / 100, ki_barrier: kiFrac,
+    coupon_barrier: 0.7, memory: variant === "phoenix", ki_style: kiStyle,
+  };
+  const ts = (await fennyApi.presetTermsheet(preset)) as Record<string, unknown>;
+  ts.underlyings = ((ts.underlyings as Record<string, unknown>[]) ?? []).map((u) => ({
+    ...u, strike: strikeFrac,
+  }));
+  ts.knock_in = { barrier: kiFrac, style: kiStyle, settlement: "cash" };
+  const assets = tickers.map((t) => ({
+    ticker: t, spot: 100, atm_vol: a.atmVol, skew_slope: -0.4, skew_curv: 0.3,
+  }));
+  const market = { source: a.live ? "live" : "manual", rate: a.rate, rho: a.rho, assets };
+  const knobs: Record<string, number> = { gross_margin_pct: row.grossMarginPct };
+  if (row.solveFor === "coupon") knobs.note_price_pct = row.notePricePct;
+  const onP = (j: Job) => onStage(j.stage || "pricing");
+  const body: Record<string, unknown> = {
+    termsheet: ts, market, mc: { n_paths: 40_000 }, include_greeks: true,
+    include_scenario: true, ...knobs,
+  };
+  if (row.solveFor === "coupon") return (await fennyApi.solve(body, onP)) as unknown as QuoteResult;
+  body.coupon_rate = row.couponPct / 100;
+  return (await fennyApi.quote(body, onP)) as unknown as QuoteResult;
 }
 
-// A labelled control with a plain English + 中文 caption and a ⓘ plain-language tooltip.
-function Field({
-  label,
-  cn: cnLabel,
-  tip,
-  children,
-}: {
-  label: string;
-  cn?: string;
-  tip?: string;
-  children: React.ReactNode;
+const INPUT =
+  "w-full rounded-md border border-line bg-surface-2 px-1.5 py-1 text-xs text-brand-900 outline-none focus:border-accent-500";
+const NUM = INPUT + " tnum text-right";
+
+function NumCell({ value, onChange, step, disabled, placeholder }: {
+  value: number | string; onChange: (v: string) => void; step?: string; disabled?: boolean; placeholder?: string;
 }) {
   return (
-    <label className="block">
-      <span className="mb-1 flex items-center gap-1">
-        <span className="text-2xs font-medium text-slate-300">{label}</span>
-        {cnLabel && <span className="text-[10px] text-slate-500">{cnLabel}</span>}
-        {tip && <InfoDot tip={tip} />}
-      </span>
-      {children}
-    </label>
-  );
-}
-
-type Tone = "pos" | "neg" | "warn";
-function toneClass(tone?: Tone): string {
-  return tone === "pos"
-    ? "text-pos"
-    : tone === "neg"
-      ? "text-neg"
-      : tone === "warn"
-        ? "text-warn-100"
-        : "text-brand-900";
-}
-
-function Stat({
-  label,
-  value,
-  sub,
-  tone,
-  tip,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  tone?: Tone;
-  tip?: string;
-}) {
-  const t = toneClass(tone);
-  return (
-    <div className="rounded-lg border border-line bg-surface-2 px-3 py-2">
-      <div className="flex items-center gap-1 text-2xs uppercase tracking-wide text-slate-500">
-        {label}
-        {tip && <InfoDot tip={tip} />}
-      </div>
-      <div className={cn("mt-0.5 text-lg font-semibold tnum", t)}>{value}</div>
-      {sub && <div className="mt-0.5 text-2xs text-slate-400">{sub}</div>}
-    </div>
-  );
-}
-
-// Plain-language one-line takeaway synthesised from the numbers (no jargon).
-// touchProb = prob_knock_in, which is an anytime-TOUCH probability (esp. Phoenix's American
-// KI), NOT a capital-loss probability — so the risk clause talks about *touching* the
-// protection line, consistent with the chanceLoss tile (a touch only becomes a loss if still
-// below strike at maturity). Do not word this as "principal-loss risk".
-function verdict(coupon: number, touchProb: number, probAutocall: number): string {
-  const income = coupon >= 0.1 ? "票息较高" : coupon >= 0.06 ? "票息中等" : "票息偏低";
-  const risk =
-    touchProb < 0.1 ? "很少触及保护线" : touchProb < 0.25 ? "偶尔触及保护线" : "较易触及保护线";
-  const exit = probAutocall >= 0.5 ? "较可能提前收回" : "多半持有到期";
-  return `${income}、${risk},${exit}。`;
-}
-
-// A big client-facing summary tile.
-function BigTile({
-  icon,
-  label,
-  value,
-  sub,
-  tone,
-  tip,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  sub?: string;
-  tone?: Tone;
-  tip?: string;
-}) {
-  const t = toneClass(tone);
-  return (
-    <div className="rounded-xl border border-line bg-surface-2 p-3">
-      <div className="mb-1 flex items-center gap-1 text-2xs text-slate-400">
-        <span className="text-slate-500">{icon}</span>
-        {label}
-        {tip && <InfoDot tip={tip} />}
-      </div>
-      <div className={cn("text-2xl font-semibold tnum", t)}>{value}</div>
-      {sub && <div className="mt-1 text-[11px] leading-snug text-slate-400">{sub}</div>}
-    </div>
+    <input type="number" step={step} value={value} disabled={disabled} placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)}
+      className={cn(NUM, disabled && "cursor-not-allowed opacity-40")} />
   );
 }
 
 export function QuoteDesk() {
-  const [variant, setVariant] = useState<Variant>("fcn");
-  const [notional, setNotional] = useState(1_000_000);
-  const [tradeDate, setTradeDate] = useState(TODAY);
-  const [strikeDate, setStrikeDate] = useState(TODAY);
-  const [maturity, setMaturity] = useState(isoPlusMonths(TODAY, 6));
-  const [kiBarrier, setKiBarrier] = useState(0.65);
-  const [autocallBarrier, setAutocallBarrier] = useState(1.0);
-  const [couponBarrier, setCouponBarrier] = useState(0.7);
-  const [memory, setMemory] = useState(true);
-  const [targetCoupon, setTargetCoupon] = useState(12); // % p.a.
-  const [rate, setRate] = useState(0.045);
-  const [rho, setRho] = useState(0.5);
-  const [assets, setAssets] = useState<Asset[]>([
-    { ticker: "AAPL", spot: 100, atm_vol: 0.3, skew_slope: -0.4, skew_curv: 0.3 },
-  ]);
+  const [audience, setAudience] = useState<"pi" | "nonpi">("pi");
+  const [custodian, setCustodian] = useState("GSL EAM HK");
+  const [tab, setTab] = useState("fcn");
+  const [rows, setRows] = useState<Row[]>([makeRow()]);
+  const [remark, setRemark] = useState("");
+  const [showAssume, setShowAssume] = useState(false);
+  const [assume, setAssume] = useState<Assumptions>({
+    notional: 1_000_000, rate: 0.045, rho: 0.5, atmVol: 0.30, live: false,
+  });
+  const [running, setRunning] = useState(false);
 
-  const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<"quote" | "solve">("quote");
-  const [stage, setStage] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [res, setRes] = useState<QuoteResult | null>(null);
-  const [showVolCurve, setShowVolCurve] = useState(false); // per-asset skew fine-tuning
-  const [showAdvInputs, setShowAdvInputs] = useState(false); // rate / correlation
-  const [showAdvMetrics, setShowAdvMetrics] = useState(false); // pricing detail + greeks + fees
+  const variant = TABS.find((t) => t.key === tab)?.variant ?? "fcn";
+  const liveTab = !!TABS.find((t) => t.key === tab)?.variant;
 
-  function patchAsset(i: number, patch: Partial<Asset>) {
-    setAssets((a) => a.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  function patch(id: number, p: Partial<Row>) {
+    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...p } : r)));
   }
-  function addAsset() {
-    setAssets((a) =>
-      a.length >= 3
-        ? a
-        : [...a, { ticker: "", spot: 100, atm_vol: 0.3, skew_slope: -0.4, skew_curv: 0.3 }],
-    );
+  function addRow() { setRows((rs) => [...rs, makeRow()]); }
+  function dupRow(id: number) {
+    setRows((rs) => {
+      const src = rs.find((r) => r.id === id);
+      if (!src) return rs;
+      return [...rs, makeRow({ ...src, tickers: [...src.tickers], tags: [...src.tags],
+        status: "idle", result: null, error: null, open: false, draft: "" })];
+    });
   }
-  function removeAsset(i: number) {
-    setAssets((a) => (a.length <= 1 ? a : a.filter((_, j) => j !== i)));
+  function delRow(id: number) { setRows((rs) => (rs.length <= 1 ? rs : rs.filter((r) => r.id !== id))); }
+  function addTicker(id: number, raw: string) {
+    const t = raw.trim().toUpperCase().replace(/,$/, "");
+    if (!t) return;
+    setRows((rs) => rs.map((r) => {
+      if (r.id !== id) return r;
+      if (r.tickers.includes(t) || r.tickers.length >= 4) return { ...r, draft: "" };
+      return { ...r, tickers: [...r.tickers, t], draft: "" };
+    }));
+  }
+  function rmTicker(id: number, t: string) {
+    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, tickers: r.tickers.filter((x) => x !== t) } : r)));
   }
 
-  async function run(which: "quote" | "solve") {
-    setLoading(true);
-    setMode(which);
-    setError(null);
-    setStage("building termsheet");
-    try {
-      const tickers = assets.map((a) => a.ticker.trim().toUpperCase()).filter(Boolean);
-      if (tickers.length === 0) throw new Error("add at least one ticker");
-      const presetReq = {
-        variant,
-        tickers,
-        notional,
-        currency: "USD",
-        trade_date: tradeDate,
-        strike_date: strikeDate,
-        maturity,
-        coupon_rate: which === "solve" ? null : targetCoupon / 100,
-        frequency: "quarterly",
-        autocall_barrier: autocallBarrier,
-        ki_barrier: kiBarrier,
-        coupon_barrier: couponBarrier,
-        memory,
-      };
-      const termsheet = await fennyApi.presetTermsheet(presetReq);
-      setStage("pricing");
-      const market = {
-        source: "manual",
-        rate,
-        assets: assets.map((a) => ({
-          ticker: a.ticker.trim().toUpperCase(),
-          spot: a.spot,
-          atm_vol: a.atm_vol,
-          skew_slope: a.skew_slope,
-          skew_curv: a.skew_curv,
-        })),
-        rho,
-      };
-      const body = {
-        termsheet,
-        market,
-        mc: { n_paths: 40_000 },
-        include_greeks: true,
-        include_scenario: true,
-        ...(which === "quote" ? { coupon_rate: targetCoupon / 100 } : {}),
-      };
-      const onP = (j: Job) => setStage(j.stage || "pricing");
-      const out =
-        which === "solve"
-          ? await fennyApi.solve(body, onP)
-          : await fennyApi.quote(body, onP);
-      setRes(out as unknown as QuoteResult);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-      setStage("");
+  async function submitAll() {
+    if (!liveTab) return;
+    setRunning(true);
+    const targets = rows.filter((r) => r.tickers.length > 0);
+    setRows((rs) => rs.map((r) => (r.tickers.length ? { ...r, status: "pricing", stage: "pricing", error: null } : r)));
+    // price rows with limited concurrency (3 at a time)
+    const queue = [...targets];
+    async function worker() {
+      for (;;) {
+        const row = queue.shift();
+        if (!row) return;
+        try {
+          const res = await priceOne(row, variant, assume, (s) => patch(row.id, { stage: s }));
+          patch(row.id, { status: "done", result: res, error: null });
+        } catch (e) {
+          patch(row.id, { status: "error", error: e instanceof Error ? e.message : String(e) });
+        }
+      }
     }
+    await Promise.all([worker(), worker(), worker()]);
+    setRunning(false);
   }
 
-  const p = res?.pricing;
-  const pd = res?.payoff_diagram;
-  const g = res?.greeks;
-  const prod = res?.product;
-  const ccy = prod?.currency ?? "USD";
-  const isSolve = mode === "solve";
-  // The /jobs/quote & /jobs/solve payloads both echo top-level coupon_rate + reoffer_fraction;
-  // fall back to pricing.coupon_rate defensively. reoffer is the (fee-derived) issue price.
-  const couponVal = res?.coupon_rate ?? p?.coupon_rate ?? 0;
-  const reoffer = res?.reoffer_fraction;
-  // Only FCN pays an unconditional coupon; Phoenix/Snowball coupons are conditional (paid only
-  // when the underlying is above the coupon level; memory defers, it does not guarantee).
-  const conditionalCoupon = (prod?.variant ?? variant) !== "fcn";
-  const couponSub = isSolve
-    ? "公平票息(模型解出)"
-    : conditionalCoupon
-      ? "达标时才派发的有条件票息"
-      : "你每年可收到的固定利息";
+  const priced = rows.filter((r) => r.status === "done").length;
+  const errored = rows.filter((r) => r.status === "error").length;
 
   return (
-    <div className="grid grid-cols-1 gap-4 p-4 xl:grid-cols-[380px_1fr]">
-      {/* ------------------------------------------------------------ FORM */}
-      <Card className="self-start">
-        <SectionHeader
-          title="Build a note"
-          titleCn="设计一张票据"
-          icon={<Calculator size={15} />}
-          right={<Badge className="bg-surface-2 text-slate-400">manual</Badge>}
-        />
-        <div className="space-y-3 p-4">
-          {/* product type — tabs, like the reference desk */}
-          <Field label={T.variant.label} cn={T.variant.cn} tip={T.variant.tip}>
-            <div className="grid grid-cols-3 gap-1">
-              {(["fcn", "phoenix", "snowball"] as Variant[]).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  title={T[v].tip}
-                  onClick={() => setVariant(v)}
-                  className={cn(
-                    "rounded-lg border px-2 py-1.5 text-2xs font-semibold capitalize transition-colors",
-                    variant === v
-                      ? "border-accent-500 bg-accent-600 text-white"
-                      : "border-line bg-surface-2 text-slate-400 hover:text-brand-900",
-                  )}
-                >
-                  {v}
-                </button>
-              ))}
-            </div>
-          </Field>
-
-          {/* underlyings */}
-          <div>
-            <div className="mb-1 flex items-center justify-between">
-              <span className="flex items-center gap-1 text-2xs font-medium text-slate-300">
-                {T.underlyings.label}
-                <span className="text-[10px] text-slate-500">{T.underlyings.cn} · 看最差 1–3 只</span>
-                <InfoDot tip={T.underlyings.tip} />
-              </span>
-              <button
-                type="button"
-                onClick={addAsset}
-                disabled={assets.length >= 3}
-                className="inline-flex items-center gap-0.5 rounded-md border border-line px-1.5 py-0.5 text-[10px] text-slate-400 hover:text-brand-900 disabled:opacity-40"
-              >
-                <TrendingUp size={11} /> 加一只
+    <div className="p-4">
+      <Card>
+        {/* ── header: audience toggle + custodian + scenario ─────────────────────── */}
+        <div className="border-b border-line px-4 py-3">
+          <div className="mb-3 flex items-center gap-3">
+            <h2 className="text-sm font-semibold text-brand-900">Add New Quotation</h2>
+            <span className="text-2xs text-slate-500">新建报价</span>
+            <div className="ml-2 inline-flex rounded-lg border border-line p-0.5">
+              <button type="button" onClick={() => setAudience("pi")}
+                className={cn("rounded-md px-3 py-1 text-2xs font-semibold", audience === "pi" ? "bg-accent-600 text-white" : "text-slate-400")}>
+                Quote for PI · 专业投资者
+              </button>
+              <button type="button" disabled title="仅专业投资者可报价"
+                className="inline-flex cursor-not-allowed items-center gap-1 rounded-md px-3 py-1 text-2xs font-semibold text-slate-600">
+                <Lock size={10} /> Non-PI
               </button>
             </div>
-            <div className="space-y-2">
-              {assets.map((a, i) => (
-                <div key={i} className="rounded-lg border border-line bg-surface-2 p-2">
-                  <div className="mb-1.5 flex items-center gap-1.5">
-                    <input
-                      className={cn(INPUT, "flex-1 font-semibold uppercase")}
-                      value={a.ticker}
-                      placeholder="股票代码 TICKER"
-                      onChange={(e) => patchAsset(i, { ticker: e.target.value })}
-                    />
-                    {assets.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeAsset(i)}
-                        className="rounded-md p-1 text-slate-500 hover:text-neg"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-2xs text-slate-400">
+            <span>Custodian <span className="text-neg">*</span> 托管方</span>
+            <input value={custodian} onChange={(e) => setCustodian(e.target.value)}
+              className="w-52 rounded-md border border-line bg-surface-2 px-2 py-1 text-xs text-brand-900 outline-none focus:border-accent-500" />
+            <span className="ml-3">Scenario 情景</span>
+            <Badge className="bg-accent-600/15 text-accent-100">General</Badge>
+            <span className="ml-2 inline-flex cursor-not-allowed items-center gap-1 text-slate-600" title="尚未开放">
+              <Lock size={10} /> Combo Generator
+            </span>
+          </div>
+        </div>
+
+        {/* ── product-type tabs ──────────────────────────────────────────────────── */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line px-4 py-2">
+          {TABS.map((t) => {
+            const live = !!t.variant;
+            return (
+              <button key={t.key} type="button" disabled={!live} onClick={() => live && setTab(t.key)}
+                title={live ? undefined : "该结构暂未接入定价引擎"}
+                className={cn("relative pb-1 text-xs font-medium transition-colors",
+                  tab === t.key ? "text-accent-100" : live ? "text-slate-400 hover:text-brand-900" : "cursor-not-allowed text-slate-600")}>
+                {t.label}
+                {tab === t.key && <span className="absolute inset-x-0 -bottom-[9px] h-0.5 rounded bg-accent-500" />}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ── pricing basis (our one deviation: the pricer needs a vol assumption) ─── */}
+        <div className="border-b border-line px-4 py-2">
+          <button type="button" onClick={() => setShowAssume((s) => !s)}
+            className="flex items-center gap-1.5 text-2xs text-slate-400 hover:text-accent-100">
+            <Sliders size={12} />
+            定价假设 Pricing basis
+            <span className="text-slate-500">
+              · {assume.live ? "实时行情 Live" : `指示性:ATM 波动 ${(assume.atmVol * 100).toFixed(0)}%`} · 利率 {(assume.rate * 100).toFixed(1)}% · ρ {assume.rho}
+            </span>
+            <ChevronDown size={12} className={cn("transition-transform", showAssume && "rotate-180")} />
+          </button>
+          {showAssume && (
+            <div className="mt-2 flex flex-wrap items-end gap-3">
+              <label className="text-2xs text-slate-400">
+                市场 <InfoDot tip="指示性 = 用统一 ATM 波动率假设定价(无需实时行情 key);Live = 拉取实时现价与波动率(需 MASSIVE_API_KEY)。" />
+                <div className="mt-0.5 inline-flex rounded-md border border-line p-0.5">
+                  <button type="button" onClick={() => setAssume((a) => ({ ...a, live: false }))}
+                    className={cn("rounded px-2 py-0.5 text-2xs", !assume.live ? "bg-accent-600 text-white" : "text-slate-400")}>指示性</button>
+                  <button type="button" onClick={() => setAssume((a) => ({ ...a, live: true }))}
+                    className={cn("rounded px-2 py-0.5 text-2xs", assume.live ? "bg-accent-600 text-white" : "text-slate-400")}>实时 Live</button>
+                </div>
+              </label>
+              <label className="text-2xs text-slate-400">ATM 波动率
+                <input type="number" step="0.01" value={assume.atmVol} disabled={assume.live}
+                  onChange={(e) => setAssume((a) => ({ ...a, atmVol: +e.target.value }))}
+                  className={cn(NUM, "mt-0.5 w-20", assume.live && "opacity-40")} />
+              </label>
+              <label className="text-2xs text-slate-400">无风险利率
+                <input type="number" step="0.005" value={assume.rate}
+                  onChange={(e) => setAssume((a) => ({ ...a, rate: +e.target.value }))} className={cn(NUM, "mt-0.5 w-20")} />
+              </label>
+              <label className="text-2xs text-slate-400">相关性 ρ
+                <input type="number" step="0.05" value={assume.rho}
+                  onChange={(e) => setAssume((a) => ({ ...a, rho: +e.target.value }))} className={cn(NUM, "mt-0.5 w-20")} />
+              </label>
+              <label className="text-2xs text-slate-400">名义本金
+                <input type="number" step="100000" value={assume.notional}
+                  onChange={(e) => setAssume((a) => ({ ...a, notional: +e.target.value }))} className={cn(NUM, "mt-0.5 w-28")} />
+              </label>
+            </div>
+          )}
+        </div>
+
+        {/* ── the grid ───────────────────────────────────────────────────────────── */}
+        <div className="overflow-x-auto">
+          <div className="min-w-max">
+            {/* header row */}
+            <div className="flex items-stretch gap-1.5 border-b border-line bg-surface-2/60 px-3 py-2 text-2xs font-medium uppercase tracking-wide text-slate-500">
+              <div className="flex w-[52px] shrink-0 items-center gap-1">
+                <button type="button" onClick={addRow} className="text-pos hover:opacity-80" title="新增一行"><Plus size={15} /></button>
+                <span className="text-[10px] normal-case">Import</span>
+              </div>
+              <div className="w-7 shrink-0 text-center">No.</div>
+              {COLS.map((c) => (
+                <div key={c.key} className={cn(c.w, "shrink-0")}>
+                  <div className="flex items-center gap-0.5 leading-tight">
+                    <span className="truncate normal-case text-slate-400">{c.label}</span>
+                    {c.solvable && <span className="grid h-3 w-3 place-items-center rounded-full bg-accent-600/30 text-[8px] font-bold text-accent-100" title="可求解 Solvable">S</span>}
+                    <InfoDot tip={c.tip} />
                   </div>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <Field label={T.spot.label} cn={T.spot.cn} tip={T.spot.tip}>
-                      <input
-                        type="number"
-                        className={INPUT}
-                        value={a.spot}
-                        onChange={(e) => patchAsset(i, { spot: +e.target.value })}
-                      />
-                    </Field>
-                    <Field label={T.volatility.label} cn={T.volatility.cn} tip={T.volatility.tip}>
-                      <input
-                        type="number"
-                        step="0.01"
-                        className={INPUT}
-                        value={a.atm_vol}
-                        onChange={(e) => patchAsset(i, { atm_vol: +e.target.value })}
-                      />
-                    </Field>
-                    {showVolCurve && (
+                  <div className="truncate text-[9px] normal-case text-slate-600">{c.cn}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* data rows */}
+            {rows.map((r, idx) => (
+              <div key={r.id} className="border-b border-line">
+                <div className="flex items-center gap-1.5 px-3 py-1.5">
+                  {/* controls */}
+                  <div className="flex w-[52px] shrink-0 items-center gap-1">
+                    <button type="button" onClick={() => delRow(r.id)} disabled={rows.length <= 1}
+                      className="text-neg hover:opacity-80 disabled:opacity-30" title="删除该行"><Trash2 size={13} /></button>
+                    <button type="button" onClick={() => dupRow(r.id)} className="text-slate-500 hover:text-brand-900" title="复制该行"><Copy size={12} /></button>
+                  </div>
+                  <div className="w-7 shrink-0 text-center text-xs text-slate-400">{idx + 1}</div>
+                  {/* currency */}
+                  <div className={cn(COLS[0].w, "shrink-0")}>
+                    <select value={r.currency} onChange={(e) => patch(r.id, { currency: e.target.value })} className={INPUT}>
+                      {CCYS.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  {/* underlying chips */}
+                  <div className={cn(COLS[1].w, "shrink-0")}>
+                    <div className="flex flex-wrap items-center gap-1 rounded-md border border-line bg-surface-2 px-1 py-0.5">
+                      {r.tickers.map((t) => (
+                        <span key={t} className="inline-flex items-center gap-0.5 rounded bg-accent-600/20 px-1 text-[10px] text-accent-100">
+                          {t}<button type="button" onClick={() => rmTicker(r.id, t)}><X size={9} /></button>
+                        </span>
+                      ))}
+                      {r.tickers.length < 4 && (
+                        <input value={r.draft} placeholder={r.tickers.length ? "+代码" : "1~4 只 · TICKER"}
+                          onChange={(e) => patch(r.id, { draft: e.target.value })}
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTicker(r.id, r.draft); } }}
+                          onBlur={() => addTicker(r.id, r.draft)}
+                          className="min-w-[52px] flex-1 bg-transparent text-xs uppercase text-brand-900 outline-none placeholder:normal-case placeholder:text-slate-600" />
+                      )}
+                    </div>
+                  </div>
+                  {/* solve for */}
+                  <div className={cn(COLS[2].w, "shrink-0")}>
+                    <select value={r.solveFor} onChange={(e) => patch(r.id, { solveFor: e.target.value as SolveFor })} className={INPUT}>
+                      {SOLVE_OPTS.map((o) => <option key={o.key} value={o.key} disabled={!o.live}>{o.label}{o.live ? "" : " (即将)"}</option>)}
+                    </select>
+                  </div>
+                  {/* strike % */}
+                  <div className={cn(COLS[3].w, "shrink-0")}>
+                    <NumCell value={r.strikePct} step="1" onChange={(v) => patch(r.id, { strikePct: +v })} disabled={r.solveFor === "strike"} />
+                  </div>
+                  {/* KO type */}
+                  <div className={cn(COLS[4].w, "shrink-0")}>
+                    <select value={r.koType} onChange={(e) => patch(r.id, { koType: e.target.value as Row["koType"] })} className={INPUT}>
+                      <option value="period_end">Period End</option>
+                      <option value="continuous" disabled>Continuous (即将)</option>
+                    </select>
+                  </div>
+                  {/* KO % */}
+                  <div className={cn(COLS[5].w, "shrink-0")}><NumCell value={r.koPct} step="1" onChange={(v) => patch(r.id, { koPct: +v })} /></div>
+                  {/* coupon */}
+                  <div className={cn(COLS[6].w, "shrink-0")}>
+                    <NumCell value={r.solveFor === "coupon" && r.result ? +(((r.result.coupon_rate ?? 0) * 100).toFixed(2)) : r.couponPct}
+                      step="0.25" onChange={(v) => patch(r.id, { couponPct: +v })} disabled={r.solveFor === "coupon"} />
+                  </div>
+                  {/* gross margin */}
+                  <div className={cn(COLS[7].w, "shrink-0")}><NumCell value={r.grossMarginPct} step="0.05" onChange={(v) => patch(r.id, { grossMarginPct: +v })} /></div>
+                  {/* note price */}
+                  <div className={cn(COLS[8].w, "shrink-0")}>
+                    <NumCell value={r.solveFor === "note_price" && r.result ? +(r.result.pricing.price_pct.toFixed(2)) : r.notePricePct}
+                      step="0.5" onChange={(v) => patch(r.id, { notePricePct: +v })} disabled={r.solveFor === "note_price"} />
+                  </div>
+                  {/* tenor */}
+                  <div className={cn(COLS[9].w, "shrink-0")}><NumCell value={r.tenorM} step="1" onChange={(v) => patch(r.id, { tenorM: Math.max(1, +v) })} /></div>
+                  {/* barrier type */}
+                  <div className={cn(COLS[10].w, "shrink-0")}>
+                    <select value={r.barrierType} onChange={(e) => patch(r.id, { barrierType: e.target.value as Row["barrierType"] })} className={INPUT}>
+                      <option value="NONE">NONE</option>
+                      <option value="european">European</option>
+                      <option value="american">American</option>
+                    </select>
+                  </div>
+                  {/* KI % */}
+                  <div className={cn(COLS[11].w, "shrink-0")}>
+                    <NumCell value={r.kiPct} step="1" placeholder={r.barrierType === "NONE" ? "—" : "65"}
+                      onChange={(v) => patch(r.id, { kiPct: v })} disabled={r.barrierType === "NONE"} />
+                  </div>
+                  {/* obs freq */}
+                  <div className={cn(COLS[12].w, "shrink-0")}>
+                    <select value={r.obsFreqM} onChange={(e) => patch(r.id, { obsFreqM: +e.target.value })} className={INPUT}>
+                      <option value={1}>1 · 每月</option><option value={3}>3 · 每季</option>
+                      <option value={6}>6 · 半年</option><option value={12}>12 · 每年</option>
+                    </select>
+                  </div>
+                  {/* eff date offset */}
+                  <div className={cn(COLS[13].w, "shrink-0")}>
+                    <select value={r.effOffset} onChange={(e) => patch(r.id, { effOffset: +e.target.value })} className={INPUT}>
+                      {[2, 3, 5, 7, 10, 15].map((d) => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </div>
+                  {/* tags */}
+                  <div className={cn(COLS[14].w, "shrink-0")}>
+                    <input value={r.tags.join(",")} placeholder="标签"
+                      onChange={(e) => patch(r.id, { tags: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} className={INPUT} />
+                  </div>
+                </div>
+
+                {/* per-row result strip */}
+                {r.status !== "idle" && (
+                  <div className="bg-surface-2/40 px-3 pb-2">
+                    {r.status === "pricing" && (
+                      <div className="flex items-center gap-1.5 py-1 text-2xs text-slate-400">
+                        <Loader2 size={12} className="animate-spin" /> 计算中… <span className="text-accent-100">{r.stage}</span>
+                      </div>
+                    )}
+                    {r.status === "error" && <div className="py-1 text-2xs text-neg">出错: {r.error}</div>}
+                    {r.status === "done" && r.result && (
                       <>
-                        <Field label="Skew slope" cn="下跌偏斜" tip="波动曲线的下跌斜率;一般用默认。Downside skew slope — usually leave default.">
-                          <input
-                            type="number"
-                            step="0.05"
-                            className={INPUT}
-                            value={a.skew_slope}
-                            onChange={(e) => patchAsset(i, { skew_slope: +e.target.value })}
-                          />
-                        </Field>
-                        <Field label="Skew curv" cn="曲率" tip="波动曲线的弯曲度;一般用默认。Skew curvature — usually leave default.">
-                          <input
-                            type="number"
-                            step="0.05"
-                            className={INPUT}
-                            value={a.skew_curv}
-                            onChange={(e) => patchAsset(i, { skew_curv: +e.target.value })}
-                          />
-                        </Field>
+                        <button type="button" onClick={() => patch(r.id, { open: !r.open })}
+                          className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 py-1.5 text-left text-2xs">
+                          <ChevronDown size={13} className={cn("text-slate-400 transition-transform", r.open && "rotate-180")} />
+                          <ResStat label={r.solveFor === "note_price" ? "发行价" : "票息"}
+                            value={r.solveFor === "note_price" ? r.result.pricing.price_pct.toFixed(2) + "%" : ((r.result.coupon_rate ?? 0) * 100).toFixed(2) + "% p.a."} tone="pos" />
+                          <ResStat label="公平价值" value={r.result.pricing.price_pct.toFixed(2) + "%"} />
+                          <ResStat label="提前收回" value={(r.result.pricing.prob_autocall * 100).toFixed(1) + "%"} tone="pos" />
+                          <ResStat label={r.barrierType === "NONE" ? "本金亏损" : "触及保护线"} value={(r.result.pricing.prob_knock_in * 100).toFixed(1) + "%"} tone="warn" />
+                          <ResStat label="预计存续" value={r.result.pricing.expected_life.toFixed(1) + " 年"} />
+                        </button>
+                        {r.open && <QuoteResultDrawer result={r.result} ccy={r.currency} variant={variant} barrierNone={r.barrierType === "NONE"} />}
                       </>
                     )}
                   </div>
-                </div>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowVolCurve((s) => !s)}
-              className="mt-1 text-[10px] text-slate-500 hover:text-accent-100"
-            >
-              {showVolCurve ? "隐藏波动曲线微调" : "微调波动曲线(可选)"}
-            </button>
-          </div>
-
-          <Field label={T.amount.label} cn={T.amount.cn} tip={T.amount.tip}>
-            <input
-              type="number"
-              className={INPUT}
-              value={notional}
-              onChange={(e) => setNotional(+e.target.value)}
-            />
-          </Field>
-
-          <div className="grid grid-cols-3 gap-1.5">
-            <Field label={T.tradeDate.label} cn={T.tradeDate.cn} tip={T.tradeDate.tip}>
-              <input
-                type="date"
-                className={INPUT}
-                value={tradeDate}
-                onChange={(e) => setTradeDate(e.target.value)}
-              />
-            </Field>
-            <Field label={T.strikeDate.label} cn={T.strikeDate.cn} tip={T.strikeDate.tip}>
-              <input
-                type="date"
-                className={INPUT}
-                value={strikeDate}
-                onChange={(e) => setStrikeDate(e.target.value)}
-              />
-            </Field>
-            <Field label={T.maturity.label} cn={T.maturity.cn} tip={T.maturity.tip}>
-              <input
-                type="date"
-                className={INPUT}
-                value={maturity}
-                onChange={(e) => setMaturity(e.target.value)}
-              />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-2 gap-1.5">
-            <Field label={T.protection.label} cn={T.protection.cn} tip={T.protection.tip}>
-              <input
-                type="number"
-                step="0.05"
-                className={INPUT}
-                value={kiBarrier}
-                onChange={(e) => setKiBarrier(+e.target.value)}
-              />
-            </Field>
-            <Field label={T.autocall.label} cn={T.autocall.cn} tip={T.autocall.tip}>
-              <input
-                type="number"
-                step="0.05"
-                className={INPUT}
-                value={autocallBarrier}
-                onChange={(e) => setAutocallBarrier(+e.target.value)}
-              />
-            </Field>
-            {variant === "phoenix" && (
-              <>
-                <Field label={T.couponBarrier.label} cn={T.couponBarrier.cn} tip={T.couponBarrier.tip}>
-                  <input
-                    type="number"
-                    step="0.05"
-                    className={INPUT}
-                    value={couponBarrier}
-                    onChange={(e) => setCouponBarrier(+e.target.value)}
-                  />
-                </Field>
-                <Field label={T.memory.label} cn={T.memory.cn} tip={T.memory.tip}>
-                  <button
-                    type="button"
-                    onClick={() => setMemory((m) => !m)}
-                    className={cn(
-                      "w-full rounded-lg border px-2 py-1.5 text-2xs font-semibold",
-                      memory
-                        ? "border-accent-500 bg-accent-600 text-white"
-                        : "border-line bg-surface-2 text-slate-400",
-                    )}
-                  >
-                    {memory ? "开 On" : "关 Off"}
-                  </button>
-                </Field>
-              </>
-            )}
-            <Field label={T.targetCoupon.label} cn={T.targetCoupon.cn} tip={T.targetCoupon.tip}>
-              <input
-                type="number"
-                step="0.25"
-                className={INPUT}
-                value={targetCoupon}
-                onChange={(e) => setTargetCoupon(+e.target.value)}
-              />
-            </Field>
-          </div>
-
-          {/* advanced inputs — risk-free rate + correlation, defaults are fine */}
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowAdvInputs((s) => !s)}
-              className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-accent-100"
-            >
-              <ChevronDown size={11} className={cn("transition-transform", showAdvInputs && "rotate-180")} />
-              高级设置(利率 / 相关性)
-            </button>
-            {showAdvInputs && (
-              <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-                <Field label={T.riskFree.label} cn={T.riskFree.cn} tip={T.riskFree.tip}>
-                  <input
-                    type="number"
-                    step="0.005"
-                    className={INPUT}
-                    value={rate}
-                    onChange={(e) => setRate(+e.target.value)}
-                  />
-                </Field>
-                {assets.length > 1 && (
-                  <Field label={T.correlation.label} cn={T.correlation.cn} tip={T.correlation.tip}>
-                    <input
-                      type="number"
-                      step="0.05"
-                      className={INPUT}
-                      value={rho}
-                      onChange={(e) => setRho(+e.target.value)}
-                    />
-                  </Field>
                 )}
               </div>
-            )}
+            ))}
           </div>
+        </div>
 
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <button
-              type="button"
-              onClick={() => run("quote")}
-              disabled={loading}
-              title="用你填的票息给票据估值 / price the note at your coupon"
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent-600 px-3 py-2 text-xs font-semibold text-white hover:bg-accent-500 disabled:opacity-50"
-            >
-              {loading && mode === "quote" ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <Play size={14} />
-              )}
-              查看报价
-            </button>
-            <button
-              type="button"
-              onClick={() => run("solve")}
-              disabled={loading}
-              title="算出当前条款下公平的票息 / solve the fair coupon for these terms"
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-accent-500 px-3 py-2 text-xs font-semibold text-accent-100 hover:bg-surface-2 disabled:opacity-50"
-            >
-              {loading && mode === "solve" ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <Sigma size={14} />
-              )}
-              解出票息
-            </button>
+        {/* ── footer ─────────────────────────────────────────────────────────────── */}
+        <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+          <div className="relative">
+            <input value={remark} maxLength={100} placeholder="备注 Remark here"
+              onChange={(e) => setRemark(e.target.value)}
+              className="w-72 rounded-md border border-line bg-surface-2 px-2 py-1.5 text-xs text-brand-900 outline-none focus:border-accent-500" />
+            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-500">{remark.length}/100</span>
           </div>
-          {loading && (
-            <div className="text-2xs text-slate-400">
-              计算中… <span className="text-accent-100">{stage || "pricing"}</span>
-            </div>
+          <button type="button" disabled title="模板保存即将开放"
+            className="cursor-not-allowed rounded-md border border-line px-3 py-1.5 text-xs text-slate-600">Save as Template</button>
+          <button type="button" onClick={submitAll} disabled={running || !liveTab}
+            className="inline-flex items-center gap-1.5 rounded-md bg-accent-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-accent-500 disabled:opacity-50">
+            {running ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+            Submit · 报价
+          </button>
+          {(priced > 0 || errored > 0) && (
+            <Badge className="bg-surface-2 text-slate-400">{priced} 已定价{errored ? ` · ${errored} 出错` : ""}</Badge>
           )}
-          {error && <div className="text-2xs text-neg">出错: {error}</div>}
+          {!liveTab && <span className="text-2xs text-slate-500">该结构暂未接入定价引擎</span>}
+          <span className="ml-auto cursor-not-allowed text-xs text-slate-600" title="模板库即将开放">See more Templates</span>
         </div>
       </Card>
-
-      {/* --------------------------------------------------------- RESULTS */}
-      <div className="min-w-0 space-y-4">
-        {!res && !loading && (
-          <Card>
-            <div className="p-10 text-center text-xs text-slate-400">
-              填好票据条款,点{" "}
-              <span className="font-semibold text-brand-900">查看报价</span>{" "}
-              就能得到一份客户看得懂的票据说明。
-            </div>
-          </Card>
-        )}
-
-        {res && p && (
-          <>
-            {/* ---------------------------------- client-facing summary card */}
-            <Card>
-              <SectionHeader
-                title="If you buy this note"
-                titleCn="如果你买入这张票据"
-                icon={<ShieldCheck size={15} />}
-                right={
-                  <div className="flex items-center gap-1.5">
-                    <Badge className="bg-surface-2 capitalize text-slate-400">
-                      {prod?.variant}
-                    </Badge>
-                    <Badge className="bg-surface-2 text-slate-400">
-                      {prod?.tickers.join(" · ")}
-                    </Badge>
-                  </div>
-                }
-              />
-              <div className="grid grid-cols-2 gap-2 p-4 lg:grid-cols-3">
-                <BigTile
-                  icon={<Wallet size={13} />}
-                  label={`${T.coupon.cn} ${T.coupon.label}`}
-                  value={pct(couponVal, 2) + " p.a."}
-                  sub={couponSub}
-                  tone="pos"
-                  tip={T.coupon.tip}
-                />
-                <BigTile
-                  icon={<ShieldCheck size={13} />}
-                  label={`${T.protection.cn} Protection`}
-                  value={pd ? "≥ " + pct(pd.ki, 0) : "—"}
-                  sub={pd ? `最差股票不跌破 ${pct(pd.ki, 0)}(相对定价日)即保本` : undefined}
-                  tip={T.protection.tip}
-                />
-                <BigTile
-                  icon={<TrendingUp size={13} />}
-                  label={`${T.chanceEarlyExit.cn}`}
-                  value={pct(p.prob_autocall)}
-                  sub="通常是好事:拿回本金 + 已计票息"
-                  tone="pos"
-                  tip={T.chanceEarlyExit.tip}
-                />
-                <BigTile
-                  icon={<TrendingDown size={13} />}
-                  label={`${T.chanceLoss.cn}`}
-                  value={pct(p.prob_knock_in)}
-                  sub="最差股票触及保护线的概率;触及后到期仍低于行权价才亏损"
-                  tone="warn"
-                  tip={T.chanceLoss.tip}
-                />
-                <BigTile
-                  icon={<Timer size={13} />}
-                  label={`${T.expectedLife.cn}`}
-                  value={p.expected_life.toFixed(1) + " 年"}
-                  sub="考虑提前收回后的平均存续期"
-                  tip={T.expectedLife.tip}
-                />
-                {/* Fair value always — it moves with the coupon and shows richness vs the
-                    issue price; reoffer_fraction is on BOTH quote & solve so it can't
-                    discriminate the mode (and a static ~98% would hide the real value). */}
-                <BigTile
-                  icon={<Wallet size={13} />}
-                  label={`${T.fairValue.cn} Fair value`}
-                  value={p.price_pct.toFixed(1) + "%"}
-                  sub={
-                    reoffer != null
-                      ? `模型公平价值(占面值);认购价约 ${(reoffer * 100).toFixed(0)}%`
-                      : "模型公平价值(占面值);100% = 平价"
-                  }
-                  tip={T.fairValue.tip}
-                />
-              </div>
-              <div className="border-t border-line px-4 py-3 text-xs text-slate-300">
-                <span className="font-semibold text-brand-900">一句话:</span>{" "}
-                {verdict(couponVal, p.prob_knock_in, p.prob_autocall)}
-                <span className="ml-1 text-slate-500">
-                  指示性报价,最终条款以成交日为准。
-                </span>
-              </div>
-            </Card>
-
-            {/* payoff diagram */}
-            {pd && (
-              <Card>
-                <SectionHeader
-                  title="What you get back"
-                  titleCn="到期能拿回多少"
-                  icon={<LineChart size={15} />}
-                  right={
-                    <span className="flex items-center gap-1 text-2xs text-slate-400">
-                      保护线 {pct(pd.ki, 0)} · 行权价 {pct(pd.strike, 0)}
-                      <InfoDot tip="横轴 = 到期时最差股票相对定价日的价格;竖线是保护线与行权价。Payoff vs the worst stock at maturity." />
-                    </span>
-                  }
-                />
-                <div className="p-2">
-                  <PlotlyChart
-                    height={300}
-                    data={[
-                      {
-                        x: pd.worst_of,
-                        y: pd.redemption,
-                        type: "scatter",
-                        mode: "lines",
-                        line: { color: "#f59e0b", width: 2.5, shape: "spline" },
-                        fill: "tozeroy",
-                        fillcolor: "rgba(245,158,11,0.06)",
-                        name: "redemption",
-                        hovertemplate:
-                          "最差股票 %{x:.0%}<br>拿回 %{y:,.0f}<extra></extra>",
-                      },
-                    ]}
-                    layout={{
-                      xaxis: {
-                        title: { text: "最差股票到期价(相对定价日 %)", font: { size: 10 } },
-                        tickformat: ".0%",
-                      },
-                      yaxis: { tickformat: ",.2s", tickprefix: ccy === "USD" ? "$" : "" },
-                      shapes: [
-                        {
-                          type: "line",
-                          x0: pd.ki,
-                          x1: pd.ki,
-                          y0: 0,
-                          y1: 1,
-                          yref: "paper",
-                          line: { color: "#f46060", dash: "dot", width: 1.3 },
-                        },
-                        {
-                          type: "line",
-                          x0: pd.strike,
-                          x1: pd.strike,
-                          y0: 0,
-                          y1: 1,
-                          yref: "paper",
-                          line: { color: "#7c9cf5", dash: "dot", width: 1 },
-                        },
-                      ],
-                    }}
-                  />
-                </div>
-              </Card>
-            )}
-
-            {/* scenario table */}
-            {res.scenario_table && res.scenario_table.length > 0 && (
-              <Card>
-                <SectionHeader
-                  title="If the market moves"
-                  titleCn="不同行情下的结果"
-                  right={
-                    <InfoDot tip="每列是标的涨跌情形;下面三行是票据价值、提前收回概率、本金亏损概率。Each column is a spot move." />
-                  }
-                />
-                <div className="overflow-x-auto p-2">
-                  <table className="w-full min-w-[420px] text-xs">
-                    <thead>
-                      <tr className="text-slate-500">
-                        <th className="px-2 py-1.5 text-left font-medium">标的涨跌 Spot move</th>
-                        {res.scenario_table.map((r, i) => (
-                          <th key={i} className="px-2 py-1.5 text-right font-medium tnum">
-                            {r.shock > 0 ? "+" : ""}
-                            {(r.shock * 100).toFixed(0)}%
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="text-brand-900">
-                      <tr className="border-t border-line">
-                        <td className="px-2 py-1.5 text-slate-400">票据价值(占面值)</td>
-                        {res.scenario_table.map((r, i) => (
-                          <td key={i} className="px-2 py-1.5 text-right tnum">
-                            {r.price_pct.toFixed(1)}
-                          </td>
-                        ))}
-                      </tr>
-                      <tr className="border-t border-line">
-                        <td className="px-2 py-1.5 text-slate-400">提前收回概率</td>
-                        {res.scenario_table.map((r, i) => (
-                          <td key={i} className="px-2 py-1.5 text-right tnum text-pos">
-                            {(r.prob_autocall * 100).toFixed(0)}%
-                          </td>
-                        ))}
-                      </tr>
-                      <tr className="border-t border-line">
-                        <td className="px-2 py-1.5 text-slate-400">触及保护线概率</td>
-                        {res.scenario_table.map((r, i) => (
-                          <td key={i} className="px-2 py-1.5 text-right tnum text-neg">
-                            {(r.prob_knock_in * 100).toFixed(0)}%
-                          </td>
-                        ))}
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
-            )}
-
-            {/* -------------------------- advanced / professional metrics (collapsed) */}
-            <Card>
-              <button
-                type="button"
-                onClick={() => setShowAdvMetrics((s) => !s)}
-                className="flex w-full items-center gap-2 px-4 py-3 text-left"
-              >
-                <ChevronDown
-                  size={15}
-                  className={cn("text-slate-400 transition-transform", showAdvMetrics && "rotate-180")}
-                />
-                <span className="text-sm font-semibold text-brand-900">专业指标</span>
-                <span className="text-2xs text-slate-500">Advanced · 定价 / 希腊值 / 费用</span>
-              </button>
-
-              {showAdvMetrics && (
-                <div className="space-y-4 border-t border-line p-4">
-                  {/* full pricing detail */}
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <Stat
-                      label={isSolve ? "Fair coupon" : "Coupon"}
-                      value={pct(couponVal, 2) + " p.a."}
-                      sub={
-                        isSolve && res.coupon_rate_se != null
-                          ? "± " + (res.coupon_rate_se * 100).toFixed(3) + "%"
-                          : undefined
-                      }
-                      tone="pos"
-                    />
-                    <Stat label="Fair value" value={p.price_pct.toFixed(2) + "%"} sub="of par" tip={T.fairValue.tip} />
-                    <Stat label="PV" value={money(p.pv, ccy)} sub={"± " + money(p.pv_se, ccy)} />
-                    <Stat
-                      label="Reoffer"
-                      value={reoffer != null ? (reoffer * 100).toFixed(2) + "%" : "—"}
-                      sub="issue price"
-                    />
-                    <Stat label="Prob. autocall" value={pct(p.prob_autocall)} tone="pos" />
-                    <Stat label="Prob. knock-in" value={pct(p.prob_knock_in)} tone="warn" />
-                    <Stat label="Expected life" value={p.expected_life.toFixed(2) + " yr"} />
-                    <Stat
-                      label="Redemption PV"
-                      value={money(p.redemption_pv, ccy)}
-                      sub={`coupon leg ${money(p.coupon_factor, ccy)}`}
-                    />
-                  </div>
-                  {res.fees && (
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-line pt-2.5 text-2xs text-slate-400">
-                      {Object.entries(res.fees).map(([k, v]) => (
-                        <span key={k}>
-                          {k.replace(/_/g, " ")}:{" "}
-                          <span className="tnum text-brand-900">{v.toFixed(2)}</span>
-                        </span>
-                      ))}
-                      <span className="ml-auto text-slate-500">
-                        {p.n_paths.toLocaleString()} paths · {p.method}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* greeks */}
-                  {g && (
-                    <div className="border-t border-line pt-3">
-                      <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-brand-900">
-                        <Sigma size={14} /> Greeks &amp; risk <span className="text-2xs font-normal text-slate-500">希腊值</span>
-                      </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full min-w-[360px] text-xs">
-                          <thead>
-                            <tr className="text-slate-500">
-                              <th className="px-2 py-1.5 text-left font-medium">Ticker</th>
-                              <th className="px-2 py-1.5 text-right font-medium">Delta</th>
-                              <th className="px-2 py-1.5 text-right font-medium">Gamma</th>
-                              <th className="px-2 py-1.5 text-right font-medium">Vega</th>
-                            </tr>
-                          </thead>
-                          <tbody className="text-brand-900">
-                            {(prod?.tickers ?? g.delta.map((_, i) => `A${i + 1}`)).map((t, i) => (
-                              <tr key={i} className="border-t border-line">
-                                <td className="px-2 py-1.5 font-semibold">{t}</td>
-                                <td className="px-2 py-1.5 text-right tnum">{g.delta[i]?.toFixed(1)}</td>
-                                <td className="px-2 py-1.5 text-right tnum">{g.gamma[i]?.toFixed(1)}</td>
-                                <td className="px-2 py-1.5 text-right tnum text-neg">{g.vega[i]?.toFixed(1)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-2xs text-slate-400">
-                        <span>θ <span className="tnum text-brand-900">{g.theta.toFixed(2)}</span></span>
-                        <span>ρ <span className="tnum text-brand-900">{g.rho.toFixed(2)}</span></span>
-                        <span>carry <span className="tnum text-brand-900">{g.carry.toFixed(2)}</span></span>
-                        <span>corr-sens <span className="tnum text-brand-900">{g.corr_sens.toFixed(2)}</span></span>
-                        {g.skew_vega != null && (
-                          <span>skew-vega <span className="tnum text-brand-900">{g.skew_vega.toFixed(1)}</span></span>
-                        )}
-                      </div>
-                      {g.bucketed_vega && (
-                        <div className="mt-2 overflow-x-auto">
-                          <table className="w-full min-w-[360px] text-xs">
-                            <thead>
-                              <tr className="text-slate-500">
-                                <th className="px-2 py-1.5 text-left font-medium">Vega by moneyness</th>
-                                {Object.keys(g.bucketed_vega).map((k) => (
-                                  <th key={k} className="px-2 py-1.5 text-right font-medium tnum">{k}</th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              <tr className="border-t border-line">
-                                <td className="px-2 py-1.5 text-slate-400">Basket</td>
-                                {Object.values(g.bucketed_vega).map((v, i) => (
-                                  <td key={i} className={cn("px-2 py-1.5 text-right tnum", v < 0 ? "text-neg" : "text-pos")}>
-                                    {v.toFixed(0)}
-                                  </td>
-                                ))}
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </Card>
-          </>
-        )}
-      </div>
     </div>
+  );
+}
+
+function ResStat({ label, value, tone }: { label: string; value: string; tone?: "pos" | "neg" | "warn" }) {
+  const t = tone === "pos" ? "text-pos" : tone === "neg" ? "text-neg" : tone === "warn" ? "text-warn-100" : "text-brand-900";
+  return (
+    <span className="inline-flex items-baseline gap-1">
+      <span className="text-slate-500">{label}</span>
+      <span className={cn("font-semibold tnum", t)}>{value}</span>
+    </span>
   );
 }

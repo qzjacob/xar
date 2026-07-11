@@ -105,7 +105,7 @@ class TermSheet(BaseModel):
     maturity: date
 
     basket_mode: BasketMode = BasketMode.WORST_OF
-    underlyings: list[Underlying] = Field(..., min_length=1, max_length=3)
+    underlyings: list[Underlying] = Field(..., min_length=1, max_length=4)
 
     autocall: AutocallSchedule | None = None
     coupon: CouponSpec

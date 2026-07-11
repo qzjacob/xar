@@ -72,6 +72,20 @@ _FEES = FeeModel()
 _STATIC = Path(__file__).parent / "static"
 
 
+def _reoffer_target(req) -> float:
+    """Reoffer (issue) fraction the coupon solves to. If the request carries a Note Price and/or
+    Gross Margin (reference-grid FCN columns), the note is struck so that PV = (note_price -
+    gross_margin)/100; otherwise fall back to the standard fee model. Keeps those two grid cells
+    price-moving (honest) instead of decorative."""
+    np_ = getattr(req, "note_price_pct", None)
+    gm = getattr(req, "gross_margin_pct", None)
+    if np_ is None and gm is None:
+        return _FEES.breakdown().reoffer_fraction
+    base = np_ if np_ is not None else 100.0
+    margin = gm if gm is not None else 0.0
+    return max(0.50, (base - margin) / 100.0)
+
+
 @app.exception_handler(Exception)
 async def _unavailable_handler(request, exc):  # noqa: ANN001
     if isinstance(exc, (MassiveUnavailable, FMPUnavailable, FinnhubUnavailable)):
@@ -212,7 +226,7 @@ def solve(req: SolveRequest) -> dict:
     ts, market = req.termsheet, req.market
     snap = build_snapshot(ts, market)
     engine = make_engine(req.mc)
-    reoffer = _FEES.breakdown().reoffer_fraction
+    reoffer = _reoffer_target(req)
     if ts.participation is not None:
         # Participation notes have no coupon to solve — quote at the given terms instead.
         pricing = engine.price(ts, snap, 0.0)
@@ -253,7 +267,7 @@ def quotesheet(req: SolveRequest, fmt: str = "html") -> Response:
     ts, market = req.termsheet, req.market
     snap = build_snapshot(ts, market)
     engine = make_engine(req.mc)
-    reoffer = _FEES.breakdown().reoffer_fraction
+    reoffer = _reoffer_target(req)
     if ts.participation is not None:
         pricing, rate, coupon_label = engine.price(ts, snap, 0.0), 0.0, "n/a (participation)"
     else:
@@ -286,7 +300,7 @@ def _run_job(req, jid: str, solve_mode: bool) -> None:
     svc = PricingService(engine=engine)
     update(jid, stage="pricing")
 
-    reoffer = _FEES.breakdown().reoffer_fraction
+    reoffer = _reoffer_target(req)
     if solve_mode and ts.participation is None:
         sol = solve_coupon(engine, ts, snap, reoffer)
         rate, pricing = sol.coupon_rate, sol.pricing

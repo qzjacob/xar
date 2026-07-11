@@ -68,7 +68,17 @@ class PresetRequest(BaseModel):
     coupon_floor: float = 0.0  # sharkfin rebate
 
 
-class QuoteRequest(BaseModel):
+# Reference-grid pricing knobs (Extramile FCN columns): the issue price the note is struck at
+# and the dealer's gross margin. When either is set, the reoffer target the coupon solves to is
+# (note_price - gross_margin)/100 instead of the standard fee model. See main._reoffer_target.
+class _ReofferKnobs(BaseModel):
+    note_price_pct: float | None = Field(None, gt=0, le=120,
+                                         description="issue price as % of par (reference 'Note Price', e.g. 99)")
+    gross_margin_pct: float | None = Field(None, ge=0, le=20,
+                                           description="dealer gross margin % (reference 'Gross Margin', e.g. 0.7)")
+
+
+class QuoteRequest(_ReofferKnobs):
     termsheet: TermSheet
     market: MarketInput
     coupon_rate: float | None = None  # if None, uses termsheet.coupon.rate
@@ -77,7 +87,7 @@ class QuoteRequest(BaseModel):
     include_scenario: bool = True
 
 
-class SolveRequest(BaseModel):
+class SolveRequest(_ReofferKnobs):
     termsheet: TermSheet
     market: MarketInput
     mc: MCInput = MCInput()
