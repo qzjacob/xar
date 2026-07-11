@@ -93,6 +93,11 @@ class SolveRequest(_ReofferKnobs):
     mc: MCInput = MCInput()
     include_greeks: bool = True
     include_scenario: bool = True
+    # bidirectional solve: "coupon" (default) solves the fair coupon at the given strike; "strike"
+    # solves the fair strike at the given coupon (termsheet.coupon.rate). couple_ki_to_strike moves
+    # the knock-in with the strike (Barrier-NONE case where the KI sits at the strike).
+    solve_for: Literal["coupon", "strike"] = "coupon"
+    couple_ki_to_strike: bool = False
 
 
 class RankStructureInput(BaseModel):

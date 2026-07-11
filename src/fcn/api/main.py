@@ -240,8 +240,24 @@ def solve(req: SolveRequest) -> dict:
             "payoff_diagram": ctx0["payoff_diagram"], "scenario_table": scenario,
             "greeks": ctx0["greeks"], "product": ctx0["product"], "disclaimer": DISCLAIMER,
         }
-    sol = solve_coupon(engine, ts, snap, reoffer)
     svc = PricingService(engine=engine)
+    if req.solve_for == "strike":
+        # solve the fair STRIKE at the given coupon (bidirectional); scenario/greeks on the adjusted TS
+        from fcn.pricing.solver import _with_strike, solve_strike
+        cpn = ts.coupon.rate or 0.0
+        ss = solve_strike(engine, ts, snap, cpn, reoffer, couple_ki=req.couple_ki_to_strike)
+        ts2 = _with_strike(ts, ss.strike, req.couple_ki_to_strike)
+        scenario = svc.scenario_table(ts2, snap, cpn) if req.include_scenario else None
+        greeks = GreeksEngine(engine).compute(ts2, snap, cpn) if req.include_greeks else None
+        ctx = _build_context(req, ts2, market, ss.pricing, f"strike {ss.strike*100:.1f}%", greeks, scenario)
+        return {
+            "coupon_rate": cpn, "coupon_rate_se": 0.0, "solved_strike": ss.strike,
+            "strike_bracketed": ss.bracketed, "reoffer_fraction": ss.reoffer_fraction,
+            "pricing": ctx["pricing"], "fees": ctx["fees"], "payoff_diagram": ctx["payoff_diagram"],
+            "scenario_table": scenario, "greeks": ctx["greeks"], "product": ctx["product"],
+            "disclaimer": DISCLAIMER,
+        }
+    sol = solve_coupon(engine, ts, snap, reoffer)
     scenario = (
         svc.scenario_table(ts, snap, sol.coupon_rate) if req.include_scenario else None
     )
@@ -301,7 +317,17 @@ def _run_job(req, jid: str, solve_mode: bool) -> None:
     update(jid, stage="pricing")
 
     reoffer = _reoffer_target(req)
-    if solve_mode and ts.participation is None:
+    ts_eff = ts   # strike-solve replaces this with the strike-adjusted termsheet for all downstream surfaces
+    if solve_mode and ts.participation is None and getattr(req, "solve_for", "coupon") == "strike":
+        from fcn.pricing.solver import _with_strike, solve_strike
+        rate = ts.coupon.rate or 0.0
+        couple = getattr(req, "couple_ki_to_strike", False)
+        ss = solve_strike(engine, ts, snap, rate, reoffer, couple_ki=couple)
+        ts_eff = _with_strike(ts, ss.strike, couple)
+        pricing = ss.pricing
+        extra = {"coupon_rate": rate, "coupon_rate_se": 0.0, "solved_strike": ss.strike,
+                 "strike_bracketed": ss.bracketed, "reoffer_fraction": ss.reoffer_fraction}
+    elif solve_mode and ts.participation is None:
         sol = solve_coupon(engine, ts, snap, reoffer)
         rate, pricing = sol.coupon_rate, sol.pricing
         extra = {"coupon_rate": sol.coupon_rate, "coupon_rate_se": sol.coupon_rate_se,
@@ -316,16 +342,16 @@ def _run_job(req, jid: str, solve_mode: bool) -> None:
 
     partial = {
         **extra, "pricing": pricing.to_dict(), "fees": _fees_dict(),
-        "payoff_diagram": svc.payoff_diagram(ts, snap), "product": product_context(ts),
+        "payoff_diagram": svc.payoff_diagram(ts_eff, snap), "product": product_context(ts_eff),
         "disclaimer": DISCLAIMER, "scenario_table": None, "greeks": None,
     }
     update(jid, status="partial", stage="scenario", partial=dict(partial))  # PV/ladder ready
 
     if req.include_scenario:
-        partial["scenario_table"] = svc.scenario_table(ts, snap, rate)
+        partial["scenario_table"] = svc.scenario_table(ts_eff, snap, rate)
         update(jid, stage="greeks", partial=dict(partial))
     if req.include_greeks:
-        partial["greeks"] = GreeksEngine(engine).compute(ts, snap, rate).to_dict()
+        partial["greeks"] = GreeksEngine(engine).compute(ts_eff, snap, rate).to_dict()
         update(jid, partial=dict(partial))
     update(jid, status="done", stage="done", partial=dict(partial))
 

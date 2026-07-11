@@ -23,7 +23,7 @@ import numpy as np
 from fcn.marketdata.snapshot import MarketSnapshot
 from fcn.pricing.grid import TimeGrid
 from fcn.pricing.pathgen import PathBundle
-from fcn.product.enums import BasketMode, CouponType, KIStyle, Settlement
+from fcn.product.enums import BasketMode, CouponType, KIStyle
 from fcn.product.termsheet import TermSheet
 
 
@@ -186,7 +186,8 @@ class PayoffEngine:
         # basket_mode is WEIGHTED — passing the worst-of perf to _coupon_unit_pv
         # keeps the two paths coherent.
         wo_perf = perf.min(axis=2)
-        coupon_unit_pv = _coupon_unit_pv(level, wo_perf, called, call_idx, exit_time, p_ki, df, spec)
+        coupon_unit_pv = _coupon_unit_pv(
+            level, wo_perf, called, call_idx, exit_time, p_ki, below_strike, df, spec)
 
         return PayoffResult(
             redemption_pv=redemption_pv,
@@ -332,31 +333,29 @@ def _coupon_unit_pv(
     call_idx: np.ndarray,
     exit_time: np.ndarray,
     p_ki: np.ndarray,
+    below_strike: np.ndarray,
     df: np.ndarray,
     spec: PayoffSpec,
 ) -> np.ndarray:
     n_paths = level.shape[0]
-    mat = spec.maturity_idx
 
     if spec.snowball:
-        # Snowball: coupon accrues until the FIRST of {autocall, KI, maturity}, paid at
-        # exit. Uses the discrete first-passage KI time tau (not just the KI probability)
-        # so accrual to tau is preserved — the part before knock-in is not discarded.
-        # KI is always defined on worst-of (consistent with _knock_in_prob), so we use
-        # ``wo_perf`` rather than ``level`` even when basket_mode is WEIGHTED.
-        B = spec.ki_barrier
-        breach = wo_perf[:, : mat + 1] < B
-        has_breach = breach.any(axis=1)
-        fp_idx = np.where(has_breach, breach.argmax(axis=1), mat)
-        ki_time = np.where(has_breach, spec.times[fp_idx], np.inf)
-        accr_end = np.minimum(np.minimum(exit_time, ki_time), spec.times[mat])
-        return accr_end * spec.notional * df[call_idx]
+        # Snowball (雪球): the coupon accrues to the EXIT date — the autocall date, or maturity if
+        # never called — and is paid there. A prior knock-in does NOT cut the accrual short (the
+        # investor still collects the full coupon to the autocall/maturity date). The coupon is
+        # kept in full unless the note ends in a knocked-in LOSS (uncalled AND worst-of below strike
+        # at maturity), where the p_ki loss-share forfeits its coupon — exactly mirroring the
+        # redemption split (1-p_ki)*par + p_ki*loss. KI is on worst-of, consistent with the redemption.
+        keep = np.where(called | ~below_strike, 1.0, 1.0 - p_ki)
+        return exit_time * keep * spec.notional * df[call_idx]
 
     if spec.coupon_idx.size == 0:
         return np.zeros(n_paths)
 
     df_c = df[spec.coupon_idx]
-    wo_c = level[:, spec.coupon_idx]
+    # coupon barrier on the WORST-OF performance (consistent with the KI / snowball / redemption),
+    # even in WEIGHTED basket mode where ``level`` would otherwise be the weighted basket.
+    wo_c = wo_perf[:, spec.coupon_idx]
     alive_c = spec.coupon_idx[None, :] <= call_idx[:, None]
     coupon_cash_unit = spec.notional * spec.coupon_tau  # (n_c,) at rate = 1
 
