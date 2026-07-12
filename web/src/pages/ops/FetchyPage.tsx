@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Power, RefreshCw, Satellite } from "lucide-react";
 import { ops } from "../../lib/ops";
 import type { FetchyConfig, FetchyInfo } from "../../types-ops";
@@ -16,11 +16,14 @@ export function FetchyPage() {
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  const dirtyRef = useRef(false);
+
   const load = useCallback(async () => {
     try {
       const r = await ops.fetchy();
       setInfo(r);
-      setCfg(r.config);
+      // 刷新只更新状态卡/目录;有未保存改动时**保留编辑**,不悄悄用服务端覆盖
+      setCfg((prev) => (prev && dirtyRef.current ? prev : r.config));
       setErr(null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -34,15 +37,20 @@ export function FetchyPage() {
     () => !!info && !!cfg && JSON.stringify(cfg) !== JSON.stringify(info.config),
     [info, cfg],
   );
+  useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty]);
 
   async function save() {
     if (!cfg) return;
     setSaving(true);
     setErr(null);
     try {
-      const r = await ops.setFetchy(cfg);
-      setInfo((i) => (i ? { ...i, config: r.config } : i));
-      setCfg(r.config);
+      await ops.setFetchy(cfg);
+      // 保存后整体重取:生效模型链/状态卡随新配置即时更新,不等手动刷新
+      const fresh = await ops.fetchy();
+      setInfo(fresh);
+      setCfg(fresh.config);
       setSavedAt(Date.now());
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -93,8 +101,8 @@ export function FetchyPage() {
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="工人心跳" value={st.counters.last_cycle_at ? relTime(st.counters.last_cycle_at) : "—"}
           hint={`累计 ${st.counters.cycles ?? 0} 轮`} />
-        <Stat label="LLM 额度" value={quota === "ok" ? "正常" : quota === "exhausted" ? "耗尽(等窗口)" : quota}
-          tone={quota === "ok" ? "pos" : "warn"} />
+        <Stat label="LLM 额度" value={quota === "ok" ? "正常" : quota === "exhausted" ? "耗尽(等窗口)" : "未知(等首轮)"}
+          tone={quota === "ok" ? "pos" : quota === "exhausted" ? "warn" : undefined} />
         <Stat label="待抽取积压" value={st.backlog_docs != null ? `${st.backlog_docs} 篇` : "—"} />
         <Stat label="生效模型链" value={st.pin?.[0] ?? "—"} hint={st.pin?.slice(1).join(" → ") || undefined} />
       </div>
@@ -108,7 +116,7 @@ export function FetchyPage() {
           <label className="flex cursor-pointer items-center gap-3">
             <input type="checkbox" checked={cfg.enabled}
               onChange={(e) => setCfg({ ...cfg, enabled: e.target.checked })}
-              className="h-4 w-4 accent-indigo-400" />
+              className="h-4 w-4 accent-accent-500" />
             <span className="text-xs text-brand-500">
               {cfg.enabled
                 ? "运行中:按下方勾选执行拉取/抽取"
@@ -147,7 +155,7 @@ export function FetchyPage() {
               )}>
               <input type="checkbox" checked={cfg.sources[s.key] ?? true}
                 onChange={(e) => setCfg({ ...cfg, sources: { ...cfg.sources, [s.key]: e.target.checked } })}
-                className="mt-0.5 h-4 w-4 accent-indigo-400" />
+                className="mt-0.5 h-4 w-4 accent-accent-500" />
               <span className="min-w-0">
                 <span className="block text-xs font-medium text-brand-900">{s.label}</span>
                 <span className="block text-2xs text-brand-200">
@@ -174,7 +182,7 @@ export function FetchyPage() {
               )}>
               <input type="checkbox" checked={cfg.stages[s.key] ?? true}
                 onChange={(e) => setCfg({ ...cfg, stages: { ...cfg.stages, [s.key]: e.target.checked } })}
-                className="mt-0.5 h-4 w-4 accent-indigo-400" />
+                className="mt-0.5 h-4 w-4 accent-accent-500" />
               <span className="min-w-0">
                 <span className="block text-xs font-medium text-brand-900">{s.key}</span>
                 <span className="block text-2xs text-brand-200">{s.label}</span>

@@ -680,7 +680,7 @@ def selftest() -> dict:
 # ── Fetchy:glmworker 管理面(Jarvy 前端)──────────────────────────────────────
 def fetchy() -> dict:
     """工人状态 + 生效配置 + 可选模型/数据源/阶段目录(供 Jarvy Fetchy 页渲染)。"""
-    from ..models.registry import MODELS, Status
+    from ..models.registry import MODELS
     from ..orchestration import glm_worker as gw
 
     st = gw.status()
@@ -689,9 +689,11 @@ def fetchy() -> dict:
                 "last": cadence.get(k)}
                for k, v in gw.FETCHY_SOURCES.items()]
     stages = [{"key": k, "label": v} for k, v in gw.FETCHY_STAGES.items()]
+    # 目录只列工人容器内**实际可服务**的模型(ACTIVE + litellm 执行器 + provider key 在位)
+    # —— host-only 执行器(agent_sdk/codex_cli)或缺 key 的模型选了也是静默空转,不给选。
     models = [{"id": m.id, "provider": m.provider, "billing": m.billing.value,
                "preferred": m.preferred, "notes": m.notes[:80]}
-              for m in MODELS if m.status == Status.ACTIVE]
+              for m in MODELS if gw.model_usable(m.id) is None]
     # 订阅制在前(工人常驻批量,订阅=零边际成本),同组内 preferred 在前
     models.sort(key=lambda m: (m["billing"] != "subscription", not m["preferred"], m["id"]))
     return {"config": gw.fetchy_config(), "defaults": gw.fetchy_defaults(),

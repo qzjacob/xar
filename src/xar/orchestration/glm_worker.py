@@ -134,12 +134,18 @@ def fetchy_defaults() -> dict:
             "stages": dict.fromkeys(FETCHY_STAGES, True)}
 
 
-def fetchy_config() -> dict:
-    """生效配置 = 默认 ⊕ 已保存(未知键忽略,新增源/阶段自动继承默认开)。"""
+def fetchy_config(*, strict: bool = False) -> dict:
+    """生效配置 = 默认 ⊕ 已保存(未知键忽略,新增源/阶段自动继承默认开)。
+
+    ``strict=True``(工人循环用):配置读取失败时**上抛** —— 总开关必须 fail-closed,
+    不能因一次 DB 抖动把显式关掉的工人悄悄全量拉起。默认(API/CLI 展示)容错返回默认。
+    """
     cfg = fetchy_defaults()
     try:
         saved = get_state("fetchy")
-    except Exception:  # noqa: BLE001 — DB 未就绪:按默认跑
+    except Exception:  # noqa: BLE001 — DB 未就绪:展示用途按默认;工人循环 fail-closed
+        if strict:
+            raise
         return cfg
     if isinstance(saved.get("enabled"), bool):
         cfg["enabled"] = saved["enabled"]
@@ -152,22 +158,54 @@ def fetchy_config() -> dict:
     return cfg
 
 
-def save_fetchy(cfg: dict) -> dict:
-    """校验并保存(只收已知键);返回生效配置。"""
-    from ..models import registry
+def model_usable(model_id: str) -> str | None:
+    """该模型能否在 glmworker 容器内实际服务:None=可用,否则返回原因(中文)。
 
-    clean: dict = {}
+    工人是 docker 常驻批量任务 —— host-only 执行器(agent_sdk/codex_cli)在容器内
+    不可用;token/订阅模型需要对应 provider key 在 env 中在场。"""
+    import os
+
+    from ..models import registry as reg
+
+    llm._ensure_keys()  # Settings(.env)→os.environ 懒同步;首个 LLM 调用前也要看得见 key
+
+    spec = reg.get(model_id)
+    if spec is None:
+        return f"未知模型 {model_id!r}"
+    if spec.status != reg.Status.ACTIVE:
+        return f"{model_id} 已退役({spec.status.value})"
+    if spec.executor != "litellm":
+        return f"{model_id} 是 host-only 执行器({spec.executor}),工人容器内不可用"
+    prov = reg.PROVIDERS.get(spec.provider)
+    if prov is None:
+        return f"{model_id} 无 provider 配置"
+    key_env = (prov.sub_key_env if spec.billing == reg.Billing.SUBSCRIPTION and prov.sub_key_env
+               else prov.key_env)
+    if not os.environ.get(key_env or ""):
+        return f"{model_id} 的密钥({key_env})未配置"
+    return None
+
+
+def save_fetchy(cfg: dict) -> dict:
+    """校验并保存;与已保存文档**合并**(部分 PUT 不得抹掉先前的开关);返回生效配置。"""
+    try:
+        clean = dict(get_state("fetchy"))
+    except Exception:  # noqa: BLE001
+        clean = {}
     if isinstance(cfg.get("enabled"), bool):
         clean["enabled"] = cfg["enabled"]
     model = cfg.get("model")
     if isinstance(model, str) and model:
-        if registry.get(model) is None:
-            raise ValueError(f"unknown model {model!r}")
+        reason = model_usable(model)
+        if reason:
+            raise ValueError(reason)
         clean["model"] = model
     for group, catalog in (("sources", FETCHY_SOURCES), ("stages", FETCHY_STAGES)):
         vals = cfg.get(group)
         if isinstance(vals, dict):
-            clean[group] = {k: bool(v) for k, v in vals.items() if k in catalog}
+            merged = dict(clean.get(group) or {})
+            merged.update({k: bool(v) for k, v in vals.items() if k in catalog})
+            clean[group] = merged
     save_state("fetchy", clean)
     return fetchy_config()
 
@@ -463,7 +501,10 @@ def _alt_correction(q: dict, rebuilds: int, pin: tuple[str, ...] = GLM_PIN) -> d
         out["events"] = thesis_signals.sync_alt_events()
     except Exception as e:  # noqa: BLE001
         out["events"] = {"error": str(e)[:160]}
-    if q.get("status") == "ok" and _sub_ready() and rebuilds > 0:
+    # GLM 订阅门只对 GLM 链首适用(与 run_once 的 extract 门同理):用户钉扎其他模型时
+    # save 已校验其密钥在位,不能再拿 GLM_SUB_API_KEY 一票否决。
+    head_ok = _sub_ready() if pin[0] in GLM_PIN else True
+    if q.get("status") == "ok" and head_ok and rebuilds > 0:
         try:
             from ..research import thesis, thesis_health
 
@@ -493,8 +534,14 @@ def run_once(*, batch_docs: int | None = None, backfill_units: int | None = None
     q = get_state("quota", {"status": "ok"})
     out: dict = {"ts": _now()}
 
-    # Fetchy 管理面:总开关关 → 只留心跳(计数器照更新,看板可见工人仍活着)
-    cfg = fetchy_config()
+    # Fetchy 管理面:总开关关 → 只留心跳(计数器照更新,看板可见工人仍活着)。
+    # 配置读取失败 = fail-closed 跳过本轮(显式关掉的开关不得因 DB 抖动悄悄失效)。
+    try:
+        cfg = fetchy_config(strict=True)
+    except Exception as e:  # noqa: BLE001
+        out["skipped"] = f"fetchy config unreadable — failing closed: {str(e)[:120]}"
+        out["quota"] = q.get("status", "ok")
+        return out
     if not cfg["enabled"]:
         counters = get_state("counters")
         counters["cycles"] = int(counters.get("cycles", 0)) + 1
@@ -525,12 +572,15 @@ def run_once(*, batch_docs: int | None = None, backfill_units: int | None = None
             out["indicators"] = {"error": str(e)[:120]}
             _stamp("indicators", 6 * 3600, ok=False)
 
+    # GLM 订阅门只在链首仍是 GLM 订阅模型时适用;用户显式选择其他模型(save 时已校验
+    # 密钥/执行器可用)则直接放行 —— 不能再拿 GLM_SUB_API_KEY 挡别人家的模型。
+    head_is_glm_sub = pin[0] in GLM_PIN
     if not stages_on.get("extract", True):
         out["extract"] = {"skipped": "fetchy: extract stage off"}
-    elif not _sub_ready():
+    elif head_is_glm_sub and not _sub_ready():
         # 订阅 key 缺位 = 若继续,_endpoint 会静默回退到按 token 计费 —— 直接拒绝。
         out["extract"] = {"skipped": "GLM_SUB_API_KEY not configured — refusing metered fallback"}
-    elif q.get("status") == "exhausted":
+    elif q.get("status") == "exhausted" and head_is_glm_sub:
         # 耗尽态才发探针(避免每轮 1 次探针白耗 5h 窗的请求额度)
         if probe():
             q = _mark_ok(q)
@@ -538,6 +588,12 @@ def run_once(*, batch_docs: int | None = None, backfill_units: int | None = None
         else:
             q = _mark_exhausted(q, "probe failed")
             out["extract"] = {"skipped": "quota exhausted — waiting for window reset"}
+    elif q.get("status") == "exhausted":
+        # 非 GLM 链首:probe() 只探 GLM 池,对选中模型无意义 —— 直接试一批;
+        # 成功即恢复 ok(_llm_stage 成功不自动翻状态),再失败由其内部重新定性。
+        out["extract"], q = _llm_stage(batch_docs, q, pin)
+        if "aborted" not in out["extract"]:
+            q = _mark_ok(q)
     else:
         # ok 态零探针开销:直接抽取;额度耗尽由 _llm_stage 内的错误定性翻转状态
         out["extract"], q = _llm_stage(batch_docs, q, pin)
