@@ -36,7 +36,7 @@ function ModuleTab({ m, pathname }: { m: ModuleDef; pathname: string }) {
 
 /**
  * 全局常驻顶栏 — 在 App 顶层 layout route 渲染一次,切模块不重挂。
- * 左:恒定 BrandLogo;中:研究模块页签(高亮当前,可横向滚动);右:分隔竖线 + Jarvy(弱化)。
+ * 左:恒定 BrandLogo;右:研究模块页签(高亮当前,可横向滚动)+ 分隔竖线 + Jarvy(弱化)。
  * 设计约束:此组件不得接入任何数据 context(useData 等)。
  */
 export function GlobalTopBar() {
@@ -44,7 +44,7 @@ export function GlobalTopBar() {
   return (
     <header className="flex h-12 shrink-0 items-center gap-4 border-b border-line bg-surface px-4">
       <BrandLogo className="shrink-0" />
-      <nav className="scroll-thin ml-2 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+      <nav className="scroll-thin ml-auto flex min-w-0 items-center gap-1 overflow-x-auto">
         {RESEARCH_MODULES.map((m) => (
           <ModuleTab key={m.key} m={m} pathname={pathname} />
         ))}
