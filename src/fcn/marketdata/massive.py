@@ -230,6 +230,42 @@ class MassiveProvider:
         rows = (data or {}).get("results", []) if isinstance(data, dict) else []
         return np.array([float(r["c"]) for r in rows], dtype=float)
 
+    def monthly_samples(self, ticker: str, months: int = 7) -> list[dict]:
+        """Month-end samples for the market-read 择时 trend view: [{month, spot, rv21}].
+
+        Same contract as ``FMPLiveProvider.monthly_samples`` — daily aggregates carry
+        millisecond timestamps (``t``), so month-ends come straight from the bars.
+        """
+        frm = (self._asof - timedelta(days=int(self.lookback_days * 1.6))).isoformat()
+        to = self._asof.isoformat()
+        try:
+            data = self._call(
+                f"v2/aggs/ticker/{ticker}/range/1/day/{frm}/{to}", {"limit": 5000, "sort": "asc"}
+            )
+        except MassiveUnavailable:
+            return []
+        rows = (data or {}).get("results", []) if isinstance(data, dict) else []
+        closes = np.array([float(r["c"]) for r in rows], dtype=float)
+        if len(closes) < 25:
+            return []
+        months_key = [
+            datetime.utcfromtimestamp(float(r["t"]) / 1000.0).strftime("%Y-%m") for r in rows
+        ]
+        last_idx: dict[str, int] = {}
+        for i, m in enumerate(months_key):
+            last_idx[m] = i
+        out: list[dict] = []
+        for month in sorted(last_idx)[-months:]:
+            i = last_idx[month]
+            if i < 21:   # need a full 21-return trailing window
+                continue
+            window = np.diff(np.log(closes[i - 21 : i + 1]))
+            rv = float(np.std(window, ddof=1) * np.sqrt(252))
+            if not np.isfinite(rv):
+                continue
+            out.append({"month": month, "spot": round(float(closes[i]), 2), "rv21": round(rv, 4)})
+        return out
+
     def correlation(self, tickers: list[str]) -> Correlation:
         if len(tickers) == 1:
             return Correlation.uniform(1, 0.0)

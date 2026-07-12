@@ -112,7 +112,7 @@ export function Finder() {
           ki_style: kiStyle,
           coupon_pa: rankBy === "strike" ? couponPa / 100 : null,
         },
-        source: "auto" as const, // 实时真实数据:FMP spot + 实际波动率 + 全市场筛选器
+        source: "live" as const, // 默认:Massive/Polygon 期权链障碍点隐含 IV(逐名);种子大盘池
         top_n: topN,
         rank_by: rankBy,
         min_market_cap: mktCapYi * 1e8, // 亿美元 → USD
@@ -264,7 +264,8 @@ export function Finder() {
                 <span className="text-2xs text-brand-200">
                   宇宙 {result?.universe_size ?? "—"} · 已筛 {result?.considered ?? "—"} ·
                   {byStrike ? " 行权价最低优先" : " 票息最高优先"}
-                  {result?.vol_basis === "realized" && " · 实际波动率"}
+                  {result?.vol_basis === "implied" ? " · 隐含波动率(期权链)"
+                    : result?.vol_basis === "realized" ? " · 实际波动率(回退)" : ""}
                 </span>
               }
             />

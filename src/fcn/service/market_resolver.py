@@ -32,6 +32,20 @@ _ALIASES = {
 }
 
 
+def _massive_or_none():
+    """A MassiveProvider when the key is set, else None (implied vol stays optional)."""
+    import os
+
+    if not os.environ.get("MASSIVE_API_KEY"):
+        return None
+    try:
+        from fcn.marketdata.massive import MassiveProvider
+
+        return MassiveProvider(max_maturity_years=1.5)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _resolve_symbol(prov, ticker: str) -> tuple[str, float]:
     """Resolve ``ticker`` to (effective_symbol, spot), trying the ticker itself, a known dual-class
     alias, then a dot→dash variant. Raises the last error if no candidate is entitled/available."""
@@ -64,12 +78,14 @@ def realized_vol(rets: np.ndarray | None, window: int = 63) -> float | None:
 def resolve_market(tickers: list[str], rate: float | None = None,
                    vol_window: int = 63) -> dict:
     """Return a MarketInput dict {source, rate, assets:[{ticker,spot,atm_vol,...}], correlation}
-    with REAL spot + realized vol + correlation from FMP. source='manual' because we hand the
-    resolved real numbers straight to the pricer (no Massive dependency). Per-name failures fall
-    back to sensible defaults; a name we cannot price at all is dropped from ``assets``."""
+    with REAL data. Vol preference: **implied ATM from the live option chain (Massive/Polygon)**
+    when entitled → realized vol from FMP history → flat fallback; spot: FMP (alias-aware) →
+    Massive. source='manual' because we hand the resolved real numbers straight to the pricer.
+    Per-name failures degrade gracefully; a name nobody can price is dropped from ``assets``."""
     from fcn.marketdata.fmp import FMPProvider
 
     prov = FMPProvider()
+    massive = _massive_or_none()
     assets: list[dict] = []
     meta: list[dict] = []
     eff_syms: list[str] = []   # effective symbol per resolved asset (for the correlation fetch)
@@ -79,14 +95,33 @@ def resolve_market(tickers: list[str], rate: float | None = None,
             continue
         try:
             sym, spot = _resolve_symbol(prov, t)   # sym may be an alias of t (e.g. GOOG→GOOGL)
-        except Exception:  # noqa: BLE001 — unresolvable ticker: skip it (caller sees fewer assets)
-            meta.append({"ticker": t, "resolved": False})
-            continue
-        try:
-            vol = realized_vol(prov.history_returns(sym), window=vol_window) or _VOL_FALLBACK
-            vol_src = "realized"
-        except Exception:  # noqa: BLE001
-            vol, vol_src = _VOL_FALLBACK, "fallback"
+        except Exception:  # noqa: BLE001 — FMP can't price it: try the options feed before dropping
+            sym = t
+            spot = None
+            if massive is not None:
+                try:
+                    spot = float(massive.spot(t))
+                except Exception:  # noqa: BLE001
+                    spot = None
+            if spot is None:
+                meta.append({"ticker": t, "resolved": False})
+                continue
+        # 波动率:隐含 ATM(期权链,≈6M)优先 → 实际波动率 → 平坦兜底
+        vol = None
+        vol_src = "fallback"
+        if massive is not None:
+            try:
+                iv = massive.point_vol(t, 0.5, 0.0)
+                if iv is not None and 0.03 < iv < 3.0:
+                    vol, vol_src = float(min(max(iv, _VOL_FLOOR), _VOL_CAP)), "implied"
+            except Exception:  # noqa: BLE001 — options feed hiccup → realized path below
+                pass
+        if vol is None:
+            try:
+                rv = realized_vol(prov.history_returns(sym), window=vol_window)
+            except Exception:  # noqa: BLE001
+                rv = None
+            vol, vol_src = (rv, "realized") if rv is not None else (_VOL_FALLBACK, "fallback")
         try:
             dy = float(prov.div_yield(sym))
         except Exception:  # noqa: BLE001

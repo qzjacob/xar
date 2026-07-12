@@ -89,3 +89,48 @@ def test_truly_unresolvable_name_is_dropped_not_faked(monkeypatch):
     assert meta["ZZZZ"]["resolved"] is False
     # single resolved name -> no correlation matrix
     assert rm["correlation"] is None
+
+
+def test_implied_vol_preferred_when_massive_entitled(monkeypatch):
+    from fcn.service import market_resolver as MR
+
+    _patch(monkeypatch, _FakeProv(gated=set(), spots={"TSLA": 400.0}))
+
+    class FakeMassive:
+        def spot(self, t):
+            return 400.0
+        def point_vol(self, t, tenor, logm):
+            return 0.53   # 期权链隐含 ATM
+
+    monkeypatch.setattr(MR, "_massive_or_none", lambda: FakeMassive())
+    rm = MR.resolve_market(["TSLA"])
+    a = rm["assets"][0]
+    assert a["atm_vol"] == pytest.approx(0.53)
+    assert rm["resolved"][0]["vol_source"] == "implied"
+
+
+def test_realized_fallback_when_massive_absent(monkeypatch):
+    from fcn.service import market_resolver as MR
+
+    _patch(monkeypatch, _FakeProv(gated=set(), spots={"TSLA": 400.0}))
+    monkeypatch.setattr(MR, "_massive_or_none", lambda: None)
+    rm = MR.resolve_market(["TSLA"])
+    assert rm["resolved"][0]["vol_source"] == "realized"
+
+
+def test_massive_spot_rescues_fmp_gated_name(monkeypatch):
+    from fcn.service import market_resolver as MR
+
+    # FMP 全挂(连别名也解析不了),但期权链有价:名字不再被丢弃
+    _patch(monkeypatch, _FakeProv(gated={"QQQ"}, spots={}))
+
+    class FakeMassive:
+        def spot(self, t):
+            return 726.4
+        def point_vol(self, t, tenor, logm):
+            return 0.19
+
+    monkeypatch.setattr(MR, "_massive_or_none", lambda: FakeMassive())
+    rm = MR.resolve_market(["QQQ"])
+    assert rm["assets"] and rm["assets"][0]["spot"] == pytest.approx(726.4)
+    assert rm["resolved"][0]["vol_source"] == "implied"

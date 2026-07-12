@@ -108,7 +108,7 @@ const DEFAULT_MARKET: Market = {
 function marketBody(m: Market): Dict {
   return {
     ticker: m.ticker.trim().toUpperCase() || "AAPL",
-    source: "auto", // FMP 实时:真实 spot + 实际波动率期限结构 + 国债利率
+    source: "live", // 默认:Massive/Polygon 真实期权链(IV/买卖价/流动性);不可用时服务端自动退实测波动率
   };
 }
 
@@ -130,7 +130,7 @@ function MarketFields({
       </Field>
       <span className="pb-1.5 text-2xs text-brand-200"
         title="ATM 波动率为历史实际波动率(21/63/252 日窗口的期限结构);偏斜/微笑为台面参数假设(该数据档位无期权隐含波动率)">
-        现价·ATM波动率(实际历史)·利率 实时抓取 — 偏斜为台面参数
+        真实期权链(Polygon):逐合约 IV·买卖价·持仓量 — 不可用时自动退实测波动率
       </span>
     </div>
   );

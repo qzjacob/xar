@@ -8,6 +8,7 @@ stream the fast PV first and fill Greeks in afterwards (see jobs.py).
 from __future__ import annotations
 
 import functools
+import logging
 from datetime import date
 from pathlib import Path
 
@@ -66,6 +67,8 @@ from fcn.options.view import FundamentalView
 from fcn.options.blotter import _valuation_from_dict
 
 load_dotenv()  # pick up MASSIVE / FMP / FINNHUB / ANTHROPIC keys from .env at startup
+
+log = logging.getLogger("fcn.api")
 
 app = FastAPI(title="FCN Quoter", version="0.1.0")
 _FEES = FeeModel()
@@ -475,20 +478,34 @@ def _run_rank_job(req: RankRequest, jid: str) -> None:
         res["vol_basis"] = "realized"
         res["rate"] = round(provider.risk_free_rate(), 5)
         res["universe_source"] = universe_source
+    elif req.source != "manual":
+        res["vol_basis"] = "implied"   # live = Massive/Polygon 期权链障碍点 IV
+        res["universe_source"] = "seed-large-cap"
     update(jid, status="done", stage="done", partial=res)
 
 
 def _run_market_read_job(req: MarketReadRequest, jid: str) -> None:
     update(jid, stage="reading")
+    source_used = req.source
     if req.source == "manual":
         provider = _manual_provider(req.assets, req.rate, None)
+        res = build_market_read(provider, indices=tuple(req.indices), lang=req.lang)
     elif req.source == "auto":
-        # 全自动:实时 spot + 实际波动率期限结构 + 国债利率(FMP),无需手工输入。
-        provider = _fmp_live()   # rate ← live 1Y treasury; shared/TTL-cached
+        # 全自动(FMP):实时 spot + 实际波动率期限结构 + 国债利率。
+        res = build_market_read(_fmp_live(), indices=tuple(req.indices), lang=req.lang)
     else:
-        provider = MassiveProvider(rate=req.rate, asof=_parse_asof(req.asof), max_maturity_years=1.5)
-    res = build_market_read(provider, indices=tuple(req.indices), lang=req.lang)
+        # 默认 live:期权链真实隐含波动率曲面(Massive/Polygon)+ 月度趋势(日线聚合)。
+        # 期权源不可用/无曲面时退回 auto(FMP realized),绝不让页面空手而归。
+        try:
+            provider = MassiveProvider(rate=req.rate, asof=_parse_asof(req.asof),
+                                       max_maturity_years=1.5)
+            res = build_market_read(provider, indices=tuple(req.indices), lang=req.lang)
+        except (MassiveUnavailable, ValueError) as e:
+            log.warning("market read live (Massive) failed, falling back to auto: %s", e)
+            res = build_market_read(_fmp_live(), indices=tuple(req.indices), lang=req.lang)
+            source_used = "auto-fallback"
     res["source"] = req.source
+    res["source_used"] = source_used
     update(jid, status="done", stage="done", partial=res)
 
 
@@ -587,10 +604,20 @@ def _build_options_chain(req, *, provider: "MassiveProvider | None" = None) -> "
     ticker, spot = _options_ticker_spot(req)
     source = getattr(req, "source", "live")
     if source == "live":
-        prov = provider or _options_provider(req, ticker, asof)
-        return OptionChain.from_massive(prov, ticker, rate=req.rate,
-                                        div_yield=req.div_yield, borrow=req.borrow,
-                                        max_maturity_years=req.max_maturity_years, asof=asof)
+        # 默认 live:Massive/Polygon 真实期权链(逐合约 IV/买卖价/量/持仓 → 真流动性)。
+        # 期权源不可用时退回 auto(FMP 实测波动率合成链)——诚实降级,不空手而归;
+        # chain.summary().source 会如实显示 live/abstract。
+        try:
+            prov = provider or _options_provider(req, ticker, asof)
+            return OptionChain.from_massive(prov, ticker, rate=req.rate,
+                                            div_yield=req.div_yield, borrow=req.borrow,
+                                            max_maturity_years=req.max_maturity_years, asof=asof)
+        except MassiveUnavailable as e:
+            log.warning("options live chain (Massive) failed for %s, falling back to auto: %s",
+                        ticker, e)
+            real_spot, surface, rate = _auto_options_market(req, ticker)
+            return OptionChain.abstract(ticker, real_spot, surface, rate=rate,
+                                        div_yield=req.div_yield, borrow=req.borrow, asof=asof)
     if source == "auto":
         # 实时真实数据(FMP):spot + 实际波动率期限结构,合成链在真实价位上
         real_spot, surface, rate = _auto_options_market(req, ticker)

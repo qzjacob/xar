@@ -64,6 +64,7 @@ interface MarketReadResult {
   narrative_source: string;
   indices: string[];
   source: string;
+  source_used?: string; // "live" | "auto-fallback"(期权源不可用时的实测波动率回退)
   unresolved?: string[]; // requested indices the data source could not serve
 }
 
@@ -135,7 +136,9 @@ export function MarketRead() {
     setErr(null);
     setStage("fetching real market data");
     try {
-      const body = { indices: tickers, source: "auto" as const, lang };
+      // 默认 live:期权链真实隐含波动率曲面(Polygon);服务端在期权源不可用时自动退
+      // auto(实测波动率),结果里 source_used 标注实际路径。
+      const body = { indices: tickers, source: "live" as const, lang };
       const out = (await fennyApi.marketRead(body, (j: Job) => setStage(j.stage || j.status))) as unknown as MarketReadResult;
       setRes(out);
     } catch (e) {
@@ -228,6 +231,11 @@ export function MarketRead() {
         </div>
       )}
       {err && <div className="text-xs text-neg">Error: {err}</div>}
+      {res?.source_used === "auto-fallback" && (
+        <div className="text-xs text-warn-100">
+          ⚠ 期权链数据源暂不可用,本次解读使用历史实际波动率(自动回退)
+        </div>
+      )}
       {res?.unresolved && res.unresolved.length > 0 && (
         <div className="text-xs text-warn-100">
           ⚠ {res.unresolved.join("、")} 无可用实时数据,已从本次解读中剔除(其余为真实数据)
@@ -376,8 +384,9 @@ export function MarketRead() {
               titleCn="市场指标(技术面)"
               icon={<Activity size={15} />}
               right={
-                <Badge className="bg-surface-2 text-brand-500" title={realized ? "无期权隐含波动率数据源时,以历史实际波动率为诚实代理" : undefined}>
-                  {realized ? "实际波动率(历史)" : `source · ${res.source}`}
+                <Badge className="bg-surface-2 text-brand-500"
+                  title={realized ? "期权隐含波动率源不可用,以历史实际波动率为诚实代理" : "来自期权链的真实隐含波动率(Polygon)"}>
+                  {realized ? "实际波动率(回退)" : "隐含波动率 · 期权链"}
                 </Badge>
               }
             />
