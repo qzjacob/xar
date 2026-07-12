@@ -90,20 +90,38 @@ def test_turn_streams_deltas_and_replies(monkeypatch, seeded_db):
     assert any(m == "sendChatAction" for m, _ in tr.calls)
 
 
-def test_turn_error_reaches_user(monkeypatch, seeded_db):
-    tr = FakeTransport()
-    bot = _bot(tr)
-
+def test_turn_error_relayed_only_to_allowlisted(monkeypatch, seeded_db):
     def broken(sid, text):
         yield {"type": "error", "message": "quota exhausted"}
 
     import xar.chathy.agent as agent
     monkeypatch.setattr(agent, "run_turn", broken)
-    bot.handle_text("77", "hi")
-    assert any("quota exhausted" in t for t in tr.sent_texts())
+    # 白名单会话:转述细节(与 web 同显)
+    tr1 = FakeTransport()
+    _bot(tr1, allowed={"77"}).handle_text("77", "hi")
+    assert any("quota exhausted" in t for t in tr1.sent_texts())
+    # 开放会话:通用语,不外泄
+    tr2 = FakeTransport()
+    _bot(tr2).handle_text("77", "hi")
+    assert not any("quota exhausted" in t for t in tr2.sent_texts())
+    assert any("稍后重试" in t for t in tr2.sent_texts())
 
 
-def test_poll_acks_before_processing(monkeypatch, seeded_db):
+def test_exception_sends_generic_error_not_details(monkeypatch, seeded_db):
+    def explode(sid, text):
+        raise RuntimeError("postgresql://user:pass@db/secret dsn")
+        yield  # pragma: no cover
+
+    import xar.chathy.agent as agent
+    monkeypatch.setattr(agent, "run_turn", explode)
+    tr = FakeTransport()
+    _bot(tr).handle_text("77", "hi")
+    texts = tr.sent_texts()
+    assert any("内部错误" in t for t in texts)
+    assert not any("postgresql" in t for t in texts)   # 细节只进日志
+
+
+def test_poll_persists_offset_before_processing(monkeypatch, seeded_db):
     updates = [
         {"update_id": 10, "message": {"chat": {"id": 5}, "text": "/id"}},
         {"update_id": 11, "message": {"chat": {"id": 5}, "text": "/id"}},
@@ -112,9 +130,32 @@ def test_poll_acks_before_processing(monkeypatch, seeded_db):
     bot = _bot(tr)
     n = bot.poll_once()
     assert n == 2
-    assert bot._offset == 12                 # max(update_id)+1,先 ack 再处理
-    # 下一轮空转
+    assert bot._offset == 12                 # max(update_id)+1
+    # 偏移已持久化:新实例(模拟重启)直接从 12 续读,不重放
+    bot2 = _bot(FakeTransport())
+    assert bot2._offset == 12
     assert bot.poll_once() == 0
+
+
+def test_throttle_min_gap_and_exact_commands(monkeypatch, seeded_db):
+    import xar.chathy.agent as agent
+
+    def ok(sid, text):
+        yield {"type": "delta", "text": "ok"}
+        yield {"type": "done", "usage": {}}
+
+    monkeypatch.setattr(agent, "run_turn", ok)
+    tr = FakeTransport()
+    bot = _bot(tr)
+    bot.handle_text("9", "第一问")
+    bot.handle_text("9", "紧跟着第二问")     # < 2s 间隔 → 节流
+    texts = tr.sent_texts()
+    assert any("太快" in t for t in texts)
+    # 命令精确匹配:"/newport…" 是普通提问,不得吞成 /new
+    tr2 = FakeTransport()
+    bot2 = _bot(tr2)
+    bot2.handle_text("10", "/newport analysis?")
+    assert not any("已开新会话" in t for t in tr2.sent_texts())
 
 
 def test_markdown_fallback_to_plain(monkeypatch, seeded_db):

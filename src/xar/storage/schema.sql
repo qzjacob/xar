@@ -721,3 +721,11 @@ CREATE TABLE IF NOT EXISTS chat_channels (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (channel, external_id)
 );
+
+-- Telegram 轮询偏移持久化(TG-R):处理前先落库,重启从此续读 —— 崩溃/重发布不再
+-- 重放已处理的批次(至多一次语义跨进程成立)。
+CREATE TABLE IF NOT EXISTS channel_state (
+    channel    TEXT PRIMARY KEY,             -- 'telegram'
+    next_offset BIGINT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
