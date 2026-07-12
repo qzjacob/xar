@@ -41,6 +41,13 @@ def _startup() -> None:
         log.info("startup complete; LLM configured=%s", get_settings().has_llm)
     except Exception as e:  # don't crash the server if DB is briefly unavailable
         log.warning("startup deferred: %s", e)
+    try:
+        # Chathy 的 Telegram 通道(BOT_HTTP_API 在场即启;长轮询守护线程,记录与前端同源)
+        from ..chathy import telegram
+
+        telegram.start_background()
+    except Exception as e:  # noqa: BLE001 — 通道失败绝不拖垮 API 启动
+        log.warning("telegram channel not started: %s", e)
 
 
 @app.get("/", response_class=HTMLResponse)

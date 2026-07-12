@@ -711,3 +711,13 @@ CREATE TABLE IF NOT EXISTS capability_runs (
 CREATE INDEX IF NOT EXISTS idx_capruns_recent ON capability_runs(capability, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_capruns_active ON capability_runs(capability, args_hash)
     WHERE status IN ('queued','running');
+
+-- Chathy 通讯软件通道映射(TG-P1):外部聊天(如 Telegram chat_id)↔ chat_sessions 会话,
+-- 使 bot 对话与前端页面共用同一份会话/消息存储(记录与日志完全同源)。
+CREATE TABLE IF NOT EXISTS chat_channels (
+    channel     TEXT NOT NULL,                -- 'telegram'(未来:wechat/slack…)
+    external_id TEXT NOT NULL,                -- 通道内的会话标识(telegram chat id)
+    session_id  TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (channel, external_id)
+);

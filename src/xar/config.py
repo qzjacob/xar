@@ -132,6 +132,18 @@ class Settings(BaseSettings):
     gangtise_history_quarters: int = 8     # MD&A 历史季度深度(不受账户窗限制)
     gangtise_core_size: int = 30           # 核心公司数(种子∩CN ∪ 覆盖度 top-N)
 
+    # --- Chathy 通讯软件通道:Telegram bot(长轮询,无公网 webhook 依赖)---------
+    # BOT_HTTP_API = BotFather 的 HTTP API token;BOT_ID = bot 用户名(展示用)。
+    # token 即军备开关:设了就随 app 启动(XAR_ENABLE_TELEGRAM=false 可显式关)。
+    # TELEGRAM_ALLOWED_CHATS = 逗号分隔 chat id 白名单;留空 = 不限(私人 bot 假设),
+    # 每个新 chat 首次进线会在日志打出 chat id,便于随后收紧白名单。
+    telegram_bot_token: str = Field(
+        default="", validation_alias=AliasChoices("BOT_HTTP_API", "TELEGRAM_BOT_TOKEN"))
+    telegram_bot_id: str = Field(
+        default="", validation_alias=AliasChoices("BOT_ID", "TELEGRAM_BOT_ID"))
+    telegram_allowed_chats: str = Field(default="", validation_alias="TELEGRAM_ALLOWED_CHATS")
+    enable_telegram: bool = Field(default=True, validation_alias="XAR_ENABLE_TELEGRAM")
+
     # --- AIFINmarket (万得终端) — CN A-share professional source ---------------
     # REST gateway to a Wind/AIFINmarket terminal (base url + token); or set
     # XAR_ENABLE_AIFINMARKET + a local WindPy terminal. Blank -> skipped.

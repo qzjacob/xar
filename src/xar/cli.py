@@ -31,6 +31,18 @@ def capabilities_cmd() -> None:
         print(f"  {c.name:26} ({tag}/{c.duration}){' chathy' if c.chathy else ''}  {c.description[:60]}")
 
 
+@app.command("telegram")
+def telegram_cmd() -> None:
+    """前台运行 Chathy 的 Telegram bot(调试用;生产随 `xar serve` 自动启动)。"""
+    from .chathy.telegram import TelegramBot
+    from .config import get_settings
+
+    if not get_settings().telegram_bot_token:
+        print("[red]BOT_HTTP_API 未设置(.env)[/red]")
+        raise typer.Exit(1)
+    TelegramBot().run_forever()
+
+
 @app.command("run")
 def run_cmd(name: str, args: str = typer.Option("{}", "--args", help="JSON 参数对象")) -> None:
     """跑一个能力(read 即答;build 落 capability_runs 并 inline 执行)。"""
