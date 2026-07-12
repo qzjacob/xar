@@ -33,15 +33,18 @@ _ALIASES = {
 
 
 def _massive_or_none():
-    """A MassiveProvider when the key is set, else None (implied vol stays optional)."""
+    """A shared/TTL-cached MassiveProvider when the key is set, else None — reuse keeps
+    the per-instance spot/aggs caches warm across requests instead of re-fetching."""
     import os
 
     if not os.environ.get("MASSIVE_API_KEY"):
         return None
     try:
+        from fcn.marketdata.cache import MARKET_CACHE
         from fcn.marketdata.massive import MassiveProvider
 
-        return MassiveProvider(max_maturity_years=1.5)
+        return MARKET_CACHE.get_or_compute(
+            ("massive-live-provider",), lambda: MassiveProvider(max_maturity_years=1.5))
     except Exception:  # noqa: BLE001
         return None
 
@@ -107,11 +110,12 @@ def resolve_market(tickers: list[str], rate: float | None = None,
                 meta.append({"ticker": t, "resolved": False})
                 continue
         # 波动率:隐含 ATM(期权链,≈6M)优先 → 实际波动率 → 平坦兜底
+        # (已持有的 spot 直接透传,省掉 point_vol 里的快照调用 — 每名 1 次 HTTP)
         vol = None
         vol_src = "fallback"
         if massive is not None:
             try:
-                iv = massive.point_vol(t, 0.5, 0.0)
+                iv = massive.point_vol(t, 0.5, 0.0, spot=spot)
                 if iv is not None and 0.03 < iv < 3.0:
                     vol, vol_src = float(min(max(iv, _VOL_FLOOR), _VOL_CAP)), "implied"
             except Exception:  # noqa: BLE001 — options feed hiccup → realized path below
@@ -140,15 +144,24 @@ def resolve_market(tickers: list[str], rate: float | None = None,
             m["resolved_as"] = sym
         meta.append(m)
 
+    # 相关性:FMP 历史 → Massive 日线聚合兜底(被 Massive 救回的名字 FMP 无历史,
+    # 不能让一个名字把整篮的真实相关性拖成假设 ρ)→ None(调用方自报假设并示警)
     corr = None
+    corr_src = None
     if len(eff_syms) > 1:
         try:
             corr = prov.correlation(eff_syms).matrix.tolist()
-        except Exception:  # noqa: BLE001 — fall back to the uniform rho the caller supplies
-            corr = None
+            corr_src = "fmp"
+        except Exception:  # noqa: BLE001
+            if massive is not None:
+                try:
+                    corr = massive.correlation([a["ticker"] for a in assets]).matrix.tolist()
+                    corr_src = "massive"
+                except Exception:  # noqa: BLE001
+                    corr = None
     try:
         r = float(rate) if rate is not None else float(prov.risk_free_rate())
     except Exception:  # noqa: BLE001
         r = 0.045
     return {"source": "manual", "rate": round(r, 5), "assets": assets,
-            "correlation": corr, "resolved": meta}
+            "correlation": corr, "correlation_source": corr_src, "resolved": meta}

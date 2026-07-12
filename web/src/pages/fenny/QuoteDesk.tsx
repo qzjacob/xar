@@ -171,6 +171,9 @@ async function priceOne(
     };
     if (missing.length) {
       dataNote = `${missing.join("、")} 无实时行情，已用假设波动率 ${(a.atmVol * 100).toFixed(0)}%（其余为实时数据）`;
+    } else if (tickers.length > 1 && !rm.correlation) {
+      // 多标的但两条历史源都取不到相关性 → worst-of 用假设 ρ 定价,必须示警
+      dataNote = `多标的相关性无实时数据，已用假设 ρ=${a.rho}（波动率仍为实时）`;
     }
   } else {
     market = { source: "manual", rate: a.rate, rho: a.rho, assets: tickers.map(assumeAsset) };

@@ -229,9 +229,17 @@ function AnalyzeSection({ m, set }: { m: Market; set: (p: Partial<Market>) => vo
 
         {res && (
           <>
+            {str(res.source_used) === "auto-fallback" && (
+              <div className="text-xs text-warn-100">
+                ⚠ 期权链数据源暂不可用,本次分析使用实测波动率合成链(自动回退)
+              </div>
+            )}
             <div className="flex flex-wrap items-center gap-2 text-xs text-brand-500">
               <Badge className="bg-surface-2 text-accent-100">
                 {str(chain.ticker) || m.ticker}
+              </Badge>
+              <Badge className={str(chain.source) === "live" ? "bg-pos/10 text-pos" : "bg-surface-2 text-brand-500"}>
+                {str(chain.source) === "live" ? "真实期权链" : "合成链"}
               </Badge>
               <span className="tnum">spot {f(chain.spot)}</span>
               <span>·</span>

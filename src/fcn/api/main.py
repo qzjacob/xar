@@ -456,31 +456,58 @@ def _run_rank_job(req: RankRequest, jid: str) -> None:
         use_cache = True
     else:
         years = max(0.5, s.tenor_months / 12.0)
+        # 真实国债利率(前端不再发 rate;硬编码 4.5% 会系统性偏移全表折现/漂移)
+        live_rate = _fmp_live().risk_free_rate()
         provider = MassiveProvider(
-            rate=req.rate, funding=req.funding, asof=_parse_asof(req.asof), max_maturity_years=years
+            rate=live_rate, funding=req.funding, asof=_parse_asof(req.asof),
+            max_maturity_years=years,
         )
         # Universe from Finnhub-sourced seed (FMP/Finnhub screeners are paywalled);
         # Massive supplies the per-name barrier vol that drives the coupon.
         universe = MARKET_CACHE.get_or_compute(
             ("universe", req.min_market_cap),
-            lambda: FinnhubProvider(rate=req.rate).screen_universe(min_market_cap=req.min_market_cap),
+            lambda: FinnhubProvider(rate=live_rate).screen_universe(min_market_cap=req.min_market_cap),
         )
         use_cache = True
 
     res = rank_underlyings(
         provider, structure, universe=universe, top_n=req.top_n, rank_by=req.rank_by,
         filters=req.filters, max_candidates=req.max_candidates, use_cache=use_cache,
-        max_workers=16,  # live ranking is bottlenecked by one option-chain fetch per name
+        max_workers=8 if req.source not in ("manual", "auto") else 16,  # 温和对待期权 API
         on_progress=lambda done, total: update(jid, stage=f"ranking {done}/{total}"),
     )
     res["source"] = req.source
+    source_used = req.source
     if req.source == "auto":
         res["vol_basis"] = "realized"
         res["rate"] = round(provider.risk_free_rate(), 5)
         res["universe_source"] = universe_source
     elif req.source != "manual":
-        res["vol_basis"] = "implied"   # live = Massive/Polygon 期权链障碍点 IV
-        res["universe_source"] = "seed-large-cap"
+        # 期权源全站不可用 → 全部被跳过:退回 auto(实测波动率),绝不给一张空表
+        if not res.get("ranked") and res.get("skipped"):
+            log.warning("rank live: all %d names skipped (Massive down?) — falling back to auto",
+                        len(res["skipped"]))
+            provider = _fmp_live(req.funding)
+            universe, universe_source = MARKET_CACHE.get_or_compute(
+                ("auto-universe", req.min_market_cap),
+                lambda: (FinnhubProvider(rate=req.rate).screen_universe(
+                    min_market_cap=req.min_market_cap), "seed-large-cap"),
+            )
+            res = rank_underlyings(
+                provider, structure, universe=universe, top_n=req.top_n, rank_by=req.rank_by,
+                filters=req.filters, max_candidates=req.max_candidates, use_cache=True,
+                max_workers=16,
+                on_progress=lambda done, total: update(jid, stage=f"ranking(回退) {done}/{total}"),
+            )
+            res["source"] = req.source
+            res["vol_basis"] = "realized"
+            res["universe_source"] = universe_source
+            source_used = "auto-fallback"
+        else:
+            res["vol_basis"] = "implied"   # live = Massive/Polygon 期权链障碍点 IV
+            res["universe_source"] = "seed-large-cap"
+        res["rate"] = round(provider.risk_free_rate(), 5)
+    res["source_used"] = source_used
     update(jid, status="done", stage="done", partial=res)
 
 
@@ -495,10 +522,11 @@ def _run_market_read_job(req: MarketReadRequest, jid: str) -> None:
         res = build_market_read(_fmp_live(), indices=tuple(req.indices), lang=req.lang)
     else:
         # 默认 live:期权链真实隐含波动率曲面(Massive/Polygon)+ 月度趋势(日线聚合)。
+        # 利率取真实国债(前端不发 rate,硬编码 4.5% 会被 UI 标成"实时"——不诚实)。
         # 期权源不可用/无曲面时退回 auto(FMP realized),绝不让页面空手而归。
         try:
-            provider = MassiveProvider(rate=req.rate, asof=_parse_asof(req.asof),
-                                       max_maturity_years=1.5)
+            provider = MassiveProvider(rate=_fmp_live().risk_free_rate(),
+                                       asof=_parse_asof(req.asof), max_maturity_years=1.5)
             res = build_market_read(provider, indices=tuple(req.indices), lang=req.lang)
         except (MassiveUnavailable, ValueError) as e:
             log.warning("market read live (Massive) failed, falling back to auto: %s", e)
@@ -605,13 +633,16 @@ def _build_options_chain(req, *, provider: "MassiveProvider | None" = None) -> "
     source = getattr(req, "source", "live")
     if source == "live":
         # 默认 live:Massive/Polygon 真实期权链(逐合约 IV/买卖价/量/持仓 → 真流动性)。
-        # 期权源不可用时退回 auto(FMP 实测波动率合成链)——诚实降级,不空手而归;
-        # chain.summary().source 会如实显示 live/abstract。
+        # 期权源不可用或链为空(逐档节流被吞成空结果)时退回 auto(FMP 实测波动率
+        # 合成链)——诚实降级,不空手而归;chain.summary().source 如实显示 live/abstract。
         try:
             prov = provider or _options_provider(req, ticker, asof)
-            return OptionChain.from_massive(prov, ticker, rate=req.rate,
-                                            div_yield=req.div_yield, borrow=req.borrow,
-                                            max_maturity_years=req.max_maturity_years, asof=asof)
+            chain = OptionChain.from_massive(prov, ticker, rate=req.rate,
+                                             div_yield=req.div_yield, borrow=req.borrow,
+                                             max_maturity_years=req.max_maturity_years, asof=asof)
+            if not chain.contracts:
+                raise MassiveUnavailable(f"empty option chain for {ticker}")
+            return chain
         except MassiveUnavailable as e:
             log.warning("options live chain (Massive) failed for %s, falling back to auto: %s",
                         ticker, e)
@@ -692,11 +723,16 @@ def _run_options_analyze_job(req: OptionsAnalyzeRequest, jid: str) -> None:
     chain = _build_options_chain(req, provider=prov)
     update(jid, stage="analysing surface")
     analytics, analytics_source = _build_options_analytics(req, chain, provider=prov)
+    summary = chain.summary()
+    # 披露实际路径:请求 live 但链是合成(abstract)= 已发生 auto 回退
+    source_used = ("auto-fallback"
+                   if req.source == "live" and summary.get("source") != "live" else req.source)
     update(jid, status="done", stage="done", partial={
-        "chain": chain.summary(),
+        "chain": summary,
         "analytics": analytics.to_dict(),
         "liquidity": chain.liquidity_summary(),
         "source": req.source,
+        "source_used": source_used,
         "analytics_source": analytics_source,
     })
 

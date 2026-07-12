@@ -37,6 +37,7 @@ interface RankResult {
   vol_basis?: string;
   rate?: number;
   universe_source?: string; // "fmp-screener" (full market) | "seed-large-cap" (bundled ~200)
+  source_used?: string; // "live" | "auto-fallback"(期权源不可用时的实测波动率回退)
 }
 
 // 观察频率 — mirrors the quote desk's obs-frequency choices
@@ -325,6 +326,11 @@ export function Finder() {
                 跳过 {result.skipped.length} 个(无实时数据):{" "}
                 {result.skipped.slice(0, 20).map((s) => s.ticker).join(", ")}
                 {result.skipped.length > 20 ? " …" : ""}
+              </p>
+            )}
+            {result?.source_used === "auto-fallback" && (
+              <p className="border-t border-line px-4 py-2 text-2xs text-warn-100">
+                ⚠ 期权链数据源暂不可用,本次排名使用历史实际波动率(自动回退)。
               </p>
             )}
             {result?.universe_source === "seed-large-cap" && (

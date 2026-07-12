@@ -99,7 +99,7 @@ def test_implied_vol_preferred_when_massive_entitled(monkeypatch):
     class FakeMassive:
         def spot(self, t):
             return 400.0
-        def point_vol(self, t, tenor, logm):
+        def point_vol(self, t, tenor, logm, *, spot=None):
             return 0.53   # 期权链隐含 ATM
 
     monkeypatch.setattr(MR, "_massive_or_none", lambda: FakeMassive())
@@ -127,7 +127,7 @@ def test_massive_spot_rescues_fmp_gated_name(monkeypatch):
     class FakeMassive:
         def spot(self, t):
             return 726.4
-        def point_vol(self, t, tenor, logm):
+        def point_vol(self, t, tenor, logm, *, spot=None):
             return 0.19
 
     monkeypatch.setattr(MR, "_massive_or_none", lambda: FakeMassive())

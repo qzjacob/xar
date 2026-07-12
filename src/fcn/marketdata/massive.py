@@ -68,6 +68,7 @@ class MassiveProvider:
         self._get = self.getter or _massive_get
         self._asof = self.asof or date.today()
         self._spot_cache: dict[str, float] = {}
+        self._aggs_cache: dict[str, list] = {}   # daily aggregates shared by closes/monthly
 
     def _call(self, path: str, params: dict):
         if not self.api_key:
@@ -179,15 +180,17 @@ class MassiveProvider:
             return None  # not enough live data -> caller falls back to parametric
         return GridVolSurface.from_scatter(np.array(ts), np.array(xs), np.array(ivs))
 
-    def point_vol(self, ticker: str, t: float, log_moneyness: float = 0.0) -> float | None:
+    def point_vol(self, ticker: str, t: float, log_moneyness: float = 0.0,
+                  *, spot: float | None = None) -> float | None:
         """Single-tenor implied vol near maturity ``t`` at ``log_moneyness`` (=ln(K/S)).
 
         Ranking needs only one expiry per name, so this fetches a single bracket
         around ``t`` (far fewer calls than the 7-tenor :meth:`vol_surface`) and
         returns the IV of the OTM contract closest to the requested strike/expiry.
+        Callers that already hold a real spot pass it in (saves one snapshot call).
         Returns ``None`` when the chain lacks usable data (caller skips the name).
         """
-        spot = self.spot(ticker)
+        spot = spot or self.spot(ticker)
         target = self._asof + timedelta(days=max(1, int(round(t * 365))))
         strike = spot * float(np.exp(log_moneyness))
         params = {
@@ -221,14 +224,21 @@ class MassiveProvider:
                 best = (score, float(iv))
         return None if best is None else best[1]
 
-    def _daily_closes(self, ticker: str) -> np.ndarray:
+    def _daily_aggs(self, ticker: str) -> list:
+        """Daily aggregate rows (cached per instance — closes/monthly share one fetch)."""
+        if ticker in self._aggs_cache:
+            return self._aggs_cache[ticker]
         frm = (self._asof - timedelta(days=int(self.lookback_days * 1.6))).isoformat()
         to = self._asof.isoformat()
         data = self._call(
             f"v2/aggs/ticker/{ticker}/range/1/day/{frm}/{to}", {"limit": 5000, "sort": "asc"}
         )
         rows = (data or {}).get("results", []) if isinstance(data, dict) else []
-        return np.array([float(r["c"]) for r in rows], dtype=float)
+        self._aggs_cache[ticker] = rows
+        return rows
+
+    def _daily_closes(self, ticker: str) -> np.ndarray:
+        return np.array([float(r["c"]) for r in self._daily_aggs(ticker)], dtype=float)
 
     def monthly_samples(self, ticker: str, months: int = 7) -> list[dict]:
         """Month-end samples for the market-read 择时 trend view: [{month, spot, rv21}].
@@ -236,15 +246,10 @@ class MassiveProvider:
         Same contract as ``FMPLiveProvider.monthly_samples`` — daily aggregates carry
         millisecond timestamps (``t``), so month-ends come straight from the bars.
         """
-        frm = (self._asof - timedelta(days=int(self.lookback_days * 1.6))).isoformat()
-        to = self._asof.isoformat()
         try:
-            data = self._call(
-                f"v2/aggs/ticker/{ticker}/range/1/day/{frm}/{to}", {"limit": 5000, "sort": "asc"}
-            )
+            rows = self._daily_aggs(ticker)   # cached — shares the closes fetch
         except MassiveUnavailable:
             return []
-        rows = (data or {}).get("results", []) if isinstance(data, dict) else []
         closes = np.array([float(r["c"]) for r in rows], dtype=float)
         if len(closes) < 25:
             return []
