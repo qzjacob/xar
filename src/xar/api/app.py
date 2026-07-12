@@ -391,6 +391,27 @@ def ops_run_source(sid: str, bg: BackgroundTasks) -> dict:
     return {"status": "started", "source": sid}
 
 
+@app.get("/api/ops/fetchy")
+def ops_fetchy() -> dict:
+    """Fetchy:glmworker 管理面 — 状态 + 生效配置 + 模型/数据源/阶段目录。"""
+    from . import ops
+
+    return ops.fetchy()
+
+
+@app.put("/api/ops/fetchy")
+def ops_set_fetchy(body: dict) -> dict:
+    """保存 Fetchy 配置(工人下一轮从共享 DB 读取生效,无需重启)。"""
+    from fastapi import HTTPException
+
+    from . import ops
+
+    try:
+        return ops.set_fetchy(body)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+
+
 @app.get("/api/ops/llm")
 def ops_llm() -> dict:
     from . import ops

@@ -7,6 +7,7 @@ import {
   Network,
   Plug,
   Radar,
+  Satellite,
   Workflow,
 } from "lucide-react";
 import { SidebarFrame } from "./shell/SidebarFrame";
@@ -14,6 +15,7 @@ import { SidebarNav, type SideNavItem } from "./shell/SidebarNav";
 
 const ADMIN_NAV: SideNavItem[] = [
   { to: "/jarvy", label: "Overview", cn: "总览", icon: Gauge, exact: true },
+  { to: "/jarvy/fetchy", label: "Fetchy", cn: "抓取工人", icon: Satellite },
   { to: "/jarvy/ontology", label: "Ontology", cn: "本体", icon: Network },
   { to: "/jarvy/coverage", label: "Coverage", cn: "覆盖度", icon: Radar },
   { to: "/jarvy/sources", label: "Data Sources", cn: "数据源", icon: Database },

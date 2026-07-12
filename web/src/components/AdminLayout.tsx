@@ -9,6 +9,7 @@ import type { HealthInfo } from "../types-ops";
 
 const TITLES: Record<string, { en: string; cn: string }> = {
   "/jarvy": { en: "Overview", cn: "总览" },
+  "/jarvy/fetchy": { en: "Fetchy", cn: "抓取工人管理" },
   "/jarvy/ontology": { en: "Ontology", cn: "本体" },
   "/jarvy/coverage": { en: "Coverage 360", cn: "覆盖度" },
   "/jarvy/sources": { en: "Data Sources", cn: "数据源" },

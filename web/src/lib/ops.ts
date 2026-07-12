@@ -4,6 +4,8 @@ import type {
   AltDataInfo,
   ConnectorsInfo,
   DataLakeInfo,
+  FetchyConfig,
+  FetchyInfo,
   HealthInfo,
   LakeDocsPage,
   LlmInfo,
@@ -26,6 +28,15 @@ async function post<T>(path: string): Promise<T> {
   if (!r.ok) throw new Error(`${path} -> ${r.status}`);
   return (await r.json()) as T;
 }
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(path, {
+    method: "PUT",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`${path} -> ${r.status}`);
+  return (await r.json()) as T;
+}
 
 export const ops = {
   health: () => get<HealthInfo>("/api/health"),
@@ -34,6 +45,8 @@ export const ops = {
   runSource: (id: string) => post<ActionResult>(`/api/ops/sources/${encodeURIComponent(id)}/run`),
   llm: () => get<LlmInfo>("/api/ops/llm"),
   testLlm: () => post<LlmTestResult>("/api/ops/llm/test"),
+  fetchy: () => get<FetchyInfo>("/api/ops/fetchy"),
+  setFetchy: (cfg: Partial<FetchyConfig>) => put<{ config: FetchyConfig }>("/api/ops/fetchy", cfg),
   connectors: () => get<ConnectorsInfo>("/api/ops/connectors"),
   skills: () => get<SkillsInfo>("/api/ops/skills"),
   datalake: () => get<DataLakeInfo>("/api/ops/datalake"),

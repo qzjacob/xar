@@ -101,6 +101,85 @@ def _mark_ok(q: dict) -> dict:
     return q
 
 
+# ── Fetchy 管理面(Jarvy 前端 ↔ 共享 DB;工人每轮读取,app 容器写入)───────────
+# 控制面走 glm_worker_state(key="fetchy")—— 两个容器共享同一 Postgres,无需 RPC。
+FETCHY_SOURCES: dict[str, dict] = {   # cadence key → 标签/节拍(小时;None=按 config)
+    "twitter": {"label": "Twitter 专家声音", "hours": 1},
+    "wechat": {"label": "微信公众号", "hours": 1},
+    "finnhub_news": {"label": "Finnhub 新闻", "hours": 4},
+    "rss": {"label": "RSS 源", "hours": 2},
+    "alt": {"label": "另类数据追踪器", "hours": 6},
+    "futu_news": {"label": "富途资讯", "hours": 3},
+    "gangtise": {"label": "Gangtise 结构化(财务/预期)", "hours": 12},
+    "gangtise_insight": {"label": "Gangtise 投研文本(研报/纪要)", "hours": None},
+    "gangtise_backfill": {"label": "Gangtise 历史回填", "hours": 6},
+    "wind_edb": {"label": "万得 EDB 数据追踪", "hours": 24},
+    "aifinmarket_theme": {"label": "万得主题资讯", "hours": 24},
+    "earnings_watch": {"label": "季报观察窗(日历/预期/隐波)", "hours": 6},
+}
+FETCHY_STAGES: dict[str, str] = {     # run_once 阶段 → 标签
+    "parse": "解析 + 本地嵌入(零 LLM)",
+    "backfill": "10 年历史回填(零 LLM)",
+    "indicators": "衍生追踪指标(零 LLM)",
+    "extract": "LLM 语义抽取(triage/KG/专家/证据链接)",
+    "alt_correction": "信号校正 + 论点重建",
+    "research_audit": "独立抓取审计(每日)",
+    "earnings": "季报裁决 + 盘后回验",
+}
+
+
+def fetchy_defaults() -> dict:
+    return {"enabled": True, "model": GLM_PIN[0],
+            "sources": dict.fromkeys(FETCHY_SOURCES, True),
+            "stages": dict.fromkeys(FETCHY_STAGES, True)}
+
+
+def fetchy_config() -> dict:
+    """生效配置 = 默认 ⊕ 已保存(未知键忽略,新增源/阶段自动继承默认开)。"""
+    cfg = fetchy_defaults()
+    try:
+        saved = get_state("fetchy")
+    except Exception:  # noqa: BLE001 — DB 未就绪:按默认跑
+        return cfg
+    if isinstance(saved.get("enabled"), bool):
+        cfg["enabled"] = saved["enabled"]
+    if isinstance(saved.get("model"), str) and saved["model"]:
+        cfg["model"] = saved["model"]
+    for group in ("sources", "stages"):
+        for k, v in (saved.get(group) or {}).items():
+            if k in cfg[group] and isinstance(v, bool):
+                cfg[group][k] = v
+    return cfg
+
+
+def save_fetchy(cfg: dict) -> dict:
+    """校验并保存(只收已知键);返回生效配置。"""
+    from ..models import registry
+
+    clean: dict = {}
+    if isinstance(cfg.get("enabled"), bool):
+        clean["enabled"] = cfg["enabled"]
+    model = cfg.get("model")
+    if isinstance(model, str) and model:
+        if registry.get(model) is None:
+            raise ValueError(f"unknown model {model!r}")
+        clean["model"] = model
+    for group, catalog in (("sources", FETCHY_SOURCES), ("stages", FETCHY_STAGES)):
+        vals = cfg.get(group)
+        if isinstance(vals, dict):
+            clean[group] = {k: bool(v) for k, v in vals.items() if k in catalog}
+    save_state("fetchy", clean)
+    return fetchy_config()
+
+
+def _fetchy_pin(cfg: dict) -> tuple[str, ...]:
+    """选中的模型放链首,GLM_PIN 其余保持为回退链。"""
+    m = cfg.get("model")
+    if not m or m == GLM_PIN[0]:
+        return GLM_PIN
+    return (m, *tuple(x for x in GLM_PIN if x != m))
+
+
 # ── 工作阶段 ──────────────────────────────────────────────────────────────────
 def _due(key: str, every_seconds: int) -> bool:
     """只读检查(不落盘);成功/失败后由 _stamp 记录,失败按 1/4 间隔提前重试。"""
@@ -126,12 +205,15 @@ def _stamp(key: str, every_seconds: int, *, ok: bool) -> None:
     save_state("cadence", st)
 
 
-def _pull_fresh() -> dict:
+def _pull_fresh(cfg: dict | None = None) -> dict:
     """语义源增量拉取(零 LLM):Twitter 专家声音 / 微信公众号 / Finnhub 新闻。
-    各自带节拍(不逐轮硬打源);单源失败不沉轮。"""
+    各自带节拍(不逐轮硬打源);单源失败不沉轮;Fetchy 勾掉的源直接跳过。"""
     out: dict = {}
+    src_on = (cfg or fetchy_config())["sources"]
 
     def _run(key: str, every: int, fn) -> None:
+        if not src_on.get(key, True):   # Fetchy 关闭该源(不 stamp,重开即恢复节拍)
+            return
         if not _due(key, every):
             return
         ok = True
@@ -299,10 +381,10 @@ def _backfill(units: int) -> dict:
         return {"error": str(e)[:160]}
 
 
-def _llm_stage(batch_docs: int, q: dict) -> tuple[dict, dict]:
-    """钉扎 GLM 的抽取批次:KG 语义抽取 + 专家洞见。build_kg 逐文档容错(毒文档
-    盖戳跳过),但额度类错误(RateLimitError)与预算帽(BudgetExceeded)会中止
-    整批上抛到这里 —— 额度错在此定性并翻转状态。"""
+def _llm_stage(batch_docs: int, q: dict, pin: tuple[str, ...] = GLM_PIN) -> tuple[dict, dict]:
+    """钉扎抽取批次(链首 = Fetchy 选中的模型):KG 语义抽取 + 专家洞见。build_kg 逐文档
+    容错(毒文档盖戳跳过),但额度类错误(RateLimitError)与预算帽(BudgetExceeded)会
+    中止整批上抛到这里 —— 额度错在此定性并翻转状态。"""
     from ..config import get_settings
     from ..kg import expert
     from ..kg import extract as kg_extract
@@ -313,7 +395,7 @@ def _llm_stage(batch_docs: int, q: dict) -> tuple[dict, dict]:
     out: dict = {}
     run_id = llm.new_batch_run_id("kg")
     try:
-        with llm.pinned(GLM_PIN):
+        with llm.pinned(pin):
             # T2:微信 SNR triage 必须在 build_kg 之前(同周期新拉的微信文档先打分,
             # 再由两条 WHERE 守卫筛队列 —— 消除"先抽后筛"的竞态与额度浪费)。
             out["triage"] = triage.triage_pending(
@@ -372,8 +454,8 @@ def _earnings_step() -> dict:
     return out
 
 
-def _alt_correction(q: dict, rebuilds: int) -> dict:
-    """信号→事件(每轮,零 LLM)+ 信号挑战最重的论点在额度 ok 时钉扎 GLM 重建。"""
+def _alt_correction(q: dict, rebuilds: int, pin: tuple[str, ...] = GLM_PIN) -> dict:
+    """信号→事件(每轮,零 LLM)+ 信号挑战最重的论点在额度 ok 时钉扎重建。"""
     out: dict = {}
     try:
         from ..research import thesis_signals
@@ -385,10 +467,10 @@ def _alt_correction(q: dict, rebuilds: int) -> dict:
         try:
             from ..research import thesis, thesis_health
 
-            # 信号面 + 争论翻转面挑战最重的论点 → 钉扎 GLM 重写(天平翻转闭环)
+            # 信号面 + 争论翻转面挑战最重的论点 → 钉扎重写(天平翻转闭环)
             cids = thesis_health.challenged_companies_v2(limit=rebuilds)
             rebuilt = []
-            with llm.pinned(GLM_PIN):
+            with llm.pinned(pin):
                 for cid in cids:
                     r = thesis.build(cid, force=True)
                     rebuilt.append({"cid": cid, "status": r.get("status")})
@@ -411,15 +493,30 @@ def run_once(*, batch_docs: int | None = None, backfill_units: int | None = None
     q = get_state("quota", {"status": "ok"})
     out: dict = {"ts": _now()}
 
-    out["pulls"] = _pull_fresh()
-    out["backfill"] = _backfill(backfill_units)
-    try:
-        out["parsed_chunks"] = parse.parse_pending(limit=200)   # 本地嵌入,零 LLM
-    except Exception as e:  # noqa: BLE001
-        out["parsed_chunks"] = {"error": str(e)[:120]}
+    # Fetchy 管理面:总开关关 → 只留心跳(计数器照更新,看板可见工人仍活着)
+    cfg = fetchy_config()
+    if not cfg["enabled"]:
+        counters = get_state("counters")
+        counters["cycles"] = int(counters.get("cycles", 0)) + 1
+        counters["last_cycle_at"] = _now()
+        save_state("counters", counters)
+        out["skipped"] = "fetchy disabled"
+        out["quota"] = q.get("status", "ok")
+        return out
+    stages_on = cfg["stages"]
+    pin = _fetchy_pin(cfg)
+
+    out["pulls"] = _pull_fresh(cfg)
+    if stages_on.get("backfill", True):
+        out["backfill"] = _backfill(backfill_units)
+    if stages_on.get("parse", True):
+        try:
+            out["parsed_chunks"] = parse.parse_pending(limit=200)   # 本地嵌入,零 LLM
+        except Exception as e:  # noqa: BLE001
+            out["parsed_chunks"] = {"error": str(e)[:120]}
 
     # 衍生追踪指标(零 LLM,6h 节拍):从 fundamentals 算同比/增速二阶导/趋势,写回 source='derived'
-    if _due("indicators", 6 * 3600):
+    if stages_on.get("indicators", True) and _due("indicators", 6 * 3600):
         try:
             from ..research import indicators
             out["indicators"] = indicators.compute_all()
@@ -428,28 +525,33 @@ def run_once(*, batch_docs: int | None = None, backfill_units: int | None = None
             out["indicators"] = {"error": str(e)[:120]}
             _stamp("indicators", 6 * 3600, ok=False)
 
-    if not _sub_ready():
+    if not stages_on.get("extract", True):
+        out["extract"] = {"skipped": "fetchy: extract stage off"}
+    elif not _sub_ready():
         # 订阅 key 缺位 = 若继续,_endpoint 会静默回退到按 token 计费 —— 直接拒绝。
         out["extract"] = {"skipped": "GLM_SUB_API_KEY not configured — refusing metered fallback"}
     elif q.get("status") == "exhausted":
         # 耗尽态才发探针(避免每轮 1 次探针白耗 5h 窗的请求额度)
         if probe():
             q = _mark_ok(q)
-            out["extract"], q = _llm_stage(batch_docs, q)
+            out["extract"], q = _llm_stage(batch_docs, q, pin)
         else:
             q = _mark_exhausted(q, "probe failed")
             out["extract"] = {"skipped": "quota exhausted — waiting for window reset"}
     else:
         # ok 态零探针开销:直接抽取;额度耗尽由 _llm_stage 内的错误定性翻转状态
-        out["extract"], q = _llm_stage(batch_docs, q)
+        out["extract"], q = _llm_stage(batch_docs, q, pin)
 
     # 另类数据高频校正闭环(零 LLM 的信号→事件 每轮做;论点重建仅在额度 ok 时)
-    out["alt_correct"] = _alt_correction(q, s.glm_worker_thesis_rebuilds)
+    if stages_on.get("alt_correction", True):
+        out["alt_correct"] = _alt_correction(q, s.glm_worker_thesis_rebuilds, pin)
 
     # 独立抓取审计(每日):TaskClass.AUDIT 强 token 模型,**在 pinned 与 quota 门之外**——
     # 验收模型 ≠ 生产 GLM,GLM 耗尽也不影响审计(独立性的另一半)。模块级函数便于测试打桩。
-    out["research_audit"] = _research_audit_step()
-    out["earnings"] = _earnings_step()
+    if stages_on.get("research_audit", True):
+        out["research_audit"] = _research_audit_step()
+    if stages_on.get("earnings", True):
+        out["earnings"] = _earnings_step()
 
     counters = get_state("counters")
     counters["cycles"] = int(counters.get("cycles", 0)) + 1
@@ -509,9 +611,11 @@ def status() -> dict:
         backfill = history.backfill_status()
     except Exception as e:  # noqa: BLE001
         backfill = {"error": str(e)[:120]}
+    cfg = fetchy_config()
     return {"quota": get_state("quota", {"status": "unknown"}),
             "counters": get_state("counters"),
             "cadence": get_state("cadence"),
             "backfill": backfill,
             "extraction_backlog_docs": backlog,
-            "pin": list(GLM_PIN)}
+            "pin": list(_fetchy_pin(cfg)),
+            "fetchy": cfg}

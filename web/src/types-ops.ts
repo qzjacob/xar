@@ -229,3 +229,41 @@ export interface OpsCoverageInfo {
   dimensions: OpsCoverageDimension[];
   themes: OpsCoverageTheme[];
 }
+
+// ── Fetchy:glmworker 管理面(/api/ops/fetchy)─────────────────────────────────
+export interface FetchyConfig {
+  enabled: boolean;
+  model: string;
+  sources: Record<string, boolean>;
+  stages: Record<string, boolean>;
+}
+export interface FetchySource {
+  key: string;
+  label: string;
+  hours: number | null;
+  last: string | null; // cadence 最近一次运行(ISO)
+}
+export interface FetchyStage {
+  key: string;
+  label: string;
+}
+export interface FetchyModel {
+  id: string;
+  provider: string;
+  billing: string; // "subscription" | "token"
+  preferred: boolean;
+  notes: string;
+}
+export interface FetchyInfo {
+  config: FetchyConfig;
+  defaults: FetchyConfig;
+  sources: FetchySource[];
+  stages: FetchyStage[];
+  models: FetchyModel[];
+  status: {
+    quota: { status?: string; reason?: string } | null;
+    counters: { cycles?: number; docs_extracted?: number; last_cycle_at?: string };
+    backlog_docs: number | null;
+    pin: string[];
+  };
+}

@@ -675,3 +675,34 @@ def selftest() -> dict:
     for c in checks:
         counts[c["status"]] = counts.get(c["status"], 0) + 1
     return {"checks": checks, "summary": counts, "ranAt": _now()}
+
+
+# ── Fetchy:glmworker 管理面(Jarvy 前端)──────────────────────────────────────
+def fetchy() -> dict:
+    """工人状态 + 生效配置 + 可选模型/数据源/阶段目录(供 Jarvy Fetchy 页渲染)。"""
+    from ..models.registry import MODELS, Status
+    from ..orchestration import glm_worker as gw
+
+    st = gw.status()
+    cadence = st.get("cadence") or {}
+    sources = [{"key": k, "label": v["label"], "hours": v["hours"],
+                "last": cadence.get(k)}
+               for k, v in gw.FETCHY_SOURCES.items()]
+    stages = [{"key": k, "label": v} for k, v in gw.FETCHY_STAGES.items()]
+    models = [{"id": m.id, "provider": m.provider, "billing": m.billing.value,
+               "preferred": m.preferred, "notes": m.notes[:80]}
+              for m in MODELS if m.status == Status.ACTIVE]
+    # 订阅制在前(工人常驻批量,订阅=零边际成本),同组内 preferred 在前
+    models.sort(key=lambda m: (m["billing"] != "subscription", not m["preferred"], m["id"]))
+    return {"config": gw.fetchy_config(), "defaults": gw.fetchy_defaults(),
+            "sources": sources, "stages": stages, "models": models,
+            "status": {"quota": st.get("quota"), "counters": st.get("counters"),
+                       "backlog_docs": st.get("extraction_backlog_docs"),
+                       "pin": st.get("pin")}}
+
+
+def set_fetchy(cfg: dict) -> dict:
+    """保存 Fetchy 配置(app 写共享 DB,工人下一轮生效 —— 无需重启容器)。"""
+    from ..orchestration import glm_worker as gw
+
+    return {"config": gw.save_fetchy(cfg or {})}
