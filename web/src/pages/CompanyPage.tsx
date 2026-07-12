@@ -80,7 +80,7 @@ export function CompanyPage() {
   // --- loading -------------------------------------------------------------
   if (loading) {
     return (
-      <div className="flex h-[60vh] items-center justify-center text-sm text-slate-400">
+      <div className="flex h-[60vh] items-center justify-center text-sm text-brand-500">
         Loading…
       </div>
     );
@@ -95,9 +95,9 @@ export function CompanyPage() {
             <AlertTriangle size={22} strokeWidth={2} />
           </span>
           <div className="text-base font-semibold text-brand-900">Company not found</div>
-          <div className="max-w-sm text-sm text-slate-500">
+          <div className="max-w-sm text-sm text-brand-200">
             No coverage record for{" "}
-            <span className="tnum font-medium text-slate-400">{id}</span>. It may have been
+            <span className="tnum font-medium text-brand-500">{id}</span>. It may have been
             de-listed or never tracked in the XAR basket.
           </div>
           <Link
@@ -131,19 +131,19 @@ export function CompanyPage() {
       {/* ============================ HEADER ============================ */}
       <Card className="p-5">
         {/* breadcrumb + back */}
-        <div className="flex items-center gap-2 text-2xs text-slate-400">
+        <div className="flex items-center gap-2 text-2xs text-brand-500">
           <button
             type="button"
             onClick={() => navigate(-1)}
             aria-label="Go back"
-            className="flex h-6 w-6 items-center justify-center rounded-md border border-line text-slate-500 transition hover:bg-canvas hover:text-brand-900"
+            className="flex h-6 w-6 items-center justify-center rounded-md border border-line text-brand-200 transition hover:bg-canvas hover:text-brand-900"
           >
             <ArrowLeft size={14} strokeWidth={2.5} />
           </button>
           <Link to="/" className="transition hover:text-brand-900">
             Dashboard
           </Link>
-          <ChevronRight size={12} className="text-slate-300" aria-hidden="true" />
+          <ChevronRight size={12} className="text-brand-700" aria-hidden="true" />
           <button
             type="button"
             onClick={() => navigate(`/genny/segment/${segment.id}`)}
@@ -160,9 +160,9 @@ export function CompanyPage() {
               <span className="tnum text-3xl font-semibold tracking-tight text-brand-900">
                 {company.ticker}
               </span>
-              <span className="truncate text-lg font-medium text-slate-300">{company.name}</span>
+              <span className="truncate text-lg font-medium text-brand-700">{company.name}</span>
               {company.nameCn && (
-                <span className="truncate text-sm text-slate-400">{company.nameCn}</span>
+                <span className="truncate text-sm text-brand-500">{company.nameCn}</span>
               )}
               <button
                 type="button"
@@ -174,7 +174,7 @@ export function CompanyPage() {
                       ),
                   )
                 }
-                className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-xs text-slate-400 hover:bg-white/5"
+                className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-xs text-brand-500 hover:bg-white/5"
                 title="在 Chathy 里就这家公司发起全体系分析"
               >
                 <Sparkles className="h-3 w-3" /> 问 Chathy
@@ -196,8 +196,8 @@ export function CompanyPage() {
                   <ChevronRight size={11} aria-hidden="true" />
                 </Badge>
               </button>
-              <span className="text-2xs text-slate-400">·</span>
-              <span className="text-2xs font-medium uppercase tracking-wide text-slate-400">
+              <span className="text-2xs text-brand-500">·</span>
+              <span className="text-2xs font-medium uppercase tracking-wide text-brand-500">
                 {company.role}
               </span>
             </div>
@@ -234,7 +234,7 @@ export function CompanyPage() {
             value={
               <span className="flex items-baseline gap-0.5">
                 {company.conviction}
-                <span className="text-2xs font-normal text-slate-400">/5</span>
+                <span className="text-2xs font-normal text-brand-500">/5</span>
               </span>
             }
           />
@@ -271,7 +271,7 @@ export function CompanyPage() {
               icon={<LineChart size={15} strokeWidth={2} />}
               right={
                 first && last ? (
-                  <span className="flex items-center gap-2 text-2xs text-slate-400">
+                  <span className="flex items-center gap-2 text-2xs text-brand-500">
                     <span className="tnum">
                       {fmtDate(first.d)} → {fmtDate(last.d)}
                     </span>
@@ -288,10 +288,10 @@ export function CompanyPage() {
               {closes.length >= 2 ? (
                 <Sparkline data={closes} width={640} height={90} className="h-[90px] w-full" />
               ) : (
-                <div className="py-10 text-center text-sm text-slate-400">No price history.</div>
+                <div className="py-10 text-center text-sm text-brand-500">No price history.</div>
               )}
               {first && last && (
-                <div className="mt-3 flex items-center justify-between text-2xs text-slate-400">
+                <div className="mt-3 flex items-center justify-between text-2xs text-brand-500">
                   <span className="tnum">
                     {fmtDate(first.d)} · {first.close.toFixed(2)}
                   </span>
@@ -310,13 +310,13 @@ export function CompanyPage() {
               titleCn="基本面"
               icon={<PieChart size={15} strokeWidth={2} />}
               right={
-                <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+                <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
                   {fundamentals.length}
                 </Badge>
               }
             />
             {fundamentals.length === 0 ? (
-              <div className="px-4 py-10 text-center text-sm text-slate-400">
+              <div className="px-4 py-10 text-center text-sm text-brand-500">
                 No fundamentals available.
               </div>
             ) : (
@@ -326,7 +326,7 @@ export function CompanyPage() {
                     key={row.metric}
                     className="flex items-center justify-between gap-2 border-b border-line/70 py-2 last:border-b-0"
                   >
-                    <span className="truncate text-xs text-slate-500">
+                    <span className="truncate text-xs text-brand-200">
                       {humanizeMetric(row.metric)}
                     </span>
                     <span className="tnum shrink-0 text-sm font-semibold text-brand-900">
@@ -351,7 +351,7 @@ export function CompanyPage() {
               titleCn="供应链图谱"
               icon={<Network size={15} strokeWidth={2} />}
               right={
-                <span className="flex items-center gap-1 text-2xs uppercase tracking-wide text-slate-400">
+                <span className="flex items-center gap-1 text-2xs uppercase tracking-wide text-brand-500">
                   <GitBranch size={11} strokeWidth={2.5} /> KG edges
                 </span>
               }
@@ -376,7 +376,7 @@ export function CompanyPage() {
                 cn="技术路线"
                 icon={<GitBranch size={13} strokeWidth={2} />}
                 edges={supplyChain.tech_routes}
-                tone="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line"
+                tone="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line"
               />
               <EdgeGroup
                 label="Strategic Stakes"
@@ -428,13 +428,13 @@ function EdgeGroup({
   return (
     <div>
       <div className="mb-1.5 flex items-center gap-1.5">
-        <span className="text-slate-400">{icon}</span>
-        <span className="text-2xs font-medium uppercase tracking-wide text-slate-500">{label}</span>
-        <span className="text-2xs text-slate-400">{cnLabel}</span>
-        <span className="tnum ml-auto text-2xs text-slate-400">{edges.length}</span>
+        <span className="text-brand-500">{icon}</span>
+        <span className="text-2xs font-medium uppercase tracking-wide text-brand-200">{label}</span>
+        <span className="text-2xs text-brand-500">{cnLabel}</span>
+        <span className="tnum ml-auto text-2xs text-brand-500">{edges.length}</span>
       </div>
       {edges.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-line px-2.5 py-2 text-2xs text-slate-400">
+        <div className="rounded-lg border border-dashed border-line px-2.5 py-2 text-2xs text-brand-500">
           None mapped.
         </div>
       ) : (
@@ -473,14 +473,14 @@ function SingleSourceRisks({
         <span className="text-warn">
           <AlertTriangle size={13} strokeWidth={2} />
         </span>
-        <span className="text-2xs font-medium uppercase tracking-wide text-slate-500">
+        <span className="text-2xs font-medium uppercase tracking-wide text-brand-200">
           Single-Source Risks
         </span>
-        <span className="text-2xs text-slate-400">单一来源风险</span>
-        <span className="tnum ml-auto text-2xs text-slate-400">{valid.length}</span>
+        <span className="text-2xs text-brand-500">单一来源风险</span>
+        <span className="tnum ml-auto text-2xs text-brand-500">{valid.length}</span>
       </div>
       {valid.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-line px-2.5 py-2 text-2xs text-slate-400">
+        <div className="rounded-lg border border-dashed border-line px-2.5 py-2 text-2xs text-brand-500">
           No single-source dependencies flagged.
         </div>
       ) : (

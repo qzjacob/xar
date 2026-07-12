@@ -33,7 +33,7 @@ export function AndyWallsPage() {
         titleCn="承重墙"
         subtitle="AI 动不了的定性边界 — 不可量化 BY DESIGN；每面墙给出机制与「赌注」（若此墙倒塌，理论证伪）。"
         right={
-          <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+          <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
             <span className="tnum">{walls.length}</span> walls
           </Badge>
         }
@@ -44,7 +44,7 @@ export function AndyWallsPage() {
           <Card key={m.metric_key} className="flex flex-col p-4">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
               <h2 className="text-sm font-semibold text-brand-900">{m.display_name_zh}</h2>
-              <span className="font-mono text-2xs text-slate-500">{m.metric_key}</span>
+              <span className="font-mono text-2xs text-brand-200">{m.metric_key}</span>
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               <HardnessBadge hardness={m.hardness} withEn={false} />
@@ -55,7 +55,7 @@ export function AndyWallsPage() {
 
             <div className="mt-3 flex flex-col gap-2.5 text-xs leading-relaxed">
               <div>
-                <div className="text-2xs uppercase tracking-wide text-slate-500">为什么 AI 动不了它 · Mechanism</div>
+                <div className="text-2xs uppercase tracking-wide text-brand-200">为什么 AI 动不了它 · Mechanism</div>
                 <p className="mt-0.5 text-brand-800">{m.mechanism ?? "—"}</p>
               </div>
               {m.falsification_condition && (
@@ -68,21 +68,21 @@ export function AndyWallsPage() {
               )}
               {m.caveat && (
                 <div>
-                  <div className="text-2xs uppercase tracking-wide text-slate-500">Caveat</div>
-                  <p className="mt-0.5 text-slate-400">{m.caveat}</p>
+                  <div className="text-2xs uppercase tracking-wide text-brand-200">Caveat</div>
+                  <p className="mt-0.5 text-brand-500">{m.caveat}</p>
                 </div>
               )}
             </div>
 
             <div className="mt-auto pt-3">
-              <div className="rounded-lg border border-line bg-surface-2/70 px-2.5 py-1.5 text-center text-2xs font-medium text-slate-400">
+              <div className="rounded-lg border border-line bg-surface-2/70 px-2.5 py-1.5 text-center text-2xs font-medium text-brand-500">
                 🧱 不可量化 · value 恒为 NULL（point-in-time 视图无读数，设计如此）
               </div>
             </div>
           </Card>
         ))}
         {walls.length === 0 && (
-          <Card className="col-span-full px-6 py-12 text-center text-sm text-slate-500">
+          <Card className="col-span-full px-6 py-12 text-center text-sm text-brand-200">
             无承重墙登记 · no wall metrics registered
           </Card>
         )}
@@ -103,7 +103,7 @@ export function AndyWallsPage() {
           </span>
         </div>
         {proxies.length === 0 ? (
-          <Card className="px-6 py-8 text-center text-xs text-slate-500">
+          <Card className="px-6 py-8 text-center text-xs text-brand-200">
             暂无合法性代理登记 · no proxy.legitimacy.* metrics
           </Card>
         ) : (
@@ -120,8 +120,8 @@ export function AndyWallsPage() {
                   </span>
                   <HardnessBadge hardness={m.hardness} withEn={false} />
                 </div>
-                <div className="mt-0.5 truncate font-mono text-2xs text-slate-500">{m.metric_key}</div>
-                <div className="mt-1.5 flex items-center gap-2 text-2xs text-slate-400">
+                <div className="mt-0.5 truncate font-mono text-2xs text-brand-200">{m.metric_key}</div>
+                <div className="mt-1.5 flex items-center gap-2 text-2xs text-brand-500">
                   <span>{sourceGradeLabel(m.source_grade)}</span>
                   <span>·</span>
                   <span>{m.unit ?? "—"}</span>

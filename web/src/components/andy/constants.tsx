@@ -30,8 +30,8 @@ export const HARDNESS_META: Record<
   },
   wall: {
     en: "Wall", cn: "承重墙",
-    chip: "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line",
-    dot: "bg-slate-500", text: "text-slate-400",
+    chip: "bg-surface-2 text-brand-500 ring-1 ring-inset ring-line",
+    dot: "bg-brand-200", text: "text-brand-500",
   },
 };
 
@@ -40,8 +40,8 @@ export function hardnessMeta(h: string | null | undefined) {
   return (
     HARDNESS_META[(h ?? "") as Hardness] ?? {
       en: h ?? "?", cn: h ?? "?",
-      chip: "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line",
-      dot: "bg-slate-500", text: "text-slate-400",
+      chip: "bg-surface-2 text-brand-500 ring-1 ring-inset ring-line",
+      dot: "bg-brand-200", text: "text-brand-500",
     }
   );
 }
@@ -79,8 +79,8 @@ export const VERDICT_META: Record<
     chip: "bg-warn-50 text-warn-700 ring-1 ring-inset ring-warn/25", text: "text-warn-700",
   },
   inconclusive: {
-    en: "Inconclusive", cn: "待识别", lamp: "bg-slate-500",
-    chip: "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line", text: "text-slate-400",
+    en: "Inconclusive", cn: "待识别", lamp: "bg-brand-200",
+    chip: "bg-surface-2 text-brand-500 ring-1 ring-inset ring-line", text: "text-brand-500",
   },
   open: {
     en: "Open", cn: "未决", lamp: "bg-andy shadow-[0_0_8px_rgb(var(--c-andy)/0.55)]",
@@ -92,8 +92,8 @@ export const VERDICT_META: Record<
 export function verdictMeta(s: string | null | undefined) {
   return (
     VERDICT_META[(s ?? "") as ClaimStatus] ?? {
-      en: s ?? "?", cn: s ?? "?", lamp: "bg-slate-500",
-      chip: "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line", text: "text-slate-400",
+      en: s ?? "?", cn: s ?? "?", lamp: "bg-brand-200",
+      chip: "bg-surface-2 text-brand-500 ring-1 ring-inset ring-line", text: "text-brand-500",
     }
   );
 }
@@ -177,7 +177,7 @@ export function AnchorChip({ anchor, title, active, onClick }: {
     "inline-flex items-center rounded-md px-1.5 py-0.5 font-mono text-2xs font-medium ring-1 ring-inset transition-colors",
     active
       ? "bg-andy-100 text-andy-500 ring-andy/40"
-      : "bg-surface-2 text-slate-400 ring-line",
+      : "bg-surface-2 text-brand-500 ring-line",
     onClick && "cursor-pointer hover:bg-andy-50 hover:text-andy-500",
   );
   if (onClick) {
@@ -209,11 +209,11 @@ export function slopeInfo(
   goodWhen: "rising" | "falling" | null | undefined = null,
 ): { arrow: string; cls: string; label: string } {
   if (slope === null || slope === undefined || Number.isNaN(slope))
-    return { arrow: "—", cls: "text-slate-500", label: "斜率 —" };
+    return { arrow: "—", cls: "text-brand-200", label: "斜率 —" };
   const rising = slope > 0;
   const flat = slope === 0;
   const arrow = flat ? "▶" : rising ? "▲" : "▼";
-  let cls = "text-slate-400";
+  let cls = "text-brand-500";
   if (!flat && goodWhen) {
     const aligned = (rising && goodWhen === "rising") || (!rising && goodWhen === "falling");
     cls = aligned ? "text-pos-700" : "text-neg-700";
@@ -260,7 +260,7 @@ export function WindowCountdown({ windowStart, decisionWindow, asOf, className }
 }) {
   const days = windowDaysLeft(windowStart, decisionWindow, asOf);
   if (days === null) {
-    return <span className={cn("tnum text-2xs text-slate-500", className)}>判定窗 —</span>;
+    return <span className={cn("tnum text-2xs text-brand-200", className)}>判定窗 —</span>;
   }
   if (days < 0) {
     return (
@@ -273,7 +273,7 @@ export function WindowCountdown({ windowStart, decisionWindow, asOf, className }
     <span
       className={cn(
         "tnum text-2xs font-medium",
-        days <= 30 ? "text-warn-700" : "text-slate-400",
+        days <= 30 ? "text-warn-700" : "text-brand-500",
         className,
       )}
       title={`窗口 ${decisionWindow ?? "—"} · 起点 ${windowStart}`}

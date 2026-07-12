@@ -57,7 +57,7 @@ export function SegmentPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto flex min-h-[60vh] max-w-[1200px] items-center justify-center text-sm text-slate-400">
+      <div className="mx-auto flex min-h-[60vh] max-w-[1200px] items-center justify-center text-sm text-brand-500">
         Loading…
       </div>
     );
@@ -67,9 +67,9 @@ export function SegmentPage() {
     return (
       <div className="mx-auto max-w-[1200px]">
         <Card className="flex flex-col items-center gap-3 px-6 py-16 text-center">
-          <Layers size={28} strokeWidth={1.75} className="text-slate-300" />
+          <Layers size={28} strokeWidth={1.75} className="text-brand-700" />
           <div className="text-base font-semibold text-brand-900">Segment not found</div>
-          <div className="max-w-sm text-sm text-slate-500">
+          <div className="max-w-sm text-sm text-brand-200">
             We couldn&apos;t load this chain segment. It may have been recategorized or is outside
             current coverage.
           </div>
@@ -102,23 +102,23 @@ export function SegmentPage() {
   return (
     <div className="mx-auto flex max-w-[1200px] flex-col gap-5">
       {/* breadcrumb + back */}
-      <div className="flex items-center gap-2 text-2xs text-slate-400">
+      <div className="flex items-center gap-2 text-2xs text-brand-500">
         <button
           type="button"
           onClick={() => navigate(-1)}
-          className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 font-medium text-slate-500 transition hover:bg-canvas hover:text-brand-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 font-medium text-brand-200 transition hover:bg-canvas hover:text-brand-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
           aria-label="Go back"
         >
           <ArrowLeft size={14} strokeWidth={2.25} /> Back
         </button>
-        <span className="text-slate-300" aria-hidden="true">|</span>
+        <span className="text-brand-700" aria-hidden="true">|</span>
         <nav className="flex items-center gap-1 uppercase tracking-wide" aria-label="Breadcrumb">
           <Link to="/" className="transition hover:text-brand-900">
             Dashboard
           </Link>
-          <ChevronRight size={12} strokeWidth={2} className="text-slate-300" />
-          <span className="text-slate-500">Chain</span>
-          <ChevronRight size={12} strokeWidth={2} className="text-slate-300" />
+          <ChevronRight size={12} strokeWidth={2} className="text-brand-700" />
+          <span className="text-brand-200">Chain</span>
+          <ChevronRight size={12} strokeWidth={2} className="text-brand-700" />
           <span className="font-semibold text-brand-900">{segment.name}</span>
         </nav>
       </div>
@@ -127,14 +127,14 @@ export function SegmentPage() {
       <Card className="p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
           <div className="flex min-w-0 flex-1 flex-col gap-3">
-            <div className="flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-slate-400">
+            <div className="flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-brand-500">
               <Layers size={13} /> Chain Segment · 产业链环节
             </div>
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <h1 className="text-2xl font-semibold tracking-tight text-brand-900">
                 {segment.name}
               </h1>
-              <span className="text-base text-slate-500">{segment.nameCn}</span>
+              <span className="text-base text-brand-200">{segment.nameCn}</span>
               <Badge className={regimeChip(segment.regime)}>
                 <span
                   className={cn("h-1.5 w-1.5 rounded-full", regimeDot(segment.regime))}
@@ -162,7 +162,7 @@ export function SegmentPage() {
               {segment.markets.map((m) => (
                 <Badge
                   key={m}
-                  className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line"
+                  className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line"
                 >
                   {m}
                 </Badge>
@@ -174,23 +174,23 @@ export function SegmentPage() {
               </p>
             )}
             {segment.note && (
-              <p className="max-w-2xl text-sm leading-snug text-slate-400">{segment.note}</p>
+              <p className="max-w-2xl text-sm leading-snug text-brand-500">{segment.note}</p>
             )}
           </div>
 
           {/* trend sparkline */}
           <div className="flex flex-col justify-between gap-2 lg:w-56 lg:border-l lg:border-line lg:pl-5">
-            <div className="flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-slate-400">
+            <div className="flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-brand-500">
               <TrendingUp size={13} /> Trend · 走势
             </div>
             <Sparkline data={segment.spark} width={208} height={56} className="w-full" />
             <div className="flex items-center justify-between text-2xs">
-              <span className="uppercase tracking-wide text-slate-400">Δ 1W / 1M</span>
+              <span className="uppercase tracking-wide text-brand-500">Δ 1W / 1M</span>
               <span className="tnum font-semibold">
                 <span style={{ color: heat(segment.changeW * 5, "divergent", 1).color }}>
                   {fmtPct(segment.changeW)}
                 </span>
-                <span className="text-slate-300"> / </span>
+                <span className="text-brand-700"> / </span>
                 <span style={{ color: heat(segment.changeM * 5, "divergent", 1).color }}>
                   {fmtPct(segment.changeM)}
                 </span>
@@ -207,7 +207,7 @@ export function SegmentPage() {
           titleCn="环节指标"
           icon={<Layers size={15} strokeWidth={2} />}
           right={
-            <div className="flex items-center gap-1.5 text-2xs uppercase tracking-wide text-slate-400">
+            <div className="flex items-center gap-1.5 text-2xs uppercase tracking-wide text-brand-500">
               <span>cold</span>
               <span
                 className="h-2 w-16 rounded-full ring-1 ring-inset ring-line"

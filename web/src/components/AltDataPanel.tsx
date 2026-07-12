@@ -37,7 +37,7 @@ export function AltDataPanel({ alt }: { alt: AltData | null | undefined }) {
         titleCn="另类数据 · 高频信号"
         icon={<Radio size={15} strokeWidth={2} />}
         right={
-          <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+          <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
             {signals.length}
           </Badge>
         }
@@ -57,7 +57,7 @@ export function AltDataPanel({ alt }: { alt: AltData | null | undefined }) {
                 title={`${label.cn} ${label.en} · 信号分 ${ps.score.toFixed(2)} · ${ps.signals.length} 信号`}
                 className="inline-flex items-center gap-1.5 rounded-md border border-line bg-canvas px-2 py-1"
               >
-                <span className="text-2xs font-medium text-slate-400">{label.cn}</span>
+                <span className="text-2xs font-medium text-brand-500">{label.cn}</span>
                 <span className={cn("tnum text-2xs font-semibold", tone)}>
                   {ps.score > 0 ? "+" : ""}
                   {ps.score.toFixed(2)}
@@ -75,9 +75,9 @@ export function AltDataPanel({ alt }: { alt: AltData | null | undefined }) {
         ))}
       </div>
 
-      <div className="border-t border-line px-3 py-2 text-2xs leading-relaxed text-slate-500">
+      <div className="border-t border-line px-3 py-2 text-2xs leading-relaxed text-brand-200">
         z = 标准分(-3..3),颜色随贡献方向(绿多 / 红空);链级 = 主题级信号;
-        <span className="text-slate-400">注意力</span> 为无方向关注度信号。
+        <span className="text-brand-500">注意力</span> 为无方向关注度信号。
       </div>
     </Card>
   );
@@ -104,7 +104,7 @@ function SignalRow({ s }: { s: AltSignal }) {
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate text-xs font-semibold text-brand-900">{s.name_cn}</span>
         <div className="flex flex-wrap items-center gap-1">
-          <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+          <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
             {short.short}
           </Badge>
           {s.scope === "theme" && (
@@ -116,19 +116,19 @@ function SignalRow({ s }: { s: AltSignal }) {
             </Badge>
           )}
           {attention && (
-            <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+            <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
               注意力
             </Badge>
           )}
           {typeof s.n === "number" && s.n > 0 && (
-            <span className="tnum text-2xs text-slate-500">n{s.n}</span>
+            <span className="tnum text-2xs text-brand-200">n{s.n}</span>
           )}
         </div>
       </div>
 
       {/* momentum % */}
       <span
-        className={cn("tnum w-16 shrink-0 text-right text-2xs", attention ? "text-slate-400" : text)}
+        className={cn("tnum w-16 shrink-0 text-right text-2xs", attention ? "text-brand-500" : text)}
         title="动量 Momentum"
       >
         {fmtPct(s.momentum * 100)}
@@ -143,11 +143,11 @@ function SignalRow({ s }: { s: AltSignal }) {
           {z > 0 ? "+" : ""}
           {z.toFixed(1)}
         </span>
-        <span className="mt-0.5 text-2xs text-slate-500">z</span>
+        <span className="mt-0.5 text-2xs text-brand-200">z</span>
       </div>
 
       {/* period */}
-      <span className="tnum w-11 shrink-0 text-right text-2xs text-slate-400">
+      <span className="tnum w-11 shrink-0 text-right text-2xs text-brand-500">
         {s.period_end ? fmtDate(s.period_end) : "—"}
       </span>
     </div>

@@ -31,7 +31,7 @@ export function CoverageRing({
             cy={20}
             r={R}
             fill="none"
-            stroke="rgba(148,163,184,0.18)"
+            stroke="rgba(34,44,62,0.6)"
             strokeWidth={4}
           />
           <circle
@@ -55,7 +55,7 @@ export function CoverageRing({
 
       {/* per-dimension mini bars */}
       <div className="min-w-0">
-        <div className="text-2xs uppercase tracking-wide text-slate-400">
+        <div className="text-2xs uppercase tracking-wide text-brand-500">
           Coverage 360 <span className="normal-case">覆盖度</span>
         </div>
         <div className="mt-1 flex items-end gap-[3px]">

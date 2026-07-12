@@ -1,5 +1,5 @@
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import { AppShell } from "./AppShell";
+import { ModuleShell } from "./shell/ModuleShell";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { DecisionRail } from "./DecisionRail";
@@ -16,14 +16,14 @@ export function Layout() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
         <div className="text-sm font-semibold text-neg">无法连接后端 API</div>
-        <div className="max-w-md text-2xs text-slate-400">{error}</div>
-        <div className="text-2xs text-slate-400">确认 XAR 后端在 :8000 运行（/api/ui/overview）。</div>
+        <div className="max-w-md text-2xs text-brand-500">{error}</div>
+        <div className="text-2xs text-brand-500">确认 XAR 后端在 :8000 运行（/api/ui/overview）。</div>
       </div>
     );
   }
   if (loading || !overview) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-slate-400">
+      <div className="flex h-full items-center justify-center text-sm text-brand-500">
         Loading XAR terminal…
       </div>
     );
@@ -35,7 +35,7 @@ export function Layout() {
     : null;
 
   return (
-    <AppShell
+    <ModuleShell
       sidebar={
         <Sidebar
           coverage={coverage}
@@ -48,7 +48,7 @@ export function Layout() {
           onCompany={(id) => nav(`/genny/company/${id}`)}
         />
       }
-      topbar={
+      header={
         <TopBar
           coverage={coverage}
           regime={regime}
@@ -68,7 +68,9 @@ export function Layout() {
         />
       }
     >
-      <Outlet />
-    </AppShell>
+      <div className="px-5 py-5">
+        <Outlet />
+      </div>
+    </ModuleShell>
   );
 }

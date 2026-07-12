@@ -23,9 +23,9 @@ export function SectionHeader({
       )}
     >
       <div className="flex min-w-0 items-center gap-2">
-        {icon && <span className="text-slate-400">{icon}</span>}
+        {icon && <span className="text-brand-500">{icon}</span>}
         <h3 className="truncate text-sm font-semibold text-brand-900">{title}</h3>
-        {titleCn && <span className="truncate text-2xs text-slate-400">{titleCn}</span>}
+        {titleCn && <span className="truncate text-2xs text-brand-500">{titleCn}</span>}
       </div>
       {right && <div className="flex shrink-0 items-center gap-2">{right}</div>}
     </div>

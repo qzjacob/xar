@@ -59,9 +59,9 @@ export function SegmentRankingTable({
         titleCn="环节机会排序"
         icon={<ListOrdered size={15} strokeWidth={2} />}
         right={
-          <span className="hidden items-center gap-1 text-2xs uppercase tracking-wide text-slate-400 sm:flex">
+          <span className="hidden items-center gap-1 text-2xs uppercase tracking-wide text-brand-500 sm:flex">
             sorted by
-            <span className="font-semibold text-slate-500">{SORT_LABEL[sortKey]}</span>
+            <span className="font-semibold text-brand-200">{SORT_LABEL[sortKey]}</span>
           </span>
         }
       />
@@ -69,7 +69,7 @@ export function SegmentRankingTable({
       <div className="overflow-x-auto">
         <table className="w-full min-w-[680px] border-collapse text-sm">
           <thead>
-            <tr className="border-b border-line text-2xs uppercase tracking-wide text-slate-400">
+            <tr className="border-b border-line text-2xs uppercase tracking-wide text-brand-500">
               <th className="w-8 px-3 py-2 text-right font-medium">#</th>
               <th className="px-3 py-2 text-left font-medium">Segment</th>
               <SortTh
@@ -114,7 +114,7 @@ export function SegmentRankingTable({
           <tbody>
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-sm text-slate-400">
+                <td colSpan={8} className="px-3 py-8 text-center text-sm text-brand-500">
                   No matches
                 </td>
               </tr>
@@ -143,7 +143,7 @@ export function SegmentRankingTable({
                 >
                   {/* rank */}
                   <td className="px-3 text-right">
-                    <span className="tnum text-xs font-semibold text-slate-400">{i + 1}</span>
+                    <span className="tnum text-xs font-semibold text-brand-500">{i + 1}</span>
                   </td>
 
                   {/* segment identity */}
@@ -158,7 +158,7 @@ export function SegmentRankingTable({
                           <span className="truncate text-sm font-medium text-brand-900">
                             {s.name}
                           </span>
-                          <span className="truncate text-2xs text-slate-400">{s.nameCn}</span>
+                          <span className="truncate text-2xs text-brand-500">{s.nameCn}</span>
                         </div>
                       </div>
                       <Badge className={cn("ml-1 shrink-0", regimeChip(s.regime))}>
@@ -204,7 +204,7 @@ export function SegmentRankingTable({
 
                   {/* #companies */}
                   <td className="px-3 text-right">
-                    <span className="tnum text-xs text-slate-500">{s.companies}</span>
+                    <span className="tnum text-xs text-brand-200">{s.companies}</span>
                   </td>
                 </tr>
               );
@@ -240,7 +240,7 @@ function SortTh({
         onClick={() => onSort(col)}
         className={cn(
           "ml-auto flex w-full items-center justify-end gap-0.5 text-2xs uppercase tracking-wide transition-colors",
-          active ? "text-accent" : "text-slate-400 hover:text-slate-400",
+          active ? "text-accent" : "text-brand-500 hover:text-brand-500",
         )}
       >
         {label}

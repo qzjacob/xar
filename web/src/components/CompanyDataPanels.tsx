@@ -15,12 +15,12 @@ import { Badge, Card, SectionHeader } from "./ui";
 
 /** Shared empty state — most names have no rows yet (collection in flight). */
 function EmptyNote() {
-  return <div className="px-4 py-8 text-center text-xs text-slate-400">暂无数据 · 采集中</div>;
+  return <div className="px-4 py-8 text-center text-xs text-brand-500">暂无数据 · 采集中</div>;
 }
 
 function CountBadge({ n }: { n: number }) {
   return (
-    <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+    <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
       <span className="tnum">{n}</span>
     </Badge>
   );
@@ -51,7 +51,7 @@ export function EstimatesPanel({ rows }: { rows: EstimateRow[] }) {
       ) : (
         <table className="w-full text-xs">
           <thead>
-            <tr className="text-2xs uppercase tracking-wide text-slate-400">
+            <tr className="text-2xs uppercase tracking-wide text-brand-500">
               <th className="py-2 pl-4 text-left font-medium">Metric</th>
               <th className="px-2 py-2 text-left font-medium">Period</th>
               <th className="px-2 py-2 text-right font-medium">Value</th>
@@ -67,12 +67,12 @@ export function EstimatesPanel({ rows }: { rows: EstimateRow[] }) {
                 className="border-t border-line/70"
                 title={`区间 ${fmtEstimateValue(r.low)} – ${fmtEstimateValue(r.high)} · as of ${r.as_of}`}
               >
-                <td className="max-w-0 truncate py-1.5 pl-4 text-slate-300">{r.metric}</td>
-                <td className="tnum whitespace-nowrap px-2 py-1.5 text-slate-400">{r.period}</td>
+                <td className="max-w-0 truncate py-1.5 pl-4 text-brand-700">{r.metric}</td>
+                <td className="tnum whitespace-nowrap px-2 py-1.5 text-brand-500">{r.period}</td>
                 <td className="tnum whitespace-nowrap px-2 py-1.5 text-right font-semibold text-brand-900">
                   {fmtEstimateValue(r.value)}
                 </td>
-                <td className="tnum whitespace-nowrap py-1.5 pr-4 text-right text-slate-400">
+                <td className="tnum whitespace-nowrap py-1.5 pr-4 text-right text-brand-500">
                   {r.n_analysts ?? "—"}
                 </td>
               </tr>
@@ -102,7 +102,7 @@ export function HoldingsPanel({ rows }: { rows: HoldingRow[] }) {
       ) : (
         <table className="w-full text-xs">
           <thead>
-            <tr className="text-2xs uppercase tracking-wide text-slate-400">
+            <tr className="text-2xs uppercase tracking-wide text-brand-500">
               <th className="py-2 pl-4 text-left font-medium">Holder</th>
               <th className="px-2 py-2 text-right font-medium">Shares</th>
               <th className="py-2 pr-4 text-right font-medium">Value</th>
@@ -111,8 +111,8 @@ export function HoldingsPanel({ rows }: { rows: HoldingRow[] }) {
           <tbody>
             {rows.map((r, i) => (
               <tr key={`${r.holder}-${i}`} className="border-t border-line/70" title={`as of ${r.as_of}`}>
-                <td className="max-w-0 truncate py-1.5 pl-4 font-medium text-slate-300">{r.holder}</td>
-                <td className="tnum whitespace-nowrap px-2 py-1.5 text-right text-slate-400">
+                <td className="max-w-0 truncate py-1.5 pl-4 font-medium text-brand-700">{r.holder}</td>
+                <td className="tnum whitespace-nowrap px-2 py-1.5 text-right text-brand-500">
                   {fmtCount(r.shares)}
                 </td>
                 <td className="tnum whitespace-nowrap py-1.5 pr-4 text-right font-semibold text-brand-900">
@@ -145,7 +145,7 @@ function statusChipClass(status: string): string {
   const s = status.toLowerCase();
   if (/confirm|final|done|reported/.test(s)) return "bg-pos-50 text-pos-700 ring-1 ring-inset ring-pos/20";
   if (/tentative|estimated|expected|tbd/.test(s)) return "bg-warn-50 text-warn-700 ring-1 ring-inset ring-warn/20";
-  return "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line";
+  return "bg-surface-2 text-brand-500 ring-1 ring-inset ring-line";
 }
 
 export function CalendarPanel({ rows }: { rows: CalendarRow[] }) {
@@ -168,13 +168,13 @@ export function CalendarPanel({ rows }: { rows: CalendarRow[] }) {
                 key={`${r.event_date}-${i}`}
                 className="flex items-center gap-2.5 border-b border-line/70 py-2 last:border-b-0"
               >
-                <span className="shrink-0 text-slate-400" title={r.event_type}>
+                <span className="shrink-0 text-brand-500" title={r.event_type}>
                   {calendarIcon(r.event_type)}
                 </span>
-                <span className="tnum w-14 shrink-0 text-2xs text-slate-400">
+                <span className="tnum w-14 shrink-0 text-2xs text-brand-500">
                   {fmtDate(r.event_date)}
                 </span>
-                <span className="min-w-0 truncate text-xs font-medium text-slate-300" title={r.title}>
+                <span className="min-w-0 truncate text-xs font-medium text-brand-700" title={r.title}>
                   {r.title}
                 </span>
                 <span className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -182,7 +182,7 @@ export function CalendarPanel({ rows }: { rows: CalendarRow[] }) {
                   <span
                     className={cn(
                       "tnum text-2xs",
-                      d < 0 ? "text-slate-500" : d <= 7 ? "font-semibold text-accent" : "text-slate-400",
+                      d < 0 ? "text-brand-200" : d <= 7 ? "font-semibold text-accent" : "text-brand-500",
                     )}
                   >
                     {d === 0 ? "today" : d > 0 ? `in ${d}d` : `${-d}d ago`}

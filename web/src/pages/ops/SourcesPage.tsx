@@ -21,7 +21,7 @@ function permissionChip(permission: string): string {
     return "bg-pos-50 text-pos-700 ring-1 ring-inset ring-pos/20";
   if (/(restricted|blocked|denied|red|paid|forbidden)/.test(p))
     return "bg-neg-50 text-neg-700 ring-1 ring-inset ring-neg/20";
-  return "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line";
+  return "bg-surface-2 text-brand-500 ring-1 ring-inset ring-line";
 }
 
 type RunState = "started" | "running";
@@ -130,7 +130,7 @@ export function SourcesPage() {
               title="Source registry"
               titleCn="数据源注册表"
               right={
-                <span className="text-2xs text-slate-400">
+                <span className="text-2xs text-brand-500">
                   {data.sources.filter((s) => s.runnable).length} runnable
                 </span>
               }
@@ -138,7 +138,7 @@ export function SourcesPage() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[840px] text-sm">
                 <thead>
-                  <tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-slate-400">
+                  <tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-brand-500">
                     <th className="px-4 py-2 font-medium">Source</th>
                     <th className="px-4 py-2 font-medium">Category</th>
                     <th className="px-4 py-2 font-medium">Permission</th>
@@ -179,7 +179,7 @@ export function SourcesPage() {
                 title="Self-test checks"
                 titleCn="自检结果"
                 right={
-                  <span className="text-2xs text-slate-400">
+                  <span className="text-2xs text-brand-500">
                     {test.checks.length} checks · {relTime(test.ranAt)}
                   </span>
                 }
@@ -192,8 +192,8 @@ export function SourcesPage() {
                       {c.status}
                     </Badge>
                     <span className="font-mono text-xs font-medium text-brand-900">{c.id}</span>
-                    <span className="truncate text-2xs text-slate-500">{c.detail}</span>
-                    <span className="ml-auto shrink-0 text-2xs uppercase tracking-wide text-slate-400">
+                    <span className="truncate text-2xs text-brand-200">{c.detail}</span>
+                    <span className="ml-auto shrink-0 text-2xs uppercase tracking-wide text-brand-500">
                       {c.group}
                     </span>
                   </li>
@@ -230,7 +230,7 @@ function SourceRow({
           />
           <div className="min-w-0">
             <div className="truncate font-medium text-brand-900">{source.name}</div>
-            <div className="truncate text-2xs text-slate-400" title={source.desc}>
+            <div className="truncate text-2xs text-brand-500" title={source.desc}>
               {source.desc}
             </div>
           </div>
@@ -238,11 +238,11 @@ function SourceRow({
       </td>
       <td className="px-4 py-2.5 align-top">
         {showCategory ? (
-          <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+          <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
             {source.category}
           </Badge>
         ) : (
-          <span className="text-2xs text-slate-300">·</span>
+          <span className="text-2xs text-brand-700">·</span>
         )}
       </td>
       <td className="px-4 py-2.5 align-top">
@@ -250,16 +250,16 @@ function SourceRow({
       </td>
       <td className="px-4 py-2.5 align-top">
         {source.keyEnv ? (
-          <span className="font-mono text-2xs text-slate-500">{source.keyEnv}</span>
+          <span className="font-mono text-2xs text-brand-200">{source.keyEnv}</span>
         ) : (
-          <span className="text-2xs text-slate-300">—</span>
+          <span className="text-2xs text-brand-700">—</span>
         )}
       </td>
-      <td className="tnum px-4 py-2.5 text-right align-top text-slate-300">
-        {source.rows > 0 ? source.rows.toLocaleString() : <span className="text-slate-300">—</span>}
+      <td className="tnum px-4 py-2.5 text-right align-top text-brand-700">
+        {source.rows > 0 ? source.rows.toLocaleString() : <span className="text-brand-700">—</span>}
       </td>
-      <td className="px-4 py-2.5 align-top text-2xs text-slate-500">
-        {source.lastRun ? relTime(source.lastRun) : <span className="text-slate-300">—</span>}
+      <td className="px-4 py-2.5 align-top text-2xs text-brand-200">
+        {source.lastRun ? relTime(source.lastRun) : <span className="text-brand-700">—</span>}
       </td>
       <td className="px-4 py-2.5 text-right align-top">
         {source.runnable ? (
@@ -273,7 +273,7 @@ function SourceRow({
                 ? "border border-accent/30 bg-accent-50 text-accent-700 hover:bg-accent-50/80"
                 : busy
                   ? "border border-accent/20 bg-accent-50/60 text-accent-700"
-                  : "cursor-not-allowed border border-line bg-canvas text-slate-300",
+                  : "cursor-not-allowed border border-line bg-canvas text-brand-700",
             )}
             title={
               !source.available
@@ -296,7 +296,7 @@ function SourceRow({
             )}
           </button>
         ) : (
-          <span className="text-2xs text-slate-300">—</span>
+          <span className="text-2xs text-brand-700">—</span>
         )}
       </td>
     </tr>

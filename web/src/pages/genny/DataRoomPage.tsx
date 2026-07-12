@@ -73,7 +73,7 @@ export function DataRoomPage() {
       <Card className="mt-3 p-4">
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1">
-            <span className="text-2xs uppercase tracking-wide text-slate-500">Theme</span>
+            <span className="text-2xs uppercase tracking-wide text-brand-200">Theme</span>
             <select value={theme} onChange={(e) => setFilter("theme", e.target.value)}
               className="rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-xs text-brand-900">
               <option value="">All themes</option>
@@ -81,7 +81,7 @@ export function DataRoomPage() {
             </select>
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-2xs uppercase tracking-wide text-slate-500">Segment</span>
+            <span className="text-2xs uppercase tracking-wide text-brand-200">Segment</span>
             <select value={segment} onChange={(e) => setFilter("segment", e.target.value)}
               className="rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-xs text-brand-900">
               <option value="">All segments</option>
@@ -91,40 +91,40 @@ export function DataRoomPage() {
           <div className="mx-1 h-8 w-px bg-line" />
           <input ref={fileRef} type="file" accept=".pdf,.txt,.md,.markdown,text/*,application/pdf"
             onChange={(e) => setPending(e.target.files?.[0] ?? null)}
-            className="text-xs text-slate-400 file:mr-2 file:rounded-lg file:border-0 file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-brand-900" />
+            className="text-xs text-brand-500 file:mr-2 file:rounded-lg file:border-0 file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-brand-900" />
           <button type="button" onClick={() => void doUpload()} disabled={busy || !pending}
             className="flex items-center gap-1.5 rounded-lg bg-accent-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-500 disabled:opacity-40">
             {busy ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />} Upload
           </button>
         </div>
         {err && <div className="mt-2 text-2xs text-neg-100">{err}</div>}
-        <div className="mt-2 text-[10px] text-slate-500">PDF / TXT / Markdown · tagged to the selected theme·segment, chunked &amp; embedded for retrieval.</div>
+        <div className="mt-2 text-[10px] text-brand-200">PDF / TXT / Markdown · tagged to the selected theme·segment, chunked &amp; embedded for retrieval.</div>
       </Card>
 
       {/* docs table */}
       <Card className="mt-3 overflow-hidden">
-        <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-3 border-b border-line px-4 py-2 text-2xs uppercase tracking-wide text-slate-500">
+        <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-3 border-b border-line px-4 py-2 text-2xs uppercase tracking-wide text-brand-200">
           <span>Document</span><span>Theme·Seg</span><span>Type</span><span>Size</span><span>Index</span><span></span>
         </div>
         {loading ? (
-          <div className="px-4 py-8 text-center text-xs text-slate-500">Loading…</div>
+          <div className="px-4 py-8 text-center text-xs text-brand-200">Loading…</div>
         ) : docs.length === 0 ? (
-          <div className="px-4 py-10 text-center text-xs text-slate-500">No documents yet — upload a report to start the room.</div>
+          <div className="px-4 py-10 text-center text-xs text-brand-200">No documents yet — upload a report to start the room.</div>
         ) : docs.map((d) => (
           <div key={d.id} className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-3 border-b border-line px-4 py-2 text-xs last:border-0">
             <div className="flex min-w-0 items-center gap-2">
-              <FileText size={14} className="shrink-0 text-slate-500" />
+              <FileText size={14} className="shrink-0 text-brand-200" />
               <span className="truncate font-medium text-brand-900">{d.title}</span>
             </div>
-            <span className="text-slate-400">{d.theme || "—"}{d.segment ? `·${d.segment}` : ""}</span>
-            <span className="text-slate-400">{d.doc_type}</span>
-            <span className="tnum text-slate-400">{fmtSize(d.meta?.size)}</span>
+            <span className="text-brand-500">{d.theme || "—"}{d.segment ? `·${d.segment}` : ""}</span>
+            <span className="text-brand-500">{d.doc_type}</span>
+            <span className="tnum text-brand-500">{fmtSize(d.meta?.size)}</span>
             <span className={cn("tnum text-2xs font-semibold", d.chunk_count > 0 ? "text-pos" : "text-warn-100")}>
               {d.chunk_count > 0 ? `${d.chunk_count} chunks` : "indexing…"}
             </span>
             <span className="flex items-center gap-2">
-              <a href={dataroomApi.downloadUrl(d.id)} className="text-slate-500 hover:text-accent-100" title="Download"><Download size={14} /></a>
-              <button type="button" onClick={() => void del(d.id)} className="text-slate-500 hover:text-neg" title="Delete"><Trash2 size={14} /></button>
+              <a href={dataroomApi.downloadUrl(d.id)} className="text-brand-200 hover:text-accent-100" title="Download"><Download size={14} /></a>
+              <button type="button" onClick={() => void del(d.id)} className="text-brand-200 hover:text-neg" title="Delete"><Trash2 size={14} /></button>
             </span>
           </div>
         ))}

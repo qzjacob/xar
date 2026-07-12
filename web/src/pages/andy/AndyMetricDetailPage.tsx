@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, ChevronRight, Crosshair, LineChart, Link2, Microscope } from "lucide-react";
 import { andy } from "../../lib/andy";
 import { cn } from "../../lib/format";
-import { PlotlyChart } from "../../components/charts/PlotlyChart";
+import { CHART, PlotlyChart } from "../../components/charts/PlotlyChart";
 import { Badge, Card, MetricPill, SectionHeader } from "../../components/ui";
 import { useAndy } from "../../components/andy/AndyLayout";
 import {
@@ -33,9 +33,9 @@ export function AndyMetricDetailPage() {
     return (
       <AndyContainer>
         <Card className="flex flex-col items-center gap-3 px-6 py-14 text-center">
-          <Crosshair size={26} strokeWidth={1.75} className="text-slate-400" />
+          <Crosshair size={26} strokeWidth={1.75} className="text-brand-500" />
           <div className="text-sm font-semibold text-brand-900">指标不存在或加载失败</div>
-          <div className="font-mono text-2xs text-slate-500">{readingQ.error ?? key}</div>
+          <div className="font-mono text-2xs text-brand-200">{readingQ.error ?? key}</div>
           <Link
             to={withAsOf("/andy/metrics")}
             className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-line bg-canvas px-3 py-1.5 text-xs font-medium text-brand-900 transition hover:bg-surface"
@@ -59,19 +59,19 @@ export function AndyMetricDetailPage() {
     <AndyContainer wide>
       <div className="flex flex-col gap-4">
         {/* breadcrumb */}
-        <nav className="flex items-center gap-1 text-2xs uppercase tracking-wide text-slate-400">
+        <nav className="flex items-center gap-1 text-2xs uppercase tracking-wide text-brand-500">
           <Link to={withAsOf("/andy")} className="transition hover:text-brand-900">Andy</Link>
-          <ChevronRight size={12} strokeWidth={2} className="text-slate-300" />
+          <ChevronRight size={12} strokeWidth={2} className="text-brand-700" />
           <Link to={withAsOf("/andy/metrics")} className="transition hover:text-brand-900">指标库</Link>
-          <ChevronRight size={12} strokeWidth={2} className="text-slate-300" />
-          <span className="font-mono normal-case text-slate-500">{r.metric_key}</span>
+          <ChevronRight size={12} strokeWidth={2} className="text-brand-700" />
+          <span className="font-mono normal-case text-brand-200">{r.metric_key}</span>
         </nav>
 
         {/* header */}
         <Card className="p-5">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h1 className="text-xl font-semibold tracking-tight text-brand-900">{reg.display_name_zh}</h1>
-            <span className="font-mono text-xs text-slate-500">{reg.metric_key}</span>
+            <span className="font-mono text-xs text-brand-200">{reg.metric_key}</span>
             <HardnessBadge hardness={reg.hardness} />
             {reg.theory_anchor.map((a) => (
               <AnchorChip key={a} anchor={a} />
@@ -102,7 +102,7 @@ export function AndyMetricDetailPage() {
               icon={<LineChart size={15} strokeWidth={2} />}
               right={
                 <div className="flex items-center gap-1">
-                  <span className="mr-1 text-2xs uppercase tracking-wide text-slate-500">points</span>
+                  <span className="mr-1 text-2xs uppercase tracking-wide text-brand-200">points</span>
                   {N_POINTS_OPTIONS.map((n) => (
                     <button
                       key={n}
@@ -112,7 +112,7 @@ export function AndyMetricDetailPage() {
                         "tnum rounded-md px-1.5 py-0.5 text-2xs font-medium ring-1 ring-inset transition-colors",
                         n === nPoints
                           ? "bg-andy-50 text-andy-500 ring-andy/30"
-                          : "bg-surface text-slate-500 ring-line hover:bg-surface-2",
+                          : "bg-surface text-brand-200 ring-line hover:bg-surface-2",
                       )}
                     >
                       {n}
@@ -127,12 +127,12 @@ export function AndyMetricDetailPage() {
                 <span className="tnum text-3xl font-semibold leading-none text-brand-900">
                   {fmtMetric(r.value)}
                 </span>
-                {r.unit && <span className="text-xs text-slate-400">{r.unit}</span>}
+                {r.unit && <span className="text-xs text-brand-500">{r.unit}</span>}
                 <span className={cn("tnum text-sm font-semibold", slope.cls)} title="linear slope over the PIT window">
                   {slope.arrow} {slope.label}
                 </span>
                 {goodWhen && (
-                  <span className="text-2xs text-slate-500">
+                  <span className="text-2xs text-brand-200">
                     good_when · {goodWhen === "rising" ? "上行利好" : "下行利好"}
                   </span>
                 )}
@@ -140,10 +140,10 @@ export function AndyMetricDetailPage() {
 
               {isWall ? (
                 <div className="flex h-48 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-line bg-surface-2/50 text-center">
-                  <span className="rounded bg-surface-2 px-2 py-1 text-xs font-semibold text-slate-400 ring-1 ring-inset ring-line">
+                  <span className="rounded bg-surface-2 px-2 py-1 text-xs font-semibold text-brand-500 ring-1 ring-inset ring-line">
                     🧱 不可量化 · value 恒为 NULL
                   </span>
-                  <span className="max-w-md px-4 text-2xs leading-relaxed text-slate-500">
+                  <span className="max-w-md px-4 text-2xs leading-relaxed text-brand-200">
                     {r.note ?? "承重墙不可量化项：无数值读数，仅作定性边界。"}
                   </span>
                 </div>
@@ -157,8 +157,8 @@ export function AndyMetricDetailPage() {
                       type: "scatter",
                       // a single vintage still deserves a visible print — markers only
                       mode: series.length >= 2 ? "lines+markers" : "markers",
-                      line: { color: "#2dd4bf", width: 2 },
-                      marker: { size: series.length >= 2 ? 5 : 9, color: "#2dd4bf" },
+                      line: { color: CHART.accent, width: 2 },
+                      marker: { size: series.length >= 2 ? 5 : 9, color: CHART.accent },
                       hovertemplate: "%{x}<br>%{y}<extra></extra>",
                       name: reg.display_name_zh,
                     },
@@ -167,14 +167,14 @@ export function AndyMetricDetailPage() {
                 />
               ) : (
                 <div className="flex h-48 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-line text-center">
-                  <span className="text-xs font-medium text-slate-400">暂无观测 · no observations</span>
-                  <span className="max-w-md px-4 text-2xs text-slate-500">
+                  <span className="text-xs font-medium text-brand-500">暂无观测 · no observations</span>
+                  <span className="max-w-md px-4 text-2xs text-brand-200">
                     {r.note ?? `as_of=${r.as_of} 之前无可用读数（point-in-time 视图为空）。`}
                   </span>
                 </div>
               )}
 
-              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-slate-500">
+              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-brand-200">
                 <span>unit · {r.unit ?? "—"}</span>
                 <span>geo · {reg.geo_scope ?? "—"}</span>
                 <span>point_in_time · knowledge_time ≤ {r.as_of}</span>
@@ -192,14 +192,14 @@ export function AndyMetricDetailPage() {
             />
             <div className="flex flex-col gap-3 p-4 text-xs leading-relaxed">
               <div>
-                <div className="text-2xs uppercase tracking-wide text-slate-500">机制 Mechanism</div>
+                <div className="text-2xs uppercase tracking-wide text-brand-200">机制 Mechanism</div>
                 <p className="mt-0.5 text-brand-800">{reg.mechanism ?? "—"}</p>
               </div>
               <div>
-                <div className="text-2xs uppercase tracking-wide text-slate-500">
+                <div className="text-2xs uppercase tracking-wide text-brand-200">
                   识别策略 Identification strategy
                 </div>
-                <p className={cn("mt-0.5", reg.identification_strategy ? "text-brand-800" : "text-slate-500")}>
+                <p className={cn("mt-0.5", reg.identification_strategy ? "text-brand-800" : "text-brand-200")}>
                   {reg.identification_strategy ?? "—（未声明识别策略）"}
                 </p>
               </div>
@@ -233,7 +233,7 @@ export function AndyMetricDetailPage() {
             icon={<Link2 size={15} strokeWidth={2} />}
             right={
               linkQ.data?.scope && (
-                <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+                <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
                   scope · {linkQ.data.scope === "platform" ? "平台级" : "链级"}
                 </Badge>
               )
@@ -287,7 +287,7 @@ export function AndyMetricDetailPage() {
               </div>
               {linkQ.data.recent_events.length > 0 && (
                 <div>
-                  <div className="mb-1 text-2xs uppercase tracking-wide text-slate-500">
+                  <div className="mb-1 text-2xs uppercase tracking-wide text-brand-200">
                     近期事件 Recent events
                   </div>
                   <ul className="divide-y divide-line rounded-lg border border-line">
@@ -296,15 +296,15 @@ export function AndyMetricDetailPage() {
                         <span
                           className={cn(
                             "h-1.5 w-1.5 shrink-0 rounded-full",
-                            e.polarity === "positive" ? "bg-pos" : e.polarity === "negative" ? "bg-neg" : "bg-slate-500",
+                            e.polarity === "positive" ? "bg-pos" : e.polarity === "negative" ? "bg-neg" : "bg-brand-200",
                           )}
                           aria-hidden="true"
                         />
-                        <span className="tnum shrink-0 text-2xs text-slate-500">{e.event_date}</span>
+                        <span className="tnum shrink-0 text-2xs text-brand-200">{e.event_date}</span>
                         <span className="min-w-0 flex-1 truncate text-brand-800" title={e.summary}>
                           {e.summary}
                         </span>
-                        <span className="shrink-0 text-2xs text-slate-500">{e.theme}</span>
+                        <span className="shrink-0 text-2xs text-brand-200">{e.theme}</span>
                       </li>
                     ))}
                   </ul>
@@ -323,9 +323,9 @@ function ChipGroup({ label, children }: { label: string; children: ReactNode }) 
   const empty = items.length === 0 || (Array.isArray(children) && children.length === 0);
   return (
     <div>
-      <div className="mb-1 text-2xs uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mb-1 text-2xs uppercase tracking-wide text-brand-200">{label}</div>
       <div className="flex flex-wrap gap-1.5">
-        {empty ? <span className="text-2xs text-slate-600">—</span> : children}
+        {empty ? <span className="text-2xs text-brand-200">—</span> : children}
       </div>
     </div>
   );

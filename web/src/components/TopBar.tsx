@@ -59,8 +59,8 @@ export function TopBar({
         <span className="hidden h-5 w-px shrink-0 bg-line sm:block" />
         <div className="hidden shrink-0 items-center gap-1.5 sm:flex">
           <Badge className={regimeChip(regime.phase)}>{REGIME_LABEL[regime.phase].en}</Badge>
-          <span className="text-2xs uppercase tracking-wide text-slate-400">
-            score <span className="tnum font-semibold text-slate-400">{fmtScore(regime.score)}</span>
+          <span className="text-2xs uppercase tracking-wide text-brand-500">
+            score <span className="tnum font-semibold text-brand-500">{fmtScore(regime.score)}</span>
           </span>
         </div>
       </div>
@@ -77,15 +77,15 @@ export function TopBar({
 
       {/* Right: coverage stats + market filter */}
       <div className="flex min-w-0 items-center gap-4">
-        <div className="hidden min-w-0 items-center gap-3 text-2xs text-slate-400 lg:flex">
+        <div className="hidden min-w-0 items-center gap-3 text-2xs text-brand-500 lg:flex">
           <span className="whitespace-nowrap">
-            <span className="tnum font-semibold text-slate-400">{coverage.companyCount}</span>{" "}
+            <span className="tnum font-semibold text-brand-500">{coverage.companyCount}</span>{" "}
             companies ·{" "}
-            <span className="tnum font-semibold text-slate-400">{coverage.segmentCount}</span>{" "}
+            <span className="tnum font-semibold text-brand-500">{coverage.segmentCount}</span>{" "}
             segments
           </span>
           <span className="flex items-center gap-1 whitespace-nowrap">
-            <Clock size={13} strokeWidth={2} className="text-slate-400" />
+            <Clock size={13} strokeWidth={2} className="text-brand-500" />
             Updated {relTime(coverage.updatedAt)}
           </span>
         </div>
@@ -136,7 +136,7 @@ function Segmented<T extends string>({
               "tnum rounded-md px-2 py-1 text-2xs font-semibold uppercase tracking-wide transition-colors",
               isActive
                 ? cn(activeClass, "shadow-sm")
-                : "text-slate-400 hover:bg-surface-2 hover:text-brand-900",
+                : "text-brand-500 hover:bg-surface-2 hover:text-brand-900",
             )}
           >
             {label(item)}

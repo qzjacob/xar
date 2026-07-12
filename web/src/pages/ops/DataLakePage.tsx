@@ -30,11 +30,11 @@ function permChip(permission: string): string {
     case "red":
       return "bg-neg-50 text-neg-700 ring-1 ring-inset ring-neg/20";
     default:
-      return "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line";
+      return "bg-surface-2 text-brand-500 ring-1 ring-inset ring-line";
   }
 }
 function permDot(permission: string): string {
-  return permission === "green" ? "bg-pos" : permission === "red" ? "bg-neg" : "bg-slate-300";
+  return permission === "green" ? "bg-pos" : permission === "red" ? "bg-neg" : "bg-brand-500";
 }
 
 function fmtInt(n: number | null | undefined): string {
@@ -139,12 +139,12 @@ export function DataLakePage() {
                 titleCn="按来源"
                 icon={<Database size={14} />}
                 right={
-                  <span className="tnum text-2xs text-slate-400">{info.bySource.length} sources</span>
+                  <span className="tnum text-2xs text-brand-500">{info.bySource.length} sources</span>
                 }
               />
               <div className="flex flex-col">
                 {info.bySource.length === 0 ? (
-                  <div className="px-4 py-8 text-center text-xs text-slate-400">No documents yet.</div>
+                  <div className="px-4 py-8 text-center text-xs text-brand-500">No documents yet.</div>
                 ) : (
                   info.bySource.map((s) => {
                     const max = Math.max(1, ...info.bySource.map((x) => x.docs));
@@ -155,7 +155,7 @@ export function DataLakePage() {
                         key={s.source}
                         className="flex items-center gap-3 border-b border-line px-4 py-2 last:border-b-0"
                       >
-                        <span className="w-28 shrink-0 truncate text-xs font-medium text-slate-300">
+                        <span className="w-28 shrink-0 truncate text-xs font-medium text-brand-700">
                           {s.source}
                         </span>
                         <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-canvas">
@@ -168,13 +168,13 @@ export function DataLakePage() {
                           {fmtInt(s.docs)}
                         </span>
                         <span
-                          className="tnum w-20 shrink-0 text-right text-2xs text-slate-400"
+                          className="tnum w-20 shrink-0 text-right text-2xs text-brand-500"
                           title="parsed / docs"
                         >
                           {fmtInt(s.parsed)} ({parsedPct}%)
                         </span>
                         <span
-                          className="tnum w-16 shrink-0 text-right text-2xs text-slate-400"
+                          className="tnum w-16 shrink-0 text-right text-2xs text-brand-500"
                           title="chunks"
                         >
                           {fmtInt(s.chunks)} ch
@@ -190,7 +190,7 @@ export function DataLakePage() {
               <SectionHeader title="By permission" titleCn="按授权" />
               <div className="flex flex-col gap-2 p-4">
                 {info.byPermission.length === 0 ? (
-                  <div className="py-4 text-center text-xs text-slate-400">—</div>
+                  <div className="py-4 text-center text-xs text-brand-500">—</div>
                 ) : (
                   info.byPermission.map((p) => (
                     <div key={p.permission} className="flex items-center justify-between">
@@ -202,7 +202,7 @@ export function DataLakePage() {
                     </div>
                   ))
                 )}
-                <div className="mt-1 border-t border-line pt-2 text-2xs text-slate-400">
+                <div className="mt-1 border-t border-line pt-2 text-2xs text-brand-500">
                   green = licensed · grey = derived/observed · red = restricted
                 </div>
               </div>
@@ -216,7 +216,7 @@ export function DataLakePage() {
               titleCn="文档浏览"
               icon={<FileText size={14} />}
               right={
-                <span className="tnum text-2xs text-slate-400">
+                <span className="tnum text-2xs text-brand-500">
                   {total > 0 ? `${showingFrom}–${showingTo} of ${fmtInt(total)}` : "0 results"}
                 </span>
               }
@@ -228,7 +228,7 @@ export function DataLakePage() {
                 <div className="relative flex-1 min-w-[200px]">
                   <Search
                     size={14}
-                    className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+                    className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-brand-500"
                   />
                   <input
                     value={qInput}
@@ -237,13 +237,13 @@ export function DataLakePage() {
                       if (e.key === "Enter") applySearch();
                     }}
                     placeholder="Search title / content…"
-                    className="w-full rounded-lg border border-line bg-surface py-1.5 pl-8 pr-3 text-xs text-brand-900 placeholder:text-slate-400 focus:border-accent/40"
+                    className="w-full rounded-lg border border-line bg-surface py-1.5 pl-8 pr-3 text-xs text-brand-900 placeholder:text-brand-500 focus:border-accent/40"
                   />
                 </div>
                 <button
                   type="button"
                   onClick={applySearch}
-                  className="rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-slate-400 transition hover:bg-canvas"
+                  className="rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-brand-500 transition hover:bg-canvas"
                 >
                   Search
                 </button>
@@ -256,7 +256,7 @@ export function DataLakePage() {
                       setSource("");
                       setOffset(0);
                     }}
-                    className="rounded-lg px-2 py-1.5 text-2xs font-medium text-slate-400 transition hover:text-neg"
+                    className="rounded-lg px-2 py-1.5 text-2xs font-medium text-brand-500 transition hover:text-neg"
                   >
                     Clear
                   </button>
@@ -274,7 +274,7 @@ export function DataLakePage() {
                     "rounded-md px-2 py-1 text-2xs font-medium transition",
                     source === ""
                       ? "bg-surface text-white"
-                      : "border border-line bg-surface text-slate-500 hover:bg-canvas",
+                      : "border border-line bg-surface text-brand-200 hover:bg-canvas",
                   )}
                 >
                   All sources
@@ -288,7 +288,7 @@ export function DataLakePage() {
                       "rounded-md px-2 py-1 text-2xs font-medium transition",
                       source === s.source
                         ? "bg-accent text-white"
-                        : "border border-line bg-surface text-slate-500 hover:bg-canvas",
+                        : "border border-line bg-surface text-brand-200 hover:bg-canvas",
                     )}
                   >
                     {s.source}
@@ -299,18 +299,18 @@ export function DataLakePage() {
 
             {/* table */}
             {docs.loading ? (
-              <div className="px-4 py-10 text-center text-sm text-slate-400">Loading…</div>
+              <div className="px-4 py-10 text-center text-sm text-brand-500">Loading…</div>
             ) : docs.error ? (
               <div className="px-4 py-6 text-center text-xs text-neg">{docs.error}</div>
             ) : !page || page.documents.length === 0 ? (
-              <div className="px-4 py-10 text-center text-sm text-slate-400">
+              <div className="px-4 py-10 text-center text-sm text-brand-500">
                 No documents match the current filter.
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-left">
                   <thead>
-                    <tr className="border-b border-line text-2xs uppercase tracking-wide text-slate-400">
+                    <tr className="border-b border-line text-2xs uppercase tracking-wide text-brand-500">
                       <th className="px-4 py-2 font-medium">Source</th>
                       <th className="px-2 py-2 font-medium">Type</th>
                       <th className="px-2 py-2 font-medium">Title</th>
@@ -328,25 +328,25 @@ export function DataLakePage() {
                         className="border-b border-line text-xs last:border-b-0 hover:bg-canvas/60"
                       >
                         <td className="px-4 py-2">
-                          <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+                          <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
                             {d.source}
                           </Badge>
                         </td>
-                        <td className="px-2 py-2 text-slate-500">{d.doc_type ?? "—"}</td>
+                        <td className="px-2 py-2 text-brand-200">{d.doc_type ?? "—"}</td>
                         <td className="max-w-[280px] px-2 py-2">
                           <div className="flex items-center gap-1">
                             <span
                               className="truncate font-medium text-brand-900"
                               title={d.title ?? undefined}
                             >
-                              {d.title ?? <span className="text-slate-400">untitled</span>}
+                              {d.title ?? <span className="text-brand-500">untitled</span>}
                             </span>
                             {d.url && (
                               <a
                                 href={d.url}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="shrink-0 text-slate-400 transition hover:text-accent"
+                                className="shrink-0 text-brand-500 transition hover:text-accent"
                                 title="Open source"
                               >
                                 <ExternalLink size={12} />
@@ -362,10 +362,10 @@ export function DataLakePage() {
                             {d.permission}
                           </Badge>
                         </td>
-                        <td className="tnum px-2 py-2 text-right text-slate-500">
+                        <td className="tnum px-2 py-2 text-right text-brand-200">
                           {d.chars != null ? fmtInt(d.chars) : "—"}
                         </td>
-                        <td className="tnum px-2 py-2 text-right text-slate-300">
+                        <td className="tnum px-2 py-2 text-right text-brand-700">
                           {fmtInt(d.chunks)}
                         </td>
                         <td className="px-2 py-2 text-center">
@@ -373,7 +373,7 @@ export function DataLakePage() {
                             <StatusDot status={d.extracted ? "ok" : "unconfigured"} />
                           </span>
                         </td>
-                        <td className="tnum px-4 py-2 text-right text-slate-400">
+                        <td className="tnum px-4 py-2 text-right text-brand-500">
                           {d.ingested_at ? relTime(d.ingested_at) : "—"}
                         </td>
                       </tr>
@@ -385,7 +385,7 @@ export function DataLakePage() {
 
             {/* pagination */}
             <div className="flex items-center justify-between border-t border-line px-4 py-2.5">
-              <span className="tnum text-2xs text-slate-400">
+              <span className="tnum text-2xs text-brand-500">
                 {total > 0 ? `Showing ${showingFrom}–${showingTo} of ${fmtInt(total)}` : "—"}
               </span>
               <div className="flex items-center gap-1.5">
@@ -393,7 +393,7 @@ export function DataLakePage() {
                   type="button"
                   disabled={!canPrev || docs.loading}
                   onClick={() => setOffset((o) => Math.max(0, o - LIMIT))}
-                  className="rounded-lg border border-line bg-surface px-3 py-1 text-xs font-medium text-slate-400 transition hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-lg border border-line bg-surface px-3 py-1 text-xs font-medium text-brand-500 transition hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Prev
                 </button>
@@ -401,7 +401,7 @@ export function DataLakePage() {
                   type="button"
                   disabled={!canNext || docs.loading}
                   onClick={() => setOffset((o) => o + LIMIT)}
-                  className="rounded-lg border border-line bg-surface px-3 py-1 text-xs font-medium text-slate-400 transition hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-lg border border-line bg-surface px-3 py-1 text-xs font-medium text-brand-500 transition hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Next
                 </button>

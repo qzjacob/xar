@@ -25,38 +25,45 @@
   --c-brand-50:  26 34 52;     /* (bg-only) subtle raised surface */
   --c-brand-DEFAULT: 231 237 245;
 
-  /* accent = amber (Bloomberg-esque) for active / links / key highlights */
-  --c-accent-700: 180 108 6;
-  --c-accent-600: 217 138 12;
-  --c-accent-500: 245 158 11;
-  --c-accent-100: 251 191 36;  /* bright amber (text on dark) */
-  --c-accent-50:  38 30 12;    /* (bg) subtle amber-tinted panel */
-  --c-accent-DEFAULT: 245 158 11;
+  /* accent = indigo (cold, Linear/Vercel-esque) for active / links / key highlights —
+   * the ONE project-wide accent; per-module hues below alias into this ramp. */
+  --c-accent-700: 79 70 229;    /* #4F46E5 */
+  --c-accent-600: 99 102 241;   /* #6366F1 buttons */
+  --c-accent-500: 129 140 248;  /* #818CF8 base */
+  --c-accent-100: 165 180 252;  /* #A5B4FC bright indigo (text on dark) */
+  --c-accent-50:  30 30 58;     /* (bg) subtle indigo-tinted panel */
+  --c-accent-DEFAULT: 129 140 248;
 
   /* status — brightened for dark bg; 50/100 are dark tinted panels */
   --c-pos-700: 34 197 94;  --c-pos-100: 52 211 153;  --c-pos-50: 12 32 24;  --c-pos-DEFAULT: 45 200 118;
   --c-neg-700: 248 113 113; --c-neg-100: 252 165 165; --c-neg-50: 40 18 20;  --c-neg-DEFAULT: 244 96 96;
   --c-warn-700: 251 191 36; --c-warn-100: 253 224 132; --c-warn-50: 38 30 12; --c-warn-DEFAULT: 245 176 40;
 
-  /* exploration module accent = violet */
-  --c-explore-700: 139 92 246; --c-explore-600: 124 58 237; --c-explore-500: 167 139 250;
-  --c-explore-100: 196 181 253; --c-explore-50: 30 25 52; --c-explore-DEFAULT: 139 92 246;
+  /* Per-module accents are RETIRED: one cold indigo project-wide. The legacy
+   * `explore`/`andy` tokens alias into the accent ramp BY ROLE (bright-text stops →
+   * bright accent stops; dark-panel stops → the dark accent panel), so every existing
+   * bg-andy/text-explore-* class unifies with zero component edits. CSS var()
+   * substitution is recursive, so `rgb(var(--c-andy) / 0.25)` still works. */
+  --c-explore-700: var(--c-accent-500); --c-explore-600: var(--c-accent-600);
+  --c-explore-500: var(--c-accent-100); --c-explore-100: var(--c-accent-100);
+  --c-explore-50: var(--c-accent-50); --c-explore-DEFAULT: var(--c-accent-500);
 
-  /* andy macro-indicator module accent = teal (50/100 are dark tinted panels; 500 is
-   * bright text on dark — AA on canvas/surface) */
-  --c-andy-700: 13 148 136; --c-andy-600: 20 184 166; --c-andy-500: 45 212 191;
-  --c-andy-100: 19 52 54; --c-andy-50: 15 35 36; --c-andy-DEFAULT: 20 184 166;
+  /* andy: 700/600 mid tones, 500 bright text on dark, 100/50 dark tinted panels */
+  --c-andy-700: var(--c-accent-600); --c-andy-600: var(--c-accent-600);
+  --c-andy-500: var(--c-accent-100);
+  --c-andy-100: var(--c-accent-50); --c-andy-50: var(--c-accent-50);
+  --c-andy-DEFAULT: var(--c-accent-500);
 
   /* bare aliases — tailwind.config's c(base) resolves DEFAULT utilities (bg-pos,
    * text-neg, bg-explore, bg-andy, ring-andy/25 …) via var(--c-<base>); the
    * `-DEFAULT`-suffixed names above are not readable by that helper. */
   --c-brand: 231 237 245;
-  --c-accent: 245 158 11;
+  --c-accent: 129 140 248;
   --c-pos: 45 200 118;
   --c-neg: 244 96 96;
   --c-warn: 245 176 40;
-  --c-explore: 139 92 246;
-  --c-andy: 20 184 166;
+  --c-explore: var(--c-accent);
+  --c-andy: var(--c-accent);
 
   /* motion */
   --dur-fast: 130ms;

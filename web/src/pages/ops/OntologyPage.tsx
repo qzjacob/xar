@@ -33,7 +33,7 @@ function Iri({ value, className }: { value: string; className?: string }) {
   return (
     <span
       title={value}
-      className={cn("block truncate font-mono text-2xs text-slate-400", className)}
+      className={cn("block truncate font-mono text-2xs text-brand-500", className)}
     >
       {value || "—"}
     </span>
@@ -47,8 +47,8 @@ function CountBadge({ count }: { count: number }) {
       className={cn(
         "tnum tabular-nums",
         count > 0
-          ? "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line"
-          : "bg-surface-2 text-slate-300 ring-1 ring-inset ring-line",
+          ? "bg-surface-2 text-brand-500 ring-1 ring-inset ring-line"
+          : "bg-surface-2 text-brand-700 ring-1 ring-inset ring-line",
       )}
     >
       {count.toLocaleString()}
@@ -90,27 +90,27 @@ export function OntologyPage() {
           data ? (
             <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
               <span>
-                <span className="tnum font-medium text-slate-500">
+                <span className="tnum font-medium text-brand-200">
                   {data.totals.nodes.toLocaleString()}
                 </span>{" "}
                 nodes ·{" "}
-                <span className="tnum font-medium text-slate-500">
+                <span className="tnum font-medium text-brand-200">
                   {data.totals.edges.toLocaleString()}
                 </span>{" "}
                 edges ·{" "}
-                <span className="tnum font-medium text-slate-500">
+                <span className="tnum font-medium text-brand-200">
                   {data.totals.events.toLocaleString()}
                 </span>{" "}
                 events ·{" "}
-                <span className="tnum font-medium text-slate-500">
+                <span className="tnum font-medium text-brand-200">
                   {data.totals.aliases.toLocaleString()}
                 </span>{" "}
                 aliases
               </span>
-              <span className="text-slate-300">|</span>
+              <span className="text-brand-700">|</span>
               <span>
-                anchored to <span className="font-medium text-slate-500">{data.standards.fibo}</span>{" "}
-                + <span className="font-medium text-slate-500">{data.standards.schema}</span>
+                anchored to <span className="font-medium text-brand-200">{data.standards.fibo}</span>{" "}
+                + <span className="font-medium text-brand-200">{data.standards.schema}</span>
               </span>
             </span>
           ) : (
@@ -151,7 +151,7 @@ function NodeTypesCard({ rows }: { rows: OntologyNodeType[] }) {
       titleCn="节点类型"
       icon={<Boxes size={14} />}
       right={
-        <span className="text-2xs text-slate-400">
+        <span className="text-2xs text-brand-500">
           schema.org + FIBO · {rows.length}
         </span>
       }
@@ -183,7 +183,7 @@ function EdgeTypesCard({ rows }: { rows: OntologyEdgeType[] }) {
       title="Edge Types"
       titleCn="关系类型"
       icon={<GitBranch size={14} />}
-      right={<span className="text-2xs text-slate-400">relations · {rows.length}</span>}
+      right={<span className="text-2xs text-brand-500">relations · {rows.length}</span>}
     >
       <div className="divide-y divide-line">
         {rows.map((e) => (
@@ -208,7 +208,7 @@ function CatalystTypesCard({ rows }: { rows: OntologyCatalystType[] }) {
       title="Catalyst Types"
       titleCn="催化剂类型"
       icon={<Zap size={14} />}
-      right={<span className="text-2xs text-slate-400">event taxonomy · {rows.length}</span>}
+      right={<span className="text-2xs text-brand-500">event taxonomy · {rows.length}</span>}
     >
       <div className="grid grid-cols-1 gap-px bg-line sm:grid-cols-2 lg:grid-cols-3">
         {rows.map((c) => {
@@ -222,12 +222,12 @@ function CatalystTypesCard({ rows }: { rows: OntologyCatalystType[] }) {
                 </span>
                 <span
                   className="tnum rounded px-1.5 py-0.5 text-2xs font-semibold"
-                  style={c.count > 0 ? tint : { color: "#cbd5e1" }}
+                  style={c.count > 0 ? tint : { color: "#9caabe" }}
                 >
                   {c.count.toLocaleString()}
                 </span>
               </div>
-              <div className="font-mono text-2xs text-slate-400">{c.type}</div>
+              <div className="font-mono text-2xs text-brand-500">{c.type}</div>
               <ScoreBar value={pct} scheme="good-high" height={4} />
             </div>
           );
@@ -248,12 +248,12 @@ function FinMetricsCard({ rows }: { rows: OntologyMetric[] }) {
       title="Canonical Financial Metrics"
       titleCn="标准财务指标 · FinMetric"
       icon={<Ruler size={14} />}
-      right={<span className="text-2xs text-slate-400">{rows.length} metrics</span>}
+      right={<span className="text-2xs text-brand-500">{rows.length} metrics</span>}
     >
       <div className="overflow-x-auto">
         <table className="w-full min-w-[640px] text-left">
           <thead>
-            <tr className="border-b border-line text-2xs uppercase tracking-wide text-slate-400">
+            <tr className="border-b border-line text-2xs uppercase tracking-wide text-brand-500">
               <th className="px-4 py-2 font-medium">Metric</th>
               <th className="px-3 py-2 font-medium">Type</th>
               <th className="px-3 py-2 font-medium">Provider Coverage</th>
@@ -271,7 +271,7 @@ function FinMetricsCard({ rows }: { rows: OntologyMetric[] }) {
                     className={
                       m.isRatio
                         ? "bg-accent-50 text-accent-700 ring-1 ring-inset ring-accent/20"
-                        : "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line"
+                        : "bg-surface-2 text-brand-500 ring-1 ring-inset ring-line"
                     }
                   >
                     {m.isRatio ? "ratio" : "level"}
@@ -287,7 +287,7 @@ function FinMetricsCard({ rows }: { rows: OntologyMetric[] }) {
                           className={
                             has
                               ? PROVIDER_CHIP[p]
-                              : "bg-surface-2 text-slate-300 ring-1 ring-inset ring-line"
+                              : "bg-surface-2 text-brand-700 ring-1 ring-inset ring-line"
                           }
                         >
                           {p}
@@ -297,7 +297,7 @@ function FinMetricsCard({ rows }: { rows: OntologyMetric[] }) {
                   </div>
                 </td>
                 <td className="px-4 py-2 text-right">
-                  <span className="tnum text-xs font-semibold text-slate-400">
+                  <span className="tnum text-xs font-semibold text-brand-500">
                     {m.count.toLocaleString()}
                   </span>
                 </td>
@@ -325,16 +325,16 @@ function SignalMapCard({ map }: { map: Record<string, string> }) {
       titleCn="信号到催化剂桥接"
       icon={<Workflow size={14} />}
       right={
-        <span className="text-2xs text-slate-400">structured → ontology · {entries.length}</span>
+        <span className="text-2xs text-brand-500">structured → ontology · {entries.length}</span>
       }
     >
       <div className="grid grid-cols-1 gap-px bg-line md:grid-cols-2">
         {entries.map(([k, v]) => (
           <div key={k} className="flex items-center gap-2 bg-surface px-4 py-2.5">
-            <span className="truncate font-mono text-2xs font-medium text-slate-400" title={k}>
+            <span className="truncate font-mono text-2xs font-medium text-brand-500" title={k}>
               {k}
             </span>
-            <ArrowRight size={13} className="shrink-0 text-slate-300" />
+            <ArrowRight size={13} className="shrink-0 text-brand-700" />
             <span className="truncate text-xs text-brand-900" title={v}>
               {v}
             </span>
@@ -351,5 +351,5 @@ function SignalMapCard({ map }: { map: Record<string, string> }) {
 }
 
 function Empty() {
-  return <div className="px-4 py-6 text-center text-2xs text-slate-400">No entries.</div>;
+  return <div className="px-4 py-6 text-center text-2xs text-brand-500">No entries.</div>;
 }

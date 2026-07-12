@@ -47,14 +47,14 @@ export function SignalFeed({
         titleCn="关键信号"
         icon={<Radio size={15} strokeWidth={2} />}
         right={
-          <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+          <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
             {visible.length}
           </Badge>
         }
       />
 
       {visible.length === 0 ? (
-        <div className="px-4 py-10 text-center text-sm text-slate-400">
+        <div className="px-4 py-10 text-center text-sm text-brand-500">
           No signals for this segment.
         </div>
       ) : (
@@ -146,12 +146,12 @@ function SignalRow({
             </Badge>
           )}
           <Badge
-            className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line"
+            className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line"
             title={`Source · ${SOURCE_LABEL[sig.source]}`}
           >
             {SOURCE_LABEL[sig.source]}
           </Badge>
-          <span className="tnum ml-auto shrink-0 whitespace-nowrap text-2xs text-slate-400">
+          <span className="tnum ml-auto shrink-0 whitespace-nowrap text-2xs text-brand-500">
             {relTime(sig.ts)}
           </span>
         </div>
@@ -160,23 +160,23 @@ function SignalRow({
         <p className="mt-1 line-clamp-2 text-sm leading-snug text-brand-900">{sig.title}</p>
 
         {/* meta line */}
-        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-2xs text-slate-400">
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-2xs text-brand-500">
           {meta.map((part, i) => (
             <span key={i} className="flex items-center gap-1">
-              {i > 0 && <span className="text-slate-300" aria-hidden="true">·</span>}
+              {i > 0 && <span className="text-brand-700" aria-hidden="true">·</span>}
               <span
                 className={cn(
-                  i === 0 && sig.ticker && "tnum font-medium text-slate-500",
+                  i === 0 && sig.ticker && "tnum font-medium text-brand-200",
                 )}
               >
                 {part}
               </span>
             </span>
           ))}
-          {meta.length > 0 && <span className="text-slate-300" aria-hidden="true">·</span>}
+          {meta.length > 0 && <span className="text-brand-700" aria-hidden="true">·</span>}
           <span className="tnum inline-flex items-center gap-1">
             <span
-              className="h-1.5 w-1.5 rounded-full bg-slate-300"
+              className="h-1.5 w-1.5 rounded-full bg-brand-500"
               style={{ opacity: 0.35 + sig.confidence * 0.65 }}
               aria-hidden="true"
             />

@@ -28,10 +28,10 @@ export function ToolChip({ t }: { t: ToolActivity }) {
         className="flex w-full items-center gap-1.5 px-2 py-1 text-left">
         {t.done ? <CheckCircle2 size={12} className="shrink-0 text-pos" />
           : <Loader2 size={12} className="shrink-0 animate-spin text-accent-500" />}
-        <Wrench size={11} className="shrink-0 text-slate-500" />
+        <Wrench size={11} className="shrink-0 text-brand-200" />
         <span className="font-semibold text-brand-800">{t.name}</span>
         {t.args && Object.keys(t.args).length > 0 && (
-          <span className="truncate text-slate-500">{JSON.stringify(t.args)}</span>
+          <span className="truncate text-brand-200">{JSON.stringify(t.args)}</span>
         )}
       </button>
       {cids.length > 0 && (
@@ -45,7 +45,7 @@ export function ToolChip({ t }: { t: ToolActivity }) {
         </div>
       )}
       {open && t.preview && (
-        <pre className="max-h-40 overflow-auto border-t border-line px-2 py-1 font-mono text-slate-400">
+        <pre className="max-h-40 overflow-auto border-t border-line px-2 py-1 font-mono text-brand-500">
           {t.preview}
         </pre>
       )}

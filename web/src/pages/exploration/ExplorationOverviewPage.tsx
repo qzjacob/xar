@@ -28,12 +28,12 @@ export function ExplorationOverviewPage() {
         <div className="min-w-0">
           <div className="flex items-baseline gap-2">
             <h1 className="text-xl font-semibold tracking-tight text-brand-900">Frontier of Knowledge</h1>
-            <span className="text-sm text-slate-400">前沿探索</span>
+            <span className="text-sm text-brand-500">前沿探索</span>
           </div>
-          <p className="mt-1 max-w-3xl text-sm leading-snug text-slate-500">
+          <p className="mt-1 max-w-3xl text-sm leading-snug text-brand-200">
             The leading edge of human understanding — synthesized from arXiv preprints and expert
             voices into forward-looking research fronts. Long-horizon direction, not trades.
-            <span className="text-slate-400"> 从 arXiv 与专家声音中综合人类认知前沿，以长期方向性为主。</span>
+            <span className="text-brand-500"> 从 arXiv 与专家声音中综合人类认知前沿，以长期方向性为主。</span>
           </p>
         </div>
       </div>
@@ -49,7 +49,7 @@ export function ExplorationOverviewPage() {
                 "cursor-pointer p-4 transition hover:shadow-pop",
                 i === 0 && "ring-1 ring-explore/30",
               )}
-              onClick={() => nav(`/explore/${s.id}`)}
+              onClick={() => nav(`/romy/${s.id}`)}
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2.5">
@@ -58,7 +58,7 @@ export function ExplorationOverviewPage() {
                   </span>
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-brand-900">{s.name}</div>
-                    <div className="truncate text-2xs text-slate-400">{s.nameCn}</div>
+                    <div className="truncate text-2xs text-brand-500">{s.nameCn}</div>
                   </div>
                 </div>
                 {i === 0 && (
@@ -68,10 +68,10 @@ export function ExplorationOverviewPage() {
                 )}
               </div>
 
-              <p className="mt-3 line-clamp-2 text-xs leading-snug text-slate-500">{s.headline}</p>
+              <p className="mt-3 line-clamp-2 text-xs leading-snug text-brand-200">{s.headline}</p>
 
               <div className="mt-3">
-                <div className="mb-1 flex items-center justify-between text-2xs text-slate-400">
+                <div className="mb-1 flex items-center justify-between text-2xs text-brand-500">
                   <span>momentum</span>
                   <span className="tnum font-semibold text-explore-700">{s.momentum}</span>
                 </div>
@@ -89,11 +89,11 @@ export function ExplorationOverviewPage() {
                   </span>
                 ))}
                 {s.topFronts.length === 0 && (
-                  <span className="text-2xs text-slate-300">no fronts synthesized yet</span>
+                  <span className="text-2xs text-brand-700">no fronts synthesized yet</span>
                 )}
               </div>
 
-              <div className="mt-3 flex items-center gap-3 border-t border-line pt-2 text-2xs text-slate-400">
+              <div className="mt-3 flex items-center gap-3 border-t border-line pt-2 text-2xs text-brand-500">
                 <span className="tnum">{s.frontCount} fronts</span>
                 <span className="tnum">{s.paperCount} preprints</span>
                 <span className="tnum">{s.articleCount} articles</span>

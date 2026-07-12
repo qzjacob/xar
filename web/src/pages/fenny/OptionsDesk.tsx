@@ -7,7 +7,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { PlotlyChart } from "../../components/charts/PlotlyChart";
+import { CHART, PlotlyChart } from "../../components/charts/PlotlyChart";
 import { Badge } from "../../components/ui/Badge";
 import { Card } from "../../components/ui/Card";
 import { SectionHeader } from "../../components/ui/SectionHeader";
@@ -43,7 +43,7 @@ const money = (v: unknown): string => {
 
 const inputCls =
   "rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-xs text-brand-900";
-const labelCls = "text-2xs uppercase tracking-wide text-slate-500";
+const labelCls = "text-2xs uppercase tracking-wide text-brand-200";
 
 function Field({
   label,
@@ -128,7 +128,7 @@ function MarketFields({
           onChange={(e) => set({ ticker: e.target.value })}
         />
       </Field>
-      <span className="pb-1.5 text-2xs text-slate-500"
+      <span className="pb-1.5 text-2xs text-brand-200"
         title="ATM 波动率为历史实际波动率(21/63/252 日窗口的期限结构);偏斜/微笑为台面参数假设(该数据档位无期权隐含波动率)">
         现价·ATM波动率(实际历史)·利率 实时抓取 — 偏斜为台面参数
       </span>
@@ -155,7 +155,7 @@ function RunBtn({
       className={cn(
         "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-colors",
         loading
-          ? "cursor-not-allowed bg-surface-2 text-slate-400"
+          ? "cursor-not-allowed bg-surface-2 text-brand-500"
           : "bg-accent-600 hover:brightness-110",
       )}
     >
@@ -205,7 +205,7 @@ function AnalyzeSection({ m, set }: { m: Market; set: (p: Partial<Market>) => vo
           type: "scatter",
           mode: "lines+markers",
           name: "ATM IV",
-          line: { color: "#f59e0b", width: 2 },
+          line: { color: CHART.accent, width: 2 },
         },
       ]
     : [];
@@ -229,7 +229,7 @@ function AnalyzeSection({ m, set }: { m: Market; set: (p: Partial<Market>) => vo
 
         {res && (
           <>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-brand-500">
               <Badge className="bg-surface-2 text-accent-100">
                 {str(chain.ticker) || m.ticker}
               </Badge>
@@ -247,12 +247,12 @@ function AnalyzeSection({ m, set }: { m: Market; set: (p: Partial<Market>) => vo
                   "capitalize",
                   str(analytics.vol_regime) === "elevated"
                     ? "bg-warn-100/10 text-warn-100"
-                    : "bg-surface-2 text-slate-400",
+                    : "bg-surface-2 text-brand-500",
                 )}
               >
                 regime: {str(analytics.vol_regime) || "—"}
               </Badge>
-              <Badge className="bg-surface-2 capitalize text-slate-400">
+              <Badge className="bg-surface-2 capitalize text-brand-500">
                 term: {str(analytics.term_structure) || "—"}
               </Badge>
             </div>
@@ -291,7 +291,7 @@ function AnalyzeSection({ m, set }: { m: Market; set: (p: Partial<Market>) => vo
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div>
-                <div className="mb-2 text-2xs uppercase tracking-wide text-slate-500">
+                <div className="mb-2 text-2xs uppercase tracking-wide text-brand-200">
                   ATM term structure
                 </div>
                 {termTrace.length ? (
@@ -304,11 +304,11 @@ function AnalyzeSection({ m, set }: { m: Market; set: (p: Partial<Market>) => vo
                     }}
                   />
                 ) : (
-                  <div className="text-xs text-slate-500">no term data</div>
+                  <div className="text-xs text-brand-200">no term data</div>
                 )}
               </div>
               <div>
-                <div className="mb-2 text-2xs uppercase tracking-wide text-slate-500">
+                <div className="mb-2 text-2xs uppercase tracking-wide text-brand-200">
                   Wing marks (3M IV by delta)
                 </div>
                 <div className="overflow-hidden rounded-lg border border-line">
@@ -316,7 +316,7 @@ function AnalyzeSection({ m, set }: { m: Market; set: (p: Partial<Market>) => vo
                     <tbody>
                       {wingPairs.map(([k, v]) => (
                         <tr key={k} className="border-b border-line last:border-0">
-                          <td className="px-3 py-1.5 text-slate-400">{k}</td>
+                          <td className="px-3 py-1.5 text-brand-500">{k}</td>
                           <td className="px-3 py-1.5 text-right font-semibold tnum text-brand-900">
                             {pct(v)}
                           </td>
@@ -488,8 +488,8 @@ function AdviseSection({ m, set }: { m: Market; set: (p: Partial<Market>) => voi
         {top && <RecommendedStrategy candidate={top} />}
 
         {narrative && (
-          <div className="rounded-lg border border-line bg-surface-2 p-3 text-xs leading-relaxed text-slate-400">
-            <div className="mb-1 text-2xs uppercase tracking-wide text-slate-500">
+          <div className="rounded-lg border border-line bg-surface-2 p-3 text-xs leading-relaxed text-brand-500">
+            <div className="mb-1 text-2xs uppercase tracking-wide text-brand-200">
               Rationale
             </div>
             {narrative}
@@ -498,7 +498,7 @@ function AdviseSection({ m, set }: { m: Market; set: (p: Partial<Market>) => voi
 
         {shortlist.length > 1 && (
           <div>
-            <div className="mb-2 text-2xs uppercase tracking-wide text-slate-500">
+            <div className="mb-2 text-2xs uppercase tracking-wide text-brand-200">
               Shortlist
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -515,10 +515,10 @@ function AdviseSection({ m, set }: { m: Market; set: (p: Partial<Market>) => voi
                       {f(s.score, 0)}
                     </Badge>
                   </div>
-                  <div className="mt-1 text-2xs text-slate-500">
+                  <div className="mt-1 text-2xs text-brand-200">
                     {str(s.family)} · {str(s.view)}
                   </div>
-                  <div className="mt-1 text-xs text-slate-400">
+                  <div className="mt-1 text-xs text-brand-500">
                     {str(s.description)}
                   </div>
                 </div>
@@ -547,7 +547,7 @@ function RecommendedStrategy({ candidate }: { candidate: Dict }) {
           type: "scatter",
           mode: "lines",
           name: "P/L at expiry",
-          line: { color: "#2dc876", width: 2 },
+          line: { color: CHART.pos, width: 2 },
           fill: "tozeroy",
           fillcolor: "rgba(45,200,118,0.08)",
         },
@@ -571,10 +571,10 @@ function RecommendedStrategy({ candidate }: { candidate: Dict }) {
         <Badge className="bg-surface capitalize text-accent-100">
           {str(candidate.family)}
         </Badge>
-        <Badge className="bg-surface capitalize text-slate-400">
+        <Badge className="bg-surface capitalize text-brand-500">
           {str(candidate.view_tag)}
         </Badge>
-        <span className="ml-auto text-2xs text-slate-500">
+        <span className="ml-auto text-2xs text-brand-200">
           fit{" "}
           <span className="font-semibold tnum text-brand-900">
             {f(candidate.fit_score, 1)}
@@ -587,7 +587,7 @@ function RecommendedStrategy({ candidate }: { candidate: Dict }) {
       </div>
 
       {str(candidate.rationale) && (
-        <p className="mt-2 text-xs leading-relaxed text-slate-400">
+        <p className="mt-2 text-xs leading-relaxed text-brand-500">
           {str(candidate.rationale)}
         </p>
       )}
@@ -595,13 +595,13 @@ function RecommendedStrategy({ candidate }: { candidate: Dict }) {
       <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="space-y-3">
           <div>
-            <div className="mb-1 text-2xs uppercase tracking-wide text-slate-500">
+            <div className="mb-1 text-2xs uppercase tracking-wide text-brand-200">
               Legs
             </div>
             <div className="overflow-hidden rounded-lg border border-line">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="bg-surface text-2xs uppercase text-slate-500">
+                  <tr className="bg-surface text-2xs uppercase text-brand-200">
                     <th className="px-2 py-1.5 text-left">Kind</th>
                     <th className="px-2 py-1.5 text-right">Strike</th>
                     <th className="px-2 py-1.5 text-right">Qty</th>
@@ -623,7 +623,7 @@ function RecommendedStrategy({ candidate }: { candidate: Dict }) {
                       >
                         {num(l.quantity) ?? "—"}
                       </td>
-                      <td className="px-2 py-1.5 text-right text-slate-400">
+                      <td className="px-2 py-1.5 text-right text-brand-500">
                         {str(l.expiry)}
                       </td>
                     </tr>
@@ -631,7 +631,7 @@ function RecommendedStrategy({ candidate }: { candidate: Dict }) {
                   {str(strat.stock_leg) && (
                     <tr className="border-t border-line">
                       <td className="px-2 py-1.5 text-brand-900">stock</td>
-                      <td className="px-2 py-1.5 text-right text-slate-500" colSpan={3}>
+                      <td className="px-2 py-1.5 text-right text-brand-200" colSpan={3}>
                         {str(strat.stock_leg)}
                       </td>
                     </tr>
@@ -655,7 +655,7 @@ function RecommendedStrategy({ candidate }: { candidate: Dict }) {
           </div>
 
           <div>
-            <div className="mb-1 text-2xs uppercase tracking-wide text-slate-500">
+            <div className="mb-1 text-2xs uppercase tracking-wide text-brand-200">
               Greeks
             </div>
             <div className="grid grid-cols-5 gap-1.5">
@@ -664,7 +664,7 @@ function RecommendedStrategy({ candidate }: { candidate: Dict }) {
                   key={k}
                   className="rounded-md border border-line bg-surface px-1.5 py-1 text-center"
                 >
-                  <div className="text-2xs text-slate-500">{k}</div>
+                  <div className="text-2xs text-brand-200">{k}</div>
                   <div className="text-xs font-semibold tnum text-brand-900">
                     {f(v, 1)}
                   </div>
@@ -675,7 +675,7 @@ function RecommendedStrategy({ candidate }: { candidate: Dict }) {
         </div>
 
         <div>
-          <div className="mb-1 text-2xs uppercase tracking-wide text-slate-500">
+          <div className="mb-1 text-2xs uppercase tracking-wide text-brand-200">
             Payoff at expiry
           </div>
           {payoffTrace.length ? (
@@ -688,7 +688,7 @@ function RecommendedStrategy({ candidate }: { candidate: Dict }) {
               }}
             />
           ) : (
-            <div className="text-xs text-slate-500">no payoff data</div>
+            <div className="text-xs text-brand-200">no payoff data</div>
           )}
         </div>
       </div>
@@ -786,9 +786,9 @@ function BlotterSection() {
         )}
 
         {Object.keys(byUnderlying).length > 0 && (
-          <div className="flex flex-wrap gap-2 text-2xs text-slate-400">
+          <div className="flex flex-wrap gap-2 text-2xs text-brand-500">
             {Object.entries(byUnderlying).map(([k, v]) => (
-              <Badge key={k} className="bg-surface-2 text-slate-400">
+              <Badge key={k} className="bg-surface-2 text-brand-500">
                 {k}: Δ {f(rec(v).delta, 1)}
               </Badge>
             ))}
@@ -796,7 +796,7 @@ function BlotterSection() {
         )}
 
         {entries.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-line bg-surface-2 px-4 py-8 text-center text-xs text-slate-500">
+          <div className="rounded-lg border border-dashed border-line bg-surface-2 px-4 py-8 text-center text-xs text-brand-200">
             <Layers size={18} className="mx-auto mb-2 opacity-60" />
             No positions on the blotter.
           </div>
@@ -804,7 +804,7 @@ function BlotterSection() {
           <div className="overflow-x-auto rounded-lg border border-line">
             <table className="w-full min-w-[560px] text-xs">
               <thead>
-                <tr className="bg-surface-2 text-2xs uppercase text-slate-500">
+                <tr className="bg-surface-2 text-2xs uppercase text-brand-200">
                   <th className="px-3 py-2 text-left">Ticker</th>
                   <th className="px-3 py-2 text-left">Strategy</th>
                   <th className="px-3 py-2 text-left">Status</th>
@@ -825,11 +825,11 @@ function BlotterSection() {
                       <td className="px-3 py-2 font-semibold text-brand-900">
                         {str(strat.ticker) || str(e.ticker) || "—"}
                       </td>
-                      <td className="px-3 py-2 capitalize text-slate-400">
+                      <td className="px-3 py-2 capitalize text-brand-500">
                         {str(strat.name).replace(/_/g, " ") || "—"}
                       </td>
                       <td className="px-3 py-2">
-                        <Badge className="bg-surface-2 capitalize text-slate-400">
+                        <Badge className="bg-surface-2 capitalize text-brand-500">
                           {str(e.status) || "open"}
                         </Badge>
                       </td>
@@ -837,14 +837,14 @@ function BlotterSection() {
                         {money(val.net_debit)}
                       </td>
                       <td className="px-3 py-2 text-right tnum">{f(eg.delta, 1)}</td>
-                      <td className="max-w-[180px] truncate px-3 py-2 text-slate-500">
+                      <td className="max-w-[180px] truncate px-3 py-2 text-brand-200">
                         {str(e.notes)}
                       </td>
                       <td className="px-3 py-2 text-right">
                         <button
                           type="button"
                           onClick={() => remove(id)}
-                          className="text-slate-500 hover:text-neg"
+                          className="text-brand-200 hover:text-neg"
                           title="Remove"
                         >
                           <Trash2 size={14} />
@@ -892,7 +892,7 @@ export function OptionsDesk() {
               "flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors",
               sub === t.key
                 ? "bg-accent-600 text-white"
-                : "text-slate-400 hover:text-brand-900",
+                : "text-brand-500 hover:text-brand-900",
             )}
           >
             {t.label}

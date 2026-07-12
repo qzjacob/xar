@@ -139,18 +139,18 @@ export function polarityHex(p: Polarity): string {
 
 /** Tailwind text class for a polarity / signed number. */
 export function signClass(n: number): string {
-  return n > 0 ? "text-pos" : n < 0 ? "text-neg" : "text-slate-500";
+  return n > 0 ? "text-pos" : n < 0 ? "text-neg" : "text-brand-200";
 }
 
 export function polarityClass(p: Polarity): string {
-  return p === "positive" ? "text-pos" : p === "negative" ? "text-neg" : "text-slate-500";
+  return p === "positive" ? "text-pos" : p === "negative" ? "text-neg" : "text-brand-200";
 }
 
 /** Soft chip classes (bg + text + ring) for a polarity. */
 export function polarityChip(p: Polarity): string {
   if (p === "positive") return "bg-pos-50 text-pos-700 ring-1 ring-inset ring-pos/20";
   if (p === "negative") return "bg-neg-50 text-neg-700 ring-1 ring-inset ring-neg/20";
-  return "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line";
+  return "bg-surface-2 text-brand-500 ring-1 ring-inset ring-line";
 }
 
 /** Dot color class for a segment regime. */
@@ -163,7 +163,7 @@ export function regimeDot(r: SegmentRegime): string {
     case "peaking":
       return "bg-warn";
     case "cooling":
-      return "bg-orange-400";
+      return "bg-warn-700";
     case "trough":
       return "bg-neg";
   }
@@ -187,7 +187,7 @@ export function regimeChip(r: SegmentRegime): string {
 export function severityChip(s: "high" | "medium" | "low"): string {
   if (s === "high") return "bg-neg-50 text-neg-700 ring-1 ring-inset ring-neg/20";
   if (s === "medium") return "bg-warn-50 text-warn-700 ring-1 ring-inset ring-warn/20";
-  return "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line";
+  return "bg-surface-2 text-brand-500 ring-1 ring-inset ring-line";
 }
 
 /** Market flag short label. */

@@ -2,7 +2,7 @@ import { Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { chathyApi, streamChat } from "../../lib/chathy";
-import { ModuleNav } from "../../components/ModuleNav";
+import { ModuleShell } from "../../components/shell/ModuleShell";
 import { ChatMessage as MsgView } from "../../components/chathy/ChatMessage";
 import { Composer } from "../../components/chathy/Composer";
 import { SessionList } from "../../components/chathy/SessionList";
@@ -112,36 +112,27 @@ export function ChathyPage() {
   }, [searchParams, setSearchParams, send]);
 
   return (
-    <div className="flex h-full flex-col bg-canvas">
-      <div className="flex h-14 shrink-0 items-center justify-between border-b border-line px-4">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-sm font-bold text-white shadow-card">X</span>
-          <div>
-            <div className="text-sm font-bold leading-none text-brand-900">XAR Chathy</div>
-            <div className="mt-0.5 text-2xs uppercase tracking-wide text-slate-500">对话分析</div>
-          </div>
-        </div>
-        <ModuleNav variant="bar" />
-      </div>
-      <div className="flex min-h-0 flex-1">
+    <ModuleShell
+      sidebar={
         <SessionList sessions={sessions} activeId={activeId} onSelect={loadSession}
           onNew={() => { void newSession(); }} onDelete={(id) => { void del(id); }} />
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div ref={scrollRef} className="scroll-thin min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-3xl px-4 py-6">
-              {messages.length === 0 ? (
-                <Welcome onPick={(t) => { void send(t); }} />
-              ) : (
-                <div className="flex flex-col gap-5">
-                  {messages.map((m, i) => <MsgView key={i} m={m} />)}
-                </div>
-              )}
-            </div>
+      }
+    >
+      <div className="flex h-full min-h-0 flex-col">
+        <div ref={scrollRef} className="scroll-thin min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-3xl px-4 py-6">
+            {messages.length === 0 ? (
+              <Welcome onPick={(t) => { void send(t); }} />
+            ) : (
+              <div className="flex flex-col gap-5">
+                {messages.map((m, i) => <MsgView key={i} m={m} />)}
+              </div>
+            )}
           </div>
-          <Composer onSend={(t) => { void send(t); }} onStop={stop} streaming={streaming} />
         </div>
+        <Composer onSend={(t) => { void send(t); }} onStop={stop} streaming={streaming} />
       </div>
-    </div>
+    </ModuleShell>
   );
 }
 
@@ -153,7 +144,7 @@ function Welcome({ onPick }: { onPick: (t: string) => void }) {
       </div>
       <div>
         <div className="text-lg font-semibold text-brand-900">Ask Chathy</div>
-        <div className="mt-1 max-w-md text-xs text-slate-400">
+        <div className="mt-1 max-w-md text-xs text-brand-500">
           Grounded in the XAR platform — semantic facts, dashboards, the supply-chain graph, and your Data Room.
         </div>
       </div>

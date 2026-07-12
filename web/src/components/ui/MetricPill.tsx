@@ -15,9 +15,9 @@ export function MetricPill({
 }) {
   return (
     <div className={cn("rounded-lg border border-line bg-canvas px-2.5 py-1.5", className)}>
-      <div className="text-2xs uppercase tracking-wide text-slate-400">{label}</div>
+      <div className="text-2xs uppercase tracking-wide text-brand-500">{label}</div>
       <div className="tnum text-sm font-semibold leading-tight text-brand-900">{value}</div>
-      {sub != null && <div className="text-2xs text-slate-400">{sub}</div>}
+      {sub != null && <div className="text-2xs text-brand-500">{sub}</div>}
     </div>
   );
 }

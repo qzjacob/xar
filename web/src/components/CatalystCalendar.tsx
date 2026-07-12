@@ -32,25 +32,25 @@ export function CatalystCalendar({
         titleCn="催化剂日历"
         icon={<CalendarDays size={15} strokeWidth={2} />}
         right={
-          <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+          <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
             {filtered.length} {filtered.length === 1 ? "event" : "events"}
           </Badge>
         }
       />
 
       {filtered.length === 0 ? (
-        <div className="px-4 py-6 text-center text-sm text-slate-400">No matching catalysts</div>
+        <div className="px-4 py-6 text-center text-sm text-brand-500">No matching catalysts</div>
       ) : (
         <div className="scroll-thin max-h-[460px] overflow-y-auto">
           {groups.map((g) => (
             <div key={g.weekStart}>
               {/* week header */}
               <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-line bg-surface/95 px-4 py-1.5 backdrop-blur">
-                <span className="text-2xs font-medium uppercase tracking-wide text-slate-400">
+                <span className="text-2xs font-medium uppercase tracking-wide text-brand-500">
                   Week of {fmtDate(g.weekStart)}
                 </span>
                 <span className="h-px flex-1 bg-line" />
-                <span className="text-2xs tnum text-slate-300">
+                <span className="text-2xs tnum text-brand-700">
                   {g.items.length}
                 </span>
               </div>
@@ -76,7 +76,7 @@ function CatalystRow({ c }: { c: Catalyst }) {
     <div className="flex items-start gap-3 border-b border-line px-4 py-2.5 transition-colors last:border-b-0 hover:bg-canvas">
       {/* date block */}
       <div className="w-10 shrink-0 text-center leading-tight">
-        <div className="text-2xs uppercase tracking-wide text-slate-400">{fmtWeekday(c.date)}</div>
+        <div className="text-2xs uppercase tracking-wide text-brand-500">{fmtWeekday(c.date)}</div>
         <div className="tnum text-xs font-semibold text-brand-900">{fmtDate(c.date)}</div>
       </div>
 
@@ -119,7 +119,7 @@ function CatalystRow({ c }: { c: Catalyst }) {
       <div
         className={cn(
           "tnum w-12 shrink-0 pt-0.5 text-right text-2xs font-semibold",
-          d < 0 ? "text-slate-300" : d === 0 ? "text-accent" : "text-slate-400",
+          d < 0 ? "text-brand-700" : d === 0 ? "text-accent" : "text-brand-500",
         )}
       >
         {countdown}

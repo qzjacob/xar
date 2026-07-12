@@ -60,7 +60,7 @@ export function DecisionRail({
         <div className="flex min-w-0 items-center gap-2">
           <Compass size={15} strokeWidth={2} className="shrink-0 text-accent" />
           <h2 className="truncate text-sm font-semibold text-brand-900">Decision Rail</h2>
-          <span className="truncate text-2xs text-slate-400">决策台</span>
+          <span className="truncate text-2xs text-brand-500">决策台</span>
         </div>
         <span className="shrink-0 rounded-md bg-brand-50 px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-brand-900">
           House
@@ -79,7 +79,7 @@ export function DecisionRail({
           <RailLabel icon={<Compass size={12} />}>House View · 观点</RailLabel>
           <div className="mt-2 border-l-2 border-accent pl-3">
             <p className="text-sm leading-relaxed text-brand-900">{decision.houseView}</p>
-            <p className="mt-1.5 text-2xs leading-relaxed text-slate-500">{decision.houseViewCn}</p>
+            <p className="mt-1.5 text-2xs leading-relaxed text-brand-200">{decision.houseViewCn}</p>
           </div>
         </section>
 
@@ -118,22 +118,22 @@ export function DecisionRail({
                         <span className="tnum">score {fmtScore(opp.score)}</span>
                       </Badge>
                     </div>
-                    <p className="mt-1 line-clamp-2 text-2xs leading-relaxed text-slate-500">
+                    <p className="mt-1 line-clamp-2 text-2xs leading-relaxed text-brand-200">
                       {opp.detail}
                     </p>
                     {(seg || opp.ticker) && (
                       <div className="mt-1.5 flex flex-wrap items-center gap-1">
                         {seg && (
-                          <span className="inline-flex items-center gap-1 text-2xs text-slate-400">
+                          <span className="inline-flex items-center gap-1 text-2xs text-brand-500">
                             <TrendingUp
                               size={11}
-                              className="text-slate-300 transition group-hover:text-accent"
+                              className="text-brand-700 transition group-hover:text-accent"
                             />
                             {seg.name}
                           </span>
                         )}
                         {opp.ticker && (
-                          <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+                          <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
                             <span className="tnum">{opp.ticker}</span>
                           </Badge>
                         )}
@@ -166,7 +166,7 @@ export function DecisionRail({
                       ? "border-l-neg"
                       : risk.severity === "medium"
                         ? "border-l-warn"
-                        : "border-l-slate-300",
+                        : "border-l-brand-200",
                   )}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -177,7 +177,7 @@ export function DecisionRail({
                       {risk.severity}
                     </Badge>
                   </div>
-                  <p className="mt-1 text-2xs leading-relaxed text-slate-500">{risk.detail}</p>
+                  <p className="mt-1 text-2xs leading-relaxed text-brand-200">{risk.detail}</p>
                 </div>
               ))
             )}
@@ -224,11 +224,11 @@ function RailLabel({
 }) {
   return (
     <div className="flex items-center justify-between gap-2">
-      <div className="flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-slate-400">
-        {icon && <span className="text-slate-400">{icon}</span>}
+      <div className="flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-brand-500">
+        {icon && <span className="text-brand-500">{icon}</span>}
         {children}
       </div>
-      {right != null && <span className="tnum text-2xs font-medium text-slate-300">{right}</span>}
+      {right != null && <span className="tnum text-2xs font-medium text-brand-700">{right}</span>}
     </div>
   );
 }
@@ -239,7 +239,7 @@ function Divider() {
 
 function EmptyRow({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-dashed border-line px-2.5 py-3 text-center text-2xs text-slate-400">
+    <div className="rounded-lg border border-dashed border-line px-2.5 py-3 text-center text-2xs text-brand-500">
       {children}
     </div>
   );
@@ -284,12 +284,12 @@ function ActionRow({
           <KindIcon
             size={12}
             strokeWidth={2}
-            className={cn("shrink-0", done ? "text-slate-300" : "text-slate-400")}
+            className={cn("shrink-0", done ? "text-brand-700" : "text-brand-500")}
           />
           <span
             className={cn(
               "min-w-0 text-xs leading-snug",
-              done ? "text-slate-400 line-through" : "text-brand-900",
+              done ? "text-brand-500 line-through" : "text-brand-900",
             )}
           >
             {action.label}
@@ -300,7 +300,7 @@ function ActionRow({
         <Badge
           className={cn(
             "mt-px shrink-0 ring-1 ring-inset ring-line",
-            done ? "bg-surface-2 text-slate-400" : "bg-surface-2 text-slate-400",
+            done ? "bg-surface-2 text-brand-500" : "bg-surface-2 text-brand-500",
           )}
         >
           <span className="tnum">{action.ticker}</span>

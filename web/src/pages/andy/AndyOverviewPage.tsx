@@ -57,7 +57,7 @@ export function AndyOverviewPage() {
                 className="group rounded-xl border border-line bg-surface px-4 py-3 shadow-card transition-colors hover:border-andy/40"
               >
                 <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-slate-400">
+                  <span className="flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-brand-500">
                     <span className={cn("h-2 w-2 rounded-full", m.dot)} aria-hidden="true" />
                     {m.en}
                   </span>
@@ -66,7 +66,7 @@ export function AndyOverviewPage() {
                 <div className="tnum mt-1.5 text-2xl font-semibold leading-none text-brand-900">
                   {metricsQ.data ? counts[h] : "—"}
                 </div>
-                <div className="mt-1 text-2xs text-slate-500">
+                <div className="mt-1 text-2xs text-brand-200">
                   {h === "hard" && "物理/会计事实 · 可直接读取"}
                   {h === "medium" && "逻辑推论 · value/slope 可判"}
                   {h === "soft" && "待识别假说 · 相关≠因果"}
@@ -93,9 +93,9 @@ export function AndyOverviewPage() {
             }
           />
           {claimsQ.loading ? (
-            <div className="px-4 py-8 text-center text-xs text-slate-400">Loading…</div>
+            <div className="px-4 py-8 text-center text-xs text-brand-500">Loading…</div>
           ) : claimsQ.error ? (
-            <div className="px-4 py-8 text-center text-xs text-slate-500">登记簿暂不可用 · {claimsQ.error}</div>
+            <div className="px-4 py-8 text-center text-xs text-brand-200">登记簿暂不可用 · {claimsQ.error}</div>
           ) : (
             <div className="grid grid-cols-1 gap-2 p-3 md:grid-cols-2 xl:grid-cols-3">
               {(claimsQ.data?.claims ?? []).map((c) => (
@@ -114,7 +114,7 @@ export function AndyOverviewPage() {
                   </div>
                   <p className="line-clamp-2 text-xs leading-snug text-brand-800">{c.claim_text_zh}</p>
                   <div className="flex items-center gap-1.5">
-                    <span className="truncate font-mono text-2xs text-slate-500">{c.claim_key}</span>
+                    <span className="truncate font-mono text-2xs text-brand-200">{c.claim_key}</span>
                     {c.needs_identification && (
                       <span className="shrink-0 rounded border border-dashed border-warn/50 bg-warn-50 px-1 py-px text-2xs text-warn-700">
                         未识别
@@ -124,7 +124,7 @@ export function AndyOverviewPage() {
                 </Link>
               ))}
               {(claimsQ.data?.claims ?? []).length === 0 && (
-                <div className="col-span-full px-2 py-6 text-center text-xs text-slate-500">
+                <div className="col-span-full px-2 py-6 text-center text-xs text-brand-200">
                   登记簿为空 · no claims registered
                 </div>
               )}
@@ -140,7 +140,7 @@ export function AndyOverviewPage() {
             icon={<Anchor size={15} strokeWidth={2} />}
             right={
               anchorsQ.data && (
-                <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+                <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
                   {anchorsQ.data.count}
                 </Badge>
               )
@@ -148,9 +148,9 @@ export function AndyOverviewPage() {
           />
           <div className="p-3">
             {anchorsQ.loading ? (
-              <div className="py-4 text-center text-xs text-slate-400">Loading…</div>
+              <div className="py-4 text-center text-xs text-brand-500">Loading…</div>
             ) : anchorsQ.error ? (
-              <div className="py-4 text-center text-xs text-slate-500">锚点暂不可用</div>
+              <div className="py-4 text-center text-xs text-brand-200">锚点暂不可用</div>
             ) : (
               <>
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -165,7 +165,7 @@ export function AndyOverviewPage() {
                       }
                     />
                   ))}
-                  <span className="ml-1 text-2xs text-slate-500">
+                  <span className="ml-1 text-2xs text-brand-200">
                     {openAnchor ? (
                       <ChevronDown size={12} className="inline" />
                     ) : (
@@ -179,13 +179,13 @@ export function AndyOverviewPage() {
                     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                       <span className="font-mono text-2xs text-andy-500">{anchorDetail.anchor_key}</span>
                       <span className="text-sm font-semibold text-brand-900">{anchorDetail.title}</span>
-                      <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+                      <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
                         verdict · {anchorDetail.verdict}
                       </Badge>
                     </div>
                     <div className="mt-2 grid gap-2 text-xs leading-relaxed md:grid-cols-2">
                       <div>
-                        <div className="text-2xs uppercase tracking-wide text-slate-500">
+                        <div className="text-2xs uppercase tracking-wide text-brand-200">
                           工业时代假设 Industrial assumption
                         </div>
                         <p className="mt-0.5 text-brand-700">{anchorDetail.industrial_assumption}</p>
@@ -212,7 +212,7 @@ export function AndyOverviewPage() {
             icon={<Link2 size={15} strokeWidth={2} />}
             right={
               linksQ.data && (
-                <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+                <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
                   {linksQ.data.themes.length} themes · {linksQ.data.platform_metrics.length} platform
                 </Badge>
               )
@@ -232,7 +232,7 @@ export function AndyOverviewPage() {
                   >
                     <div className="w-44 min-w-0 shrink-0">
                       <div className="truncate text-xs font-semibold text-brand-900">{t.name_cn}</div>
-                      <div className="truncate text-2xs text-slate-500">{t.name}</div>
+                      <div className="truncate text-2xs text-brand-200">{t.name}</div>
                     </div>
                     <Badge
                       className={cn(
@@ -246,7 +246,7 @@ export function AndyOverviewPage() {
                     </Badge>
                     <span className="tnum w-14 shrink-0 text-right text-xs font-semibold text-brand-900">
                       {t.metrics.length}
-                      <span className="ml-0.5 font-normal text-slate-500">指标</span>
+                      <span className="ml-0.5 font-normal text-brand-200">指标</span>
                     </span>
                     <div className="hidden min-w-0 flex-1 items-center gap-1.5 overflow-hidden md:flex">
                       {t.metrics.slice(0, 3).map((m) => (
@@ -263,7 +263,7 @@ export function AndyOverviewPage() {
                         </span>
                       ))}
                       {t.metrics.length > 3 && (
-                        <span className="text-2xs text-slate-500">+{t.metrics.length - 3}</span>
+                        <span className="text-2xs text-brand-200">+{t.metrics.length - 3}</span>
                       )}
                     </div>
                     <div className="ml-auto flex shrink-0 items-center gap-1">
@@ -279,7 +279,7 @@ export function AndyOverviewPage() {
                 </li>
               ))}
               {linksQ.data.themes.length === 0 && (
-                <li className="px-4 py-6 text-center text-xs text-slate-500">暂无勾稽主题</li>
+                <li className="px-4 py-6 text-center text-xs text-brand-200">暂无勾稽主题</li>
               )}
             </ul>
           )}
@@ -287,7 +287,7 @@ export function AndyOverviewPage() {
 
         {/* discipline footer */}
         {metricsQ.data?.disclaimer && (
-          <div className="rounded-lg border border-dashed border-line px-3 py-1.5 text-2xs leading-relaxed text-slate-500">
+          <div className="rounded-lg border border-dashed border-line px-3 py-1.5 text-2xs leading-relaxed text-brand-200">
             {metricsQ.data.disclaimer}
           </div>
         )}

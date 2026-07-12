@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, LineChart, ShieldCheck, Sigma, Timer, TrendingDown, TrendingUp, Wallet } from "lucide-react";
-import { PlotlyChart } from "../../components/charts/PlotlyChart";
+import { CHART, PlotlyChart } from "../../components/charts/PlotlyChart";
 import { cn } from "../../lib/format";
 import { InfoDot } from "./InfoDot";
 
@@ -65,13 +65,13 @@ function BigTile({ icon, label, value, sub, tone, tip }: {
 }) {
   return (
     <div className="rounded-xl border border-line bg-surface-2 p-3">
-      <div className="mb-1 flex items-center gap-1 text-2xs text-slate-400">
-        <span className="text-slate-500">{icon}</span>
+      <div className="mb-1 flex items-center gap-1 text-2xs text-brand-500">
+        <span className="text-brand-200">{icon}</span>
         {label}
         {tip && <InfoDot tip={tip} />}
       </div>
       <div className={cn("text-xl font-semibold tnum", toneClass(tone))}>{value}</div>
-      {sub && <div className="mt-1 text-[11px] leading-snug text-slate-400">{sub}</div>}
+      {sub && <div className="mt-1 text-[11px] leading-snug text-brand-500">{sub}</div>}
     </div>
   );
 }
@@ -113,25 +113,25 @@ export function QuoteResultDrawer({ result, ccy, variant, barrierNone }: {
           sub={reoffer != null ? `占面值;发行价约 ${(reoffer * 100).toFixed(1)}%` : "占面值;100% = 平价"}
           tip="模型算出的票据当前价值,占面值%。" />
       </div>
-      <div className="text-xs text-slate-300">
+      <div className="text-xs text-brand-700">
         <span className="font-semibold text-brand-900">一句话:</span>{" "}
         {verdict(couponVal, p.prob_knock_in, p.prob_autocall)}
-        <span className="ml-1 text-slate-500">指示性报价,最终条款以成交日为准。</span>
+        <span className="ml-1 text-brand-200">指示性报价,最终条款以成交日为准。</span>
       </div>
 
       {/* payoff + scenario side by side */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         {pd && (
           <div className="rounded-lg border border-line bg-surface-2 p-2">
-            <div className="mb-1 flex items-center gap-1 px-1 text-2xs text-slate-400">
+            <div className="mb-1 flex items-center gap-1 px-1 text-2xs text-brand-500">
               <LineChart size={12} /> 到期能拿回多少
               <InfoDot tip="横轴 = 到期最差股票相对定价日的价格。" />
             </div>
             <PlotlyChart height={220}
               data={[{
                 x: pd.worst_of, y: pd.redemption, type: "scatter", mode: "lines",
-                line: { color: "#f59e0b", width: 2.2, shape: "spline" }, fill: "tozeroy",
-                fillcolor: "rgba(245,158,11,0.06)",
+                line: { color: CHART.accent, width: 2.2, shape: "spline" }, fill: "tozeroy",
+                fillcolor: "rgba(129,140,248,0.08)",
                 hovertemplate: "最差股票 %{x:.0%}<br>拿回 %{y:,.0f}<extra></extra>",
               }]}
               layout={{
@@ -147,10 +147,10 @@ export function QuoteResultDrawer({ result, ccy, variant, barrierNone }: {
         )}
         {result.scenario_table && result.scenario_table.length > 0 && (
           <div className="overflow-x-auto rounded-lg border border-line bg-surface-2 p-2">
-            <div className="mb-1 px-1 text-2xs text-slate-400">不同行情下的结果</div>
+            <div className="mb-1 px-1 text-2xs text-brand-500">不同行情下的结果</div>
             <table className="w-full min-w-[360px] text-xs">
               <thead>
-                <tr className="text-slate-500">
+                <tr className="text-brand-200">
                   <th className="px-1.5 py-1 text-left font-medium">标的涨跌</th>
                   {result.scenario_table.map((r, i) => (
                     <th key={i} className="px-1.5 py-1 text-right font-medium tnum">{r.shock > 0 ? "+" : ""}{(r.shock * 100).toFixed(0)}%</th>
@@ -159,15 +159,15 @@ export function QuoteResultDrawer({ result, ccy, variant, barrierNone }: {
               </thead>
               <tbody className="text-brand-900">
                 <tr className="border-t border-line">
-                  <td className="px-1.5 py-1 text-slate-400">票据价值%</td>
+                  <td className="px-1.5 py-1 text-brand-500">票据价值%</td>
                   {result.scenario_table.map((r, i) => (<td key={i} className="px-1.5 py-1 text-right tnum">{r.price_pct.toFixed(1)}</td>))}
                 </tr>
                 <tr className="border-t border-line">
-                  <td className="px-1.5 py-1 text-slate-400">提前收回</td>
+                  <td className="px-1.5 py-1 text-brand-500">提前收回</td>
                   {result.scenario_table.map((r, i) => (<td key={i} className="px-1.5 py-1 text-right tnum text-pos">{(r.prob_autocall * 100).toFixed(0)}%</td>))}
                 </tr>
                 <tr className="border-t border-line">
-                  <td className="px-1.5 py-1 text-slate-400">触及保护线</td>
+                  <td className="px-1.5 py-1 text-brand-500">触及保护线</td>
                   {result.scenario_table.map((r, i) => (<td key={i} className="px-1.5 py-1 text-right tnum text-neg">{(r.prob_knock_in * 100).toFixed(0)}%</td>))}
                 </tr>
               </tbody>
@@ -180,21 +180,21 @@ export function QuoteResultDrawer({ result, ccy, variant, barrierNone }: {
       {g && (
         <div className="rounded-lg border border-line bg-surface-2">
           <button type="button" onClick={() => setAdv((s) => !s)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
-            <ChevronDown size={14} className={cn("text-slate-400 transition-transform", adv && "rotate-180")} />
+            <ChevronDown size={14} className={cn("text-brand-500 transition-transform", adv && "rotate-180")} />
             <span className="text-xs font-semibold text-brand-900">专业指标</span>
-            <span className="text-2xs text-slate-500">Advanced · 定价 / 希腊值 / 费用</span>
+            <span className="text-2xs text-brand-200">Advanced · 定价 / 希腊值 / 费用</span>
           </button>
           {adv && (
-            <div className="space-y-2 border-t border-line p-3 text-2xs text-slate-400">
+            <div className="space-y-2 border-t border-line p-3 text-2xs text-brand-500">
               <div className="flex flex-wrap gap-x-4 gap-y-1">
                 <span>PV <span className="tnum text-brand-900">{money(p.pv, ccy)}</span> ± {money(p.pv_se, ccy)}</span>
                 <span>公平价值 <span className="tnum text-brand-900">{p.price_pct.toFixed(2)}%</span></span>
                 {reoffer != null && <span>发行价 <span className="tnum text-brand-900">{(reoffer * 100).toFixed(2)}%</span></span>}
-                <span className="text-slate-500">{p.n_paths.toLocaleString()} paths · {p.method}</span>
+                <span className="text-brand-200">{p.n_paths.toLocaleString()} paths · {p.method}</span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[320px]">
-                  <thead><tr className="text-slate-500">
+                  <thead><tr className="text-brand-200">
                     <th className="px-1.5 py-1 text-left font-medium">Ticker</th>
                     <th className="px-1.5 py-1 text-right font-medium">Delta</th>
                     <th className="px-1.5 py-1 text-right font-medium">Gamma</th>

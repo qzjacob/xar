@@ -49,17 +49,17 @@ export function OpsOverviewPage() {
   const [st, sr, dl, lm, ont, conn, sk] = data;
 
   const cards: { id: string; label: string; icon: LucideIcon; route: string; stat: string }[] = [
-    { id: "ontology", label: "Ontology", icon: Network, route: "/ops/ontology",
+    { id: "ontology", label: "Ontology", icon: Network, route: "/jarvy/ontology",
       stat: `${ont.totals.nodes} nodes · ${ont.totals.edges} edges · ${ont.totals.events} events` },
-    { id: "sources", label: "Data Sources", icon: Database, route: "/ops/sources",
+    { id: "sources", label: "Data Sources", icon: Database, route: "/jarvy/sources",
       stat: `${sr.summary.available}/${sr.summary.total} active · ${sr.summary.rows.toLocaleString()} rows` },
-    { id: "datalake", label: "Data Lake", icon: Layers3, route: "/ops/datalake",
+    { id: "datalake", label: "Data Lake", icon: Layers3, route: "/jarvy/datalake",
       stat: `${dl.totals.documents} docs · ${dl.totals.chunks.toLocaleString()} chunks` },
-    { id: "models", label: "Models & LLM", icon: Cpu, route: "/ops/models",
+    { id: "models", label: "Models & LLM", icon: Cpu, route: "/jarvy/models",
       stat: lm.configured ? `${lm.routing.strong} · $${lm.usage.total.usd}` : "not configured" },
-    { id: "connectors", label: "MCP & API", icon: Plug, route: "/ops/connectors",
+    { id: "connectors", label: "MCP & API", icon: Plug, route: "/jarvy/connectors",
       stat: `${conn.summary.configured}/${conn.summary.outbound} connectors` },
-    { id: "skills", label: "Agent Skills", icon: Workflow, route: "/ops/skills",
+    { id: "skills", label: "Agent Skills", icon: Workflow, route: "/jarvy/skills",
       stat: `${sk.summary.skills} skills · ${sk.summary.stages} stages` },
   ];
 
@@ -69,8 +69,8 @@ export function OpsOverviewPage() {
   return (
     <OpsContainer>
       <OpsHeader
-        title="Operations Overview"
-        titleCn="控制台总览"
+        title="Jarvy Overview"
+        titleCn="后台管理总览"
         icon={<Gauge size={18} strokeWidth={2} />}
         subtitle={`Self-test ${relTime(st.ranAt)} · backend control plane`}
       />
@@ -107,7 +107,7 @@ export function OpsOverviewPage() {
               </span>
               <span className="min-w-0">
                 <span className="block text-sm font-semibold text-brand-900">{c.label}</span>
-                <span className="tnum block truncate text-2xs text-slate-400">{c.stat}</span>
+                <span className="tnum block truncate text-2xs text-brand-500">{c.stat}</span>
               </span>
             </button>
           );
@@ -121,7 +121,7 @@ export function OpsOverviewPage() {
           titleCn="跑通自检"
           icon={<Gauge size={15} strokeWidth={2} />}
           right={
-            <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+            <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
               {st.checks.length} checks
             </Badge>
           }
@@ -130,16 +130,16 @@ export function OpsOverviewPage() {
           {grouped.map(({ group, checks }) =>
             checks.length === 0 ? null : (
               <div key={group} className="px-4 py-3">
-                <div className="mb-2 text-2xs uppercase tracking-wide text-slate-400">
+                <div className="mb-2 text-2xs uppercase tracking-wide text-brand-500">
                   {GROUP_LABEL[group] ?? group}
                 </div>
                 <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2">
                   {checks.map((c) => (
                     <div key={c.id} className="flex items-center gap-2 text-xs">
                       <StatusDot status={c.status} />
-                      <span className="tnum w-40 shrink-0 truncate text-slate-400">{c.id}</span>
+                      <span className="tnum w-40 shrink-0 truncate text-brand-500">{c.id}</span>
                       <Badge className={cn("shrink-0", statusChip(c.status))}>{c.status}</Badge>
-                      <span className="min-w-0 truncate text-2xs text-slate-400">{c.detail}</span>
+                      <span className="min-w-0 truncate text-2xs text-brand-500">{c.detail}</span>
                     </div>
                   ))}
                 </div>
@@ -149,7 +149,7 @@ export function OpsOverviewPage() {
         </div>
       </Card>
 
-      <p className="mt-3 text-2xs text-slate-400">
+      <p className="mt-3 text-2xs text-brand-500">
         Embedding <span className="tnum">{lm.routing.embedModel}</span> ({lm.routing.embedDim}d) ·{" "}
         <span className="tnum">{sr.summary.rows.toLocaleString()}</span> source rows under management
       </p>

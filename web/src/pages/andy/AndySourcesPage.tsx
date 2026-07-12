@@ -34,7 +34,7 @@ function RefreshButton({ onClick, loading }: { onClick: () => void; loading: boo
       disabled={loading}
       title="手动刷新 · re-fetch"
       className={cn(
-        "inline-flex items-center gap-1 rounded-md border border-line bg-surface-2 px-2 py-1 text-2xs font-medium text-slate-400",
+        "inline-flex items-center gap-1 rounded-md border border-line bg-surface-2 px-2 py-1 text-2xs font-medium text-brand-500",
         "transition-colors hover:bg-andy-50 hover:text-andy-500 disabled:cursor-not-allowed disabled:opacity-60",
       )}
     >
@@ -46,7 +46,7 @@ function RefreshButton({ onClick, loading }: { onClick: () => void; loading: boo
 
 /** Last-run cell: status dot (ok / error / running-pulse) + start time + rows. */
 function LastRunCell({ run }: { run: AndyConnectorRun | null }) {
-  if (!run) return <span className="text-slate-500">—</span>;
+  if (!run) return <span className="text-brand-200">—</span>;
   const dot =
     run.status === "ok" ? "bg-pos" : run.status === "error" ? "bg-neg" : "animate-pulse bg-warn";
   const title =
@@ -58,8 +58,8 @@ function LastRunCell({ run }: { run: AndyConnectorRun | null }) {
   return (
     <span className="flex items-center gap-2" title={title}>
       <span className={cn("h-2 w-2 shrink-0 rounded-full", dot)} aria-hidden="true" />
-      <span className="tnum whitespace-nowrap text-slate-400">{fmtWhen(run.started_at)}</span>
-      <span className="tnum whitespace-nowrap text-2xs text-slate-500">
+      <span className="tnum whitespace-nowrap text-brand-500">{fmtWhen(run.started_at)}</span>
+      <span className="tnum whitespace-nowrap text-2xs text-brand-200">
         {run.rows_written !== null ? `${fmtInt(run.rows_written)} 行` : "—"}
       </span>
     </span>
@@ -85,7 +85,7 @@ export function AndySourcesPage() {
         titleCn="数据源"
         subtitle="连接器运行健康 + 指标新鲜度 — key 配置、最近一次拉取、最新 valid/knowledge 时间。"
         right={
-          <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+          <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
             <span className="tnum">{connectors.length}</span> 连接器 ·{" "}
             <span className="tnum">{freshness.length}</span> 指标
           </Badge>
@@ -104,7 +104,7 @@ export function AndySourcesPage() {
           <div className="scroll-thin overflow-x-auto">
             <table className="w-full min-w-[880px] border-collapse text-xs">
               <thead>
-                <tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-slate-500">
+                <tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-brand-200">
                   <th className="px-3 py-2 font-medium">连接器 Source</th>
                   <th className="px-3 py-2 font-medium">Key 凭证</th>
                   <th className="px-3 py-2 font-medium">最近运行 Last run</th>
@@ -120,7 +120,7 @@ export function AndySourcesPage() {
                         <span className="font-mono text-xs text-brand-900">{c.source_id}</span>
                         {!c.is_primary && (
                           <Badge
-                            className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line"
+                            className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line"
                             title="次源 · secondary source"
                           >
                             次源
@@ -147,7 +147,7 @@ export function AndySourcesPage() {
                           >
                             {c.key_present ? "✓ key就绪" : "✗ 未配置"}
                           </Badge>
-                          <span className="truncate font-mono text-2xs text-slate-500" title={c.key_env}>
+                          <span className="truncate font-mono text-2xs text-brand-200" title={c.key_env}>
                             {c.key_env}
                           </span>
                         </span>
@@ -161,7 +161,7 @@ export function AndySourcesPage() {
                     </td>
                     <td className="px-3 py-2">
                       <Badge
-                        className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line"
+                        className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line"
                         title={c.metrics.length > 0 ? c.metrics.join(" · ") : undefined}
                       >
                         <span className="tnum">{c.metrics.length}</span> 指标
@@ -171,7 +171,7 @@ export function AndySourcesPage() {
                 ))}
                 {connectors.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-3 py-10 text-center text-slate-500">
+                    <td colSpan={5} className="px-3 py-10 text-center text-brand-200">
                       无已注册连接器 · no connectors registered
                     </td>
                   </tr>
@@ -192,7 +192,7 @@ export function AndySourcesPage() {
           <div className="scroll-thin overflow-x-auto">
             <table className="w-full min-w-[880px] border-collapse text-xs">
               <thead>
-                <tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-slate-500">
+                <tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-brand-200">
                   <th className="px-3 py-2 font-medium">指标 Metric</th>
                   <th className="px-3 py-2 font-medium">硬度</th>
                   <th className="px-3 py-2 text-right font-medium">观测数 Obs</th>
@@ -208,29 +208,29 @@ export function AndySourcesPage() {
                   >
                     <td className="max-w-[320px] px-3 py-2">
                       <div className="truncate font-medium text-brand-900">{m.display_name_zh}</div>
-                      <div className="truncate font-mono text-2xs text-slate-500">{m.metric_key}</div>
+                      <div className="truncate font-mono text-2xs text-brand-200">{m.metric_key}</div>
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">
                       <HardnessBadge hardness={m.hardness} withEn={false} />
                     </td>
                     <td className="whitespace-nowrap px-3 py-2 text-right">
                       {m.observations === 0 ? (
-                        <span className="text-2xs text-slate-500">无观测</span>
+                        <span className="text-2xs text-brand-200">无观测</span>
                       ) : (
                         <span className="tnum text-brand-900">{fmtInt(m.observations)}</span>
                       )}
                     </td>
-                    <td className="tnum whitespace-nowrap px-3 py-2 text-slate-400">
+                    <td className="tnum whitespace-nowrap px-3 py-2 text-brand-500">
                       {fmtWhen(m.latest_valid_time)}
                     </td>
-                    <td className="tnum whitespace-nowrap px-3 py-2 text-slate-400">
+                    <td className="tnum whitespace-nowrap px-3 py-2 text-brand-500">
                       {fmtWhen(m.latest_knowledge_time)}
                     </td>
                   </tr>
                 ))}
                 {freshness.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-3 py-10 text-center text-slate-500">
+                    <td colSpan={5} className="px-3 py-10 text-center text-brand-200">
                       暂无指标新鲜度数据 · no freshness data
                     </td>
                   </tr>

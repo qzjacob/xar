@@ -60,7 +60,7 @@ export function ChainHeatmap({
         titleCn={titleCn}
         icon={<LayoutGrid size={15} strokeWidth={2} />}
         right={
-          <div className="flex items-center gap-1.5 text-2xs uppercase tracking-wide text-slate-400">
+          <div className="flex items-center gap-1.5 text-2xs uppercase tracking-wide text-brand-500">
             <span>cold</span>
             <span
               className="h-2 w-16 rounded-full ring-1 ring-inset ring-line"
@@ -74,10 +74,10 @@ export function ChainHeatmap({
         }
       />
 
-      <div className="px-4 pt-2.5 text-2xs text-slate-400">{axisHint}</div>
+      <div className="px-4 pt-2.5 text-2xs text-brand-500">{axisHint}</div>
 
       {isCycle && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pt-1 text-2xs text-slate-400">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pt-1 text-2xs text-brand-500">
           {[
             ["EC", "Early 早周期"],
             ["MC", "Mid 中周期"],
@@ -99,25 +99,25 @@ export function ChainHeatmap({
         <div className="min-w-[760px]">
           {/* column header row */}
           <div className="flex items-end gap-1 px-1 pb-1.5">
-            <div className="flex-1 pl-1 text-2xs uppercase tracking-wide text-slate-400">
+            <div className="flex-1 pl-1 text-2xs uppercase tracking-wide text-brand-500">
               Segment
             </div>
             {METRIC_COLS.map((c) => (
               <div
                 key={c.key}
-                className="w-[68px] shrink-0 text-center text-2xs uppercase tracking-wide text-slate-400"
+                className="w-[68px] shrink-0 text-center text-2xs uppercase tracking-wide text-brand-500"
               >
                 {c.label}
               </div>
             ))}
-            <div className="w-[92px] shrink-0 pr-1 text-right text-2xs uppercase tracking-wide text-slate-400">
+            <div className="w-[92px] shrink-0 pr-1 text-right text-2xs uppercase tracking-wide text-brand-500">
               Trend
             </div>
           </div>
 
           {/* segment rows */}
           {rows.length === 0 ? (
-            <div className="px-2 py-8 text-center text-sm text-slate-400">No matches</div>
+            <div className="px-2 py-8 text-center text-sm text-brand-500">No matches</div>
           ) : (
             <div className="flex flex-col gap-1">
               {rows.map((s) => {
@@ -154,7 +154,7 @@ export function ChainHeatmap({
                         <div className="truncate text-sm font-semibold leading-tight text-brand-900">
                           {s.name}
                         </div>
-                        <div className="truncate text-2xs leading-tight text-slate-400">
+                        <div className="truncate text-2xs leading-tight text-brand-500">
                           {s.nameCn}
                         </div>
                       </div>

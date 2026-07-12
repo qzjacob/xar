@@ -1,5 +1,4 @@
 import {
-  ArrowLeft,
   BrainCircuit,
   Cpu,
   Database,
@@ -9,104 +8,27 @@ import {
   Plug,
   Radar,
   Workflow,
-  type LucideIcon,
 } from "lucide-react";
-import { cn } from "../lib/format";
+import { SidebarFrame } from "./shell/SidebarFrame";
+import { SidebarNav, type SideNavItem } from "./shell/SidebarNav";
 
-const ADMIN_NAV: { id: string; label: string; icon: LucideIcon; route: string }[] = [
-  { id: "overview", label: "Overview", icon: Gauge, route: "/ops" },
-  { id: "ontology", label: "Ontology", icon: Network, route: "/ops/ontology" },
-  { id: "coverage", label: "Coverage 覆盖度", icon: Radar, route: "/ops/coverage" },
-  { id: "sources", label: "Data Sources", icon: Database, route: "/ops/sources" },
-  { id: "datalake", label: "Data Lake", icon: Layers3, route: "/ops/datalake" },
-  { id: "altdata", label: "Alt-Data AI", icon: BrainCircuit, route: "/ops/altdata" },
-  { id: "models", label: "Models & LLM", icon: Cpu, route: "/ops/models" },
-  { id: "connectors", label: "MCP & API", icon: Plug, route: "/ops/connectors" },
-  { id: "skills", label: "Agent Skills", icon: Workflow, route: "/ops/skills" },
+const ADMIN_NAV: SideNavItem[] = [
+  { to: "/jarvy", label: "Overview", cn: "总览", icon: Gauge, exact: true },
+  { to: "/jarvy/ontology", label: "Ontology", cn: "本体", icon: Network },
+  { to: "/jarvy/coverage", label: "Coverage", cn: "覆盖度", icon: Radar },
+  { to: "/jarvy/sources", label: "Data Sources", cn: "数据源", icon: Database },
+  { to: "/jarvy/datalake", label: "Data Lake", cn: "数据湖", icon: Layers3 },
+  { to: "/jarvy/altdata", label: "Alt-Data AI", cn: "另类数据", icon: BrainCircuit },
+  { to: "/jarvy/models", label: "Models & LLM", cn: "模型", icon: Cpu },
+  { to: "/jarvy/connectors", label: "MCP & API", cn: "连接器", icon: Plug },
+  { to: "/jarvy/skills", label: "Agent Skills", cn: "技能", icon: Workflow },
 ];
 
-/** Standalone admin-console navigation (amber-accented to distinguish it from
- * the blue research terminal); pinned "back to terminal" at the bottom. */
-export function AdminSidebar({
-  currentPath,
-  onNavigate,
-  onBack,
-}: {
-  currentPath: string;
-  onNavigate: (route: string) => void;
-  onBack: () => void;
-}) {
-  const isActive = (route: string) =>
-    route === "/ops" ? currentPath === "/ops" : currentPath.startsWith(route);
-
+/** Jarvy 左栏 — 统一 SidebarFrame/SidebarNav 体系(品牌只在全局顶栏,模块切换亦然)。 */
+export function AdminSidebar() {
   return (
-    <div className="flex w-60 shrink-0 flex-col bg-surface text-brand-100">
-      <div className="shrink-0 px-4 pb-4 pt-5">
-        <button
-          type="button"
-          onClick={() => onNavigate("/ops")}
-          className="flex items-center gap-2.5 text-left focus-visible:ring-white/50"
-        >
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-warn text-sm font-bold tracking-tight text-white shadow-card">
-            X
-          </span>
-          <div className="min-w-0">
-            <div className="text-lg font-bold leading-none tracking-tight text-white">XAR</div>
-            <div className="mt-1 flex items-center gap-1.5">
-              <span className="text-2xs uppercase tracking-wide text-brand-200/70">
-                Operations Console
-              </span>
-              <span className="rounded bg-warn/20 px-1 py-0.5 text-2xs font-semibold uppercase text-warn">
-                Admin
-              </span>
-            </div>
-          </div>
-        </button>
-      </div>
-
-      <div className="scroll-thin flex-1 overflow-y-auto px-2 pb-3">
-        <div className="px-2 pb-1.5 pt-2 text-2xs uppercase tracking-wide text-brand-200/60">
-          Control Plane
-        </div>
-        <nav className="flex flex-col gap-0.5">
-          {ADMIN_NAV.map((item) => {
-            const active = isActive(item.route);
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onNavigate(item.route)}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "flex w-full items-center gap-2.5 rounded-md border-l-2 py-1.5 pl-2 pr-2 text-left text-xs font-medium transition-colors focus-visible:ring-white/50",
-                  active
-                    ? "border-warn bg-warn/15 text-white"
-                    : "border-transparent text-brand-100/80 hover:bg-surface/5 hover:text-white",
-                )}
-              >
-                <Icon
-                  size={15}
-                  strokeWidth={2}
-                  className={cn("shrink-0", active ? "text-warn" : "text-brand-200/70")}
-                />
-                <span className="flex-1 truncate">{item.label}</span>
-              </button>
-            );
-          })}
-        </nav>
-      </div>
-
-      <div className="mt-auto shrink-0 border-t border-white/10 px-2 py-3">
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex w-full items-center gap-2 rounded-md py-2 pl-2 pr-2 text-left text-xs font-medium text-brand-100/80 transition-colors hover:bg-surface/5 hover:text-white focus-visible:ring-white/50"
-        >
-          <ArrowLeft size={15} strokeWidth={2} className="shrink-0 text-brand-200/70" />
-          <span>Research Terminal</span>
-        </button>
-      </div>
-    </div>
+    <SidebarFrame title="Jarvy" titleCn="后台管理" badge="Admin">
+      <SidebarNav heading="Control Plane" items={ADMIN_NAV} />
+    </SidebarFrame>
   );
 }

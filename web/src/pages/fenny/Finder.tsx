@@ -164,19 +164,19 @@ export function Finder() {
             }
           />
           <div className="p-4">
-            <p className="mb-3 text-xs text-slate-400">
+            <p className="mb-3 text-xs text-brand-500">
               固定结构参数(与报价台同名),在<span className="text-brand-900">全部美股+ETF</span>
               (按市值下限过滤)中筛选:按<span className="text-brand-900">票息最高</span>
               或同票息下<span className="text-brand-900">行权价最低(下行缓冲最大)</span>排序。
               现价与波动率为实时真实数据。
             </p>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-              <label className="flex flex-col gap-1 text-2xs text-slate-500">
+              <label className="flex flex-col gap-1 text-2xs text-brand-200">
                 <Lab tip="票据期限,月">期限 (月)</Lab>
                 <input type="number" min={1} value={tenorMonths}
                   onChange={(e) => setTenorMonths(Number(e.target.value))} className={inputCls} />
               </label>
-              <label className="flex flex-col gap-1 text-2xs text-slate-500">
+              <label className="flex flex-col gap-1 text-2xs text-brand-200">
                 <Lab tip="敲出/派息观察频率">观察频率</Lab>
                 <select value={frequency} onChange={(e) => setFrequency(e.target.value)} className={inputCls}>
                   {FREQUENCIES.map((f) => (
@@ -184,12 +184,12 @@ export function Finder() {
                   ))}
                 </select>
               </label>
-              <label className="flex flex-col gap-1 text-2xs text-slate-500">
+              <label className="flex flex-col gap-1 text-2xs text-brand-200">
                 <Lab tip="自动敲出线,% 期初价;留空 = 无敲出">敲出线 KO %</Lab>
                 <input type="number" step={1} value={koPct} placeholder="无"
                   onChange={(e) => setKoPct(e.target.value)} className={cn(inputCls, "tnum")} />
               </label>
-              <label className="flex flex-col gap-1 text-2xs text-slate-500">
+              <label className="flex flex-col gap-1 text-2xs text-brand-200">
                 <Lab tip="下行保护的观察方式">敲入类型</Lab>
                 <select value={kiStyle} onChange={(e) => setKiStyle(e.target.value)} className={inputCls}>
                   {KI_STYLES.map((k) => (
@@ -197,20 +197,20 @@ export function Finder() {
                   ))}
                 </select>
               </label>
-              <label className="flex flex-col gap-1 text-2xs text-slate-500">
+              <label className="flex flex-col gap-1 text-2xs text-brand-200">
                 <Lab tip="敲入/保护线,% 期初价">敲入线 KI %</Lab>
                 <input type="number" step={1} value={kiPct} disabled={kiStyle === "none"}
                   onChange={(e) => setKiPct(Number(e.target.value))}
                   className={cn(inputCls, "tnum", kiStyle === "none" && "opacity-40")} />
               </label>
               {rankBy === "coupon" ? (
-                <label className="flex flex-col gap-1 text-2xs text-slate-500">
+                <label className="flex flex-col gap-1 text-2xs text-brand-200">
                   <Lab tip="转换行权价,% 期初价(排序票息时固定)">行权价 %</Lab>
                   <input type="number" step={1} value={strikePct}
                     onChange={(e) => setStrikePct(Number(e.target.value))} className={cn(inputCls, "tnum")} />
                 </label>
               ) : (
-                <label className="flex flex-col gap-1 text-2xs text-slate-500">
+                <label className="flex flex-col gap-1 text-2xs text-brand-200">
                   <Lab tip="固定年化票息(排序行权价时固定)">票息 % p.a.</Lab>
                   <input type="number" step={0.5} value={couponPa}
                     onChange={(e) => setCouponPa(Number(e.target.value))} className={cn(inputCls, "tnum")} />
@@ -218,19 +218,19 @@ export function Finder() {
               )}
             </div>
             <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-              <label className="flex flex-col gap-1 text-2xs text-slate-500">
+              <label className="flex flex-col gap-1 text-2xs text-brand-200">
                 <Lab tip="两种排序:票息最高优先,或同票息下行权价最低优先">排序类型</Lab>
                 <select value={rankBy} onChange={(e) => setRankBy(e.target.value as "coupon" | "strike")} className={inputCls}>
                   <option value="coupon">票息最高 Coupon</option>
                   <option value="strike">行权价最低 Strike</option>
                 </select>
               </label>
-              <label className="flex flex-col gap-1 text-2xs text-slate-500">
+              <label className="flex flex-col gap-1 text-2xs text-brand-200">
                 <Lab tip="按总市值过滤底层标的池,单位:亿美元(如 100 = $10bn)">市值下限 (亿美元)</Lab>
                 <input type="number" step={50} min={10} value={mktCapYi}
                   onChange={(e) => setMktCapYi(Number(e.target.value))} className={cn(inputCls, "tnum")} />
               </label>
-              <label className="flex flex-col gap-1 text-2xs text-slate-500">
+              <label className="flex flex-col gap-1 text-2xs text-brand-200">
                 <Lab tip="标的类型">类型</Lab>
                 <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)} className={inputCls}>
                   <option value="all">全部(股票+ETF)</option>
@@ -238,7 +238,7 @@ export function Finder() {
                   <option value="etf">仅 ETF</option>
                 </select>
               </label>
-              <label className="flex flex-col gap-1 text-2xs text-slate-500">
+              <label className="flex flex-col gap-1 text-2xs text-brand-200">
                 <Lab tip="返回前 N 名">Top N</Lab>
                 <input type="number" min={1} max={50} value={topN}
                   onChange={(e) => setTopN(Number(e.target.value))} className={inputCls} />
@@ -261,7 +261,7 @@ export function Finder() {
               titleCn="排名"
               icon={<Trophy size={16} />}
               right={
-                <span className="text-2xs text-slate-500">
+                <span className="text-2xs text-brand-200">
                   宇宙 {result?.universe_size ?? "—"} · 已筛 {result?.considered ?? "—"} ·
                   {byStrike ? " 行权价最低优先" : " 票息最高优先"}
                   {result?.vol_basis === "realized" && " · 实际波动率"}
@@ -271,7 +271,7 @@ export function Finder() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[720px] text-xs">
                 <thead>
-                  <tr className="border-b border-line text-2xs uppercase tracking-wide text-slate-500">
+                  <tr className="border-b border-line text-2xs uppercase tracking-wide text-brand-200">
                     <th className="px-3 py-2 text-left">#</th>
                     <th className="px-3 py-2 text-left">标的</th>
                     <th className="px-3 py-2 text-right">现价</th>
@@ -288,12 +288,12 @@ export function Finder() {
                 <tbody>
                   {ranked.map((r) => (
                     <tr key={r.ticker} className="border-b border-line/60 last:border-0">
-                      <td className="px-3 py-2 text-slate-500 tnum">{r.rank}</td>
+                      <td className="px-3 py-2 text-brand-200 tnum">{r.rank}</td>
                       <td className="px-3 py-2">
                         <span className="font-medium text-brand-900">{r.ticker}</span>
-                        {r.isEtf && <span className="ml-1.5 text-2xs text-slate-500">ETF</span>}
+                        {r.isEtf && <span className="ml-1.5 text-2xs text-brand-200">ETF</span>}
                         {r.name && r.name !== r.ticker && (
-                          <span className="ml-1.5 text-2xs text-slate-500">{r.name.slice(0, 22)}</span>
+                          <span className="ml-1.5 text-2xs text-brand-200">{r.name.slice(0, 22)}</span>
                         )}
                       </td>
                       <td className="px-3 py-2 text-right text-brand-900 tnum">{r.spot.toFixed(2)}</td>
@@ -308,37 +308,37 @@ export function Finder() {
                         )}
                       </td>
                       {ranked.some((x) => x.prob_autocall != null) && (
-                        <td className="px-3 py-2 text-right text-slate-400 tnum">{pct(r.prob_autocall, 0)}</td>
+                        <td className="px-3 py-2 text-right text-brand-500 tnum">{pct(r.prob_autocall, 0)}</td>
                       )}
                       <td className="px-3 py-2 text-right text-warn-100 tnum">{pct(r.prob_capital_at_risk)}</td>
-                      <td className="px-3 py-2 text-right text-slate-400 tnum">{pct(r.iv_at_barrier, 0)}</td>
-                      <td className="px-3 py-2 text-right text-slate-400 tnum">{pct(r.buffer_pct, 0)}</td>
-                      <td className="px-3 py-2 text-right text-slate-400 tnum">{mktCap(r.marketCap)}</td>
+                      <td className="px-3 py-2 text-right text-brand-500 tnum">{pct(r.iv_at_barrier, 0)}</td>
+                      <td className="px-3 py-2 text-right text-brand-500 tnum">{pct(r.buffer_pct, 0)}</td>
+                      <td className="px-3 py-2 text-right text-brand-500 tnum">{mktCap(r.marketCap)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
             {result?.skipped && result.skipped.length > 0 && (
-              <p className="border-t border-line px-4 py-2 text-2xs text-slate-500">
+              <p className="border-t border-line px-4 py-2 text-2xs text-brand-200">
                 跳过 {result.skipped.length} 个(无实时数据):{" "}
                 {result.skipped.slice(0, 20).map((s) => s.ticker).join(", ")}
                 {result.skipped.length > 20 ? " …" : ""}
               </p>
             )}
             {result?.universe_source === "seed-large-cap" && (
-              <p className="border-t border-line px-4 py-2 text-2xs text-slate-500">
+              <p className="border-t border-line px-4 py-2 text-2xs text-brand-200">
                 注:全市场筛选器在当前数据档位不可用,已退回内置大盘股+ETF 种子池(约 200 名,含真实市值);市值下限仍生效。
               </p>
             )}
             {result?.liquidity_note && (
-              <p className="border-t border-line px-4 py-2 text-2xs text-slate-500">{result.liquidity_note}</p>
+              <p className="border-t border-line px-4 py-2 text-2xs text-brand-200">{result.liquidity_note}</p>
             )}
           </Card>
         )}
 
         {loading && ranked.length === 0 && (
-          <p className="px-1 text-xs text-slate-400">全市场筛选中(首次约 20-40 秒)… {stage}</p>
+          <p className="px-1 text-xs text-brand-500">全市场筛选中(首次约 20-40 秒)… {stage}</p>
         )}
       </div>
     </div>

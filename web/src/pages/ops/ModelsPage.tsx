@@ -164,8 +164,8 @@ function RoutePill({
 }) {
   return (
     <div className="rounded-lg border border-line bg-canvas px-2.5 py-2">
-      <div className="flex items-center gap-1 text-2xs uppercase tracking-wide text-slate-400">
-        <span className="text-slate-400">{icon}</span>
+      <div className="flex items-center gap-1 text-2xs uppercase tracking-wide text-brand-500">
+        <span className="text-brand-500">{icon}</span>
         {label}
       </div>
       <div
@@ -192,7 +192,7 @@ function Vendors({ info }: { info: LlmInfo }) {
         titleCn="模型供应商"
         icon={<Boxes size={15} />}
         right={
-          <span className="tnum text-2xs text-slate-400">
+          <span className="tnum text-2xs text-brand-500">
             {info.vendors.filter((v) => v.configured).length}/{info.vendors.length} configured
           </span>
         }
@@ -215,7 +215,7 @@ function VendorCard({ vendor, routed }: { vendor: LlmVendor; routed: Set<string>
           <div className="text-sm font-semibold text-brand-900">
             {VENDOR_ICON[vendor.id] ?? vendor.name}
           </div>
-          <code className="mt-0.5 block truncate text-2xs text-slate-400" title={vendor.keyEnv}>
+          <code className="mt-0.5 block truncate text-2xs text-brand-500" title={vendor.keyEnv}>
             {vendor.keyEnv}
           </code>
         </div>
@@ -226,7 +226,7 @@ function VendorCard({ vendor, routed }: { vendor: LlmVendor; routed: Set<string>
       </div>
       <div className="flex flex-wrap gap-1.5">
         {vendor.models.length === 0 && (
-          <span className="text-2xs text-slate-400">no models registered</span>
+          <span className="text-2xs text-brand-500">no models registered</span>
         )}
         {vendor.models.map((m) => {
           const active = routed.has(m);
@@ -237,7 +237,7 @@ function VendorCard({ vendor, routed }: { vendor: LlmVendor; routed: Set<string>
                 "tnum inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-2xs font-medium ring-1 ring-inset",
                 active
                   ? "bg-accent-50 text-accent-700 ring-accent/30"
-                  : "bg-surface text-slate-400 ring-line",
+                  : "bg-surface text-brand-500 ring-line",
               )}
               title={m}
             >
@@ -265,7 +265,7 @@ function Pricing({ info }: { info: LlmInfo }) {
         title="Pricing"
         titleCn="单价"
         icon={<Tag size={15} />}
-        right={<span className="tnum text-2xs text-slate-400">USD / 1M tokens</span>}
+        right={<span className="tnum text-2xs text-brand-500">USD / 1M tokens</span>}
       />
       {rows.length === 0 ? (
         <Empty>No price sheet loaded.</Empty>
@@ -273,7 +273,7 @@ function Pricing({ info }: { info: LlmInfo }) {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-line text-2xs uppercase tracking-wide text-slate-400">
+              <tr className="border-b border-line text-2xs uppercase tracking-wide text-brand-500">
                 <th className="px-4 py-2 text-left font-medium">Model</th>
                 <th className="px-4 py-2 text-right font-medium">Input $/1M</th>
                 <th className="px-4 py-2 text-right font-medium">Output $/1M</th>
@@ -283,8 +283,8 @@ function Pricing({ info }: { info: LlmInfo }) {
               {rows.map((p) => (
                 <tr key={p.model} className="border-b border-line/60 last:border-0 hover:bg-canvas">
                   <td className="px-4 py-2 font-medium text-brand-900">{p.model}</td>
-                  <td className="tnum px-4 py-2 text-right text-slate-400">{fmtUsd(p.inUsd)}</td>
-                  <td className="tnum px-4 py-2 text-right text-slate-400">{fmtUsd(p.outUsd)}</td>
+                  <td className="tnum px-4 py-2 text-right text-brand-500">{fmtUsd(p.inUsd)}</td>
+                  <td className="tnum px-4 py-2 text-right text-brand-500">{fmtUsd(p.outUsd)}</td>
                 </tr>
               ))}
             </tbody>
@@ -318,7 +318,7 @@ function Usage({ info }: { info: LlmInfo }) {
         <div className="overflow-x-auto border-t border-line">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-line text-2xs uppercase tracking-wide text-slate-400">
+              <tr className="border-b border-line text-2xs uppercase tracking-wide text-brand-500">
                 <th className="px-4 py-2 text-left font-medium">Model</th>
                 <th className="px-4 py-2 text-right font-medium">Calls</th>
                 <th className="px-4 py-2 text-right font-medium">In tok</th>
@@ -330,9 +330,9 @@ function Usage({ info }: { info: LlmInfo }) {
               {rows.map((u) => (
                 <tr key={u.model} className="border-b border-line/60 last:border-0 hover:bg-canvas">
                   <td className="px-4 py-2 font-medium text-brand-900">{u.model}</td>
-                  <td className="tnum px-4 py-2 text-right text-slate-400">{fmtInt(u.calls)}</td>
-                  <td className="tnum px-4 py-2 text-right text-slate-400">{fmtTok(u.inTok)}</td>
-                  <td className="tnum px-4 py-2 text-right text-slate-400">{fmtTok(u.outTok)}</td>
+                  <td className="tnum px-4 py-2 text-right text-brand-500">{fmtInt(u.calls)}</td>
+                  <td className="tnum px-4 py-2 text-right text-brand-500">{fmtTok(u.inTok)}</td>
+                  <td className="tnum px-4 py-2 text-right text-brand-500">{fmtTok(u.outTok)}</td>
                   <td className="tnum px-4 py-2 text-right font-semibold text-brand-900">
                     {fmtUsd(u.usd)}
                   </td>
@@ -347,5 +347,5 @@ function Usage({ info }: { info: LlmInfo }) {
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
-  return <div className="px-4 py-8 text-center text-2xs text-slate-400">{children}</div>;
+  return <div className="px-4 py-8 text-center text-2xs text-brand-500">{children}</div>;
 }

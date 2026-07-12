@@ -60,7 +60,7 @@ export function AltDataPage() {
             disabled={running}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition focus-visible:ring-2 focus-visible:ring-accent/40",
-              running ? "bg-surface-2 text-slate-400" : "bg-surface text-white hover:bg-surface-2",
+              running ? "bg-surface-2 text-brand-500" : "bg-surface text-white hover:bg-surface-2",
             )}
           >
             <Play size={13} strokeWidth={2.5} /> {running ? "Processing…" : "Process pending"}
@@ -85,16 +85,16 @@ export function AltDataPage() {
         <SectionHeader title="By Source" titleCn="按来源" icon={<MessageSquare size={15} strokeWidth={2} />} />
         <div className="divide-y divide-line">
           {stats.bySource.length === 0 ? (
-            <div className="px-4 py-6 text-center text-2xs text-slate-400">No alt-data processed yet.</div>
+            <div className="px-4 py-6 text-center text-2xs text-brand-500">No alt-data processed yet.</div>
           ) : (
             stats.bySource.map((b) => (
               <div key={b.source} className="flex items-center gap-3 px-4 py-2.5 text-xs">
                 <span className="w-32 shrink-0 font-medium text-brand-900">{SOURCE_LABEL[b.source] ?? b.source}</span>
-                <span className="tnum w-24 shrink-0 text-slate-500">{b.kept}/{b.processed} kept</span>
+                <span className="tnum w-24 shrink-0 text-brand-200">{b.kept}/{b.processed} kept</span>
                 <div className="flex-1">
                   <ScoreBar value={b.avgQuality * 100} scheme="good-high" />
                 </div>
-                <span className="tnum w-16 shrink-0 text-right text-slate-500">q {b.avgQuality.toFixed(2)}</span>
+                <span className="tnum w-16 shrink-0 text-right text-brand-200">q {b.avgQuality.toFixed(2)}</span>
               </div>
             ))
           )}
@@ -108,13 +108,13 @@ export function AltDataPage() {
           titleCn="高信噪比专家观点"
           icon={<Sparkles size={15} strokeWidth={2} />}
           right={
-            <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+            <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
               {insights.length}
             </Badge>
           }
         />
         {insights.length === 0 ? (
-          <div className="px-4 py-8 text-center text-sm text-slate-400">
+          <div className="px-4 py-8 text-center text-sm text-brand-500">
             No kept insights yet — run processing over X / WeChat / AIFINmarket alt-data.
           </div>
         ) : (
@@ -123,7 +123,7 @@ export function AltDataPage() {
               <li key={i} className="flex gap-3 px-4 py-3">
                 <span
                   className="mt-0.5 w-0.5 shrink-0 self-stretch rounded-full"
-                  style={{ backgroundColor: it.polarity === "positive" ? "#16A34A" : it.polarity === "negative" ? "#DC2626" : "#64748b" }}
+                  style={{ backgroundColor: it.polarity === "positive" ? "#2dc876" : it.polarity === "negative" ? "#f46060" : "#9caabe" }}
                   aria-hidden="true"
                 />
                 <div className="min-w-0 flex-1">
@@ -132,7 +132,7 @@ export function AltDataPage() {
                     {it.company && (
                       <span className="tnum text-xs font-semibold text-brand-900">{it.company}</span>
                     )}
-                    <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+                    <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
                       {SOURCE_LABEL[it.source] ?? it.source}
                     </Badge>
                     {it.techRoute && (
@@ -145,7 +145,7 @@ export function AltDataPage() {
                     </span>
                   </div>
                   <p className="mt-1 text-sm leading-snug text-brand-900">{it.thesis}</p>
-                  {it.ts && <div className="mt-0.5 text-2xs text-slate-400">{relTime(it.ts)}</div>}
+                  {it.ts && <div className="mt-0.5 text-2xs text-brand-500">{relTime(it.ts)}</div>}
                 </div>
               </li>
             ))}
@@ -169,7 +169,7 @@ function AltTrackersSection() {
   const { data, loading, error } = useAsync(() => ops.altTrackers(), []);
   if (loading) {
     return (
-      <div className="mt-6 flex h-24 items-center justify-center border-t border-line text-2xs text-slate-400">
+      <div className="mt-6 flex h-24 items-center justify-center border-t border-line text-2xs text-brand-500">
         Loading trackers…
       </div>
     );
@@ -193,7 +193,7 @@ function AltTrackersSection() {
         </span>
         <div className="flex items-baseline gap-2">
           <h2 className="text-base font-semibold tracking-tight text-brand-900">Trackers</h2>
-          <span className="text-2xs text-slate-400">追踪器 · 高频信号登记与库存</span>
+          <span className="text-2xs text-brand-500">追踪器 · 高频信号登记与库存</span>
         </div>
       </div>
 
@@ -213,7 +213,7 @@ function AltTrackersSection() {
           icon={<Activity size={15} strokeWidth={2} />}
         />
         {bySignal.length === 0 ? (
-          <div className="px-4 py-6 text-center text-2xs text-slate-400">No signal bindings yet.</div>
+          <div className="px-4 py-6 text-center text-2xs text-brand-500">No signal bindings yet.</div>
         ) : (
           <div className="flex flex-col gap-2 px-4 py-3">
             {bySignal.map(([key, count]) => {
@@ -227,11 +227,11 @@ function AltTrackersSection() {
                   >
                     {m?.name_cn ?? signalShort(key).short}
                   </span>
-                  <span className="tnum w-12 shrink-0 text-slate-500">{count} 家</span>
+                  <span className="tnum w-12 shrink-0 text-brand-200">{count} 家</span>
                   <div className="flex-1">
                     <ScoreBar value={(count / maxCov) * 100} scheme="good-high" />
                   </div>
-                  <span className="tnum w-32 shrink-0 text-right text-2xs text-slate-400">
+                  <span className="tnum w-32 shrink-0 text-right text-2xs text-brand-500">
                     {st ? `${st.rows.toLocaleString()} rows · ${st.latest}` : "—"}
                   </span>
                 </div>
@@ -248,18 +248,18 @@ function AltTrackersSection() {
           titleCn="信号登记 · 频率 / 范围 / 来源"
           icon={<Database size={15} strokeWidth={2} />}
           right={
-            <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+            <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
               {signals.length}
             </Badge>
           }
         />
         {signals.length === 0 ? (
-          <div className="px-4 py-6 text-center text-2xs text-slate-400">No signals registered.</div>
+          <div className="px-4 py-6 text-center text-2xs text-brand-500">No signals registered.</div>
         ) : (
           <div className="scroll-thin overflow-x-auto">
             <table className="w-full min-w-[720px] text-xs">
               <thead>
-                <tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-slate-400">
+                <tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-brand-500">
                   <th className="px-4 py-2 font-medium">信号 Signal</th>
                   <th className="px-3 py-2 font-medium">Key</th>
                   <th className="px-3 py-2 font-medium">频率 Cadence</th>
@@ -275,23 +275,23 @@ function AltTrackersSection() {
                   return (
                     <tr key={s.key} className="border-b border-line/60 last:border-b-0">
                       <td className="px-4 py-2 font-medium text-brand-900">{s.name_cn}</td>
-                      <td className="tnum px-3 py-2 font-mono text-2xs text-slate-500">
+                      <td className="tnum px-3 py-2 font-mono text-2xs text-brand-200">
                         {s.key.replace(/^alt\./, "")}
                       </td>
-                      <td className="px-3 py-2 text-slate-400">{s.cadence}</td>
+                      <td className="px-3 py-2 text-brand-500">{s.cadence}</td>
                       <td className="px-3 py-2">
                         <Badge
                           className={
                             s.scope === "theme"
                               ? "bg-accent-50 text-accent-700 ring-1 ring-inset ring-accent/20"
-                              : "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line"
+                              : "bg-surface-2 text-brand-500 ring-1 ring-inset ring-line"
                           }
                         >
                           {scope.cn}
                         </Badge>
                       </td>
-                      <td className="px-3 py-2 text-slate-400">{gw.cn}</td>
-                      <td className="px-3 py-2 text-slate-400">{s.source}</td>
+                      <td className="px-3 py-2 text-brand-500">{gw.cn}</td>
+                      <td className="px-3 py-2 text-brand-500">{s.source}</td>
                     </tr>
                   );
                 })}
@@ -309,12 +309,12 @@ function AltTrackersSection() {
           icon={<Layers3 size={15} strokeWidth={2} />}
         />
         {stock.length === 0 ? (
-          <div className="px-4 py-6 text-center text-2xs text-slate-400">No stock yet.</div>
+          <div className="px-4 py-6 text-center text-2xs text-brand-500">No stock yet.</div>
         ) : (
           <div className="scroll-thin overflow-x-auto">
             <table className="w-full min-w-[560px] text-xs">
               <thead>
-                <tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-slate-400">
+                <tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-brand-500">
                   <th className="px-4 py-2 font-medium">信号 Signal</th>
                   <th className="px-3 py-2 text-right font-medium">Rows</th>
                   <th className="px-3 py-2 text-right font-medium">Companies</th>
@@ -328,15 +328,15 @@ function AltTrackersSection() {
                       <span className="font-medium text-brand-900">
                         {meta.get(r.signal_key)?.name_cn ?? signalShort(r.signal_key).short}
                       </span>
-                      <span className="tnum ml-2 font-mono text-2xs text-slate-500">
+                      <span className="tnum ml-2 font-mono text-2xs text-brand-200">
                         {r.signal_key.replace(/^alt\./, "")}
                       </span>
                     </td>
                     <td className="tnum px-3 py-2 text-right font-semibold text-brand-900">
                       {r.rows.toLocaleString()}
                     </td>
-                    <td className="tnum px-3 py-2 text-right text-slate-400">{r.companies}</td>
-                    <td className="tnum px-3 py-2 text-right text-slate-400">{r.latest}</td>
+                    <td className="tnum px-3 py-2 text-right text-brand-500">{r.companies}</td>
+                    <td className="tnum px-3 py-2 text-right text-brand-500">{r.latest}</td>
                   </tr>
                 ))}
               </tbody>

@@ -65,9 +65,9 @@ export function AndyHeader({
         <div className="min-w-0">
           <div className="flex items-baseline gap-2">
             <h1 className="text-lg font-semibold tracking-tight text-brand-900">{title}</h1>
-            {titleCn && <span className="text-xs text-slate-400">{titleCn}</span>}
+            {titleCn && <span className="text-xs text-brand-500">{titleCn}</span>}
           </div>
-          {subtitle && <div className="mt-0.5 text-2xs text-slate-400">{subtitle}</div>}
+          {subtitle && <div className="mt-0.5 text-2xs text-brand-500">{subtitle}</div>}
         </div>
       </div>
       {right && <div className="flex shrink-0 items-center gap-2">{right}</div>}
@@ -76,14 +76,14 @@ export function AndyHeader({
 }
 
 export function AndyLoading({ label = "Loading…" }: { label?: string }) {
-  return <div className="flex h-64 items-center justify-center text-sm text-slate-400">{label}</div>;
+  return <div className="flex h-64 items-center justify-center text-sm text-brand-500">{label}</div>;
 }
 
 export function AndyError({ error }: { error: string }) {
   return (
     <Card className="p-6 text-center">
       <div className="text-sm font-semibold text-neg-700">加载失败 / Failed to load</div>
-      <div className="mt-1 font-mono text-2xs text-slate-400">{error}</div>
+      <div className="mt-1 font-mono text-2xs text-brand-500">{error}</div>
     </Card>
   );
 }
@@ -92,7 +92,7 @@ export function AndyError({ error }: { error: string }) {
  * backend lands): never an error card, just a quiet placeholder. */
 export function LinkUnavailable({ loading }: { loading?: boolean }) {
   return (
-    <div className="rounded-lg border border-dashed border-line px-3 py-2 text-2xs text-slate-500">
+    <div className="rounded-lg border border-dashed border-line px-3 py-2 text-2xs text-brand-200">
       {loading ? "勾稽数据加载中 · loading crosswalk…" : "勾稽数据暂不可用 · crosswalk API not yet available"}
     </div>
   );

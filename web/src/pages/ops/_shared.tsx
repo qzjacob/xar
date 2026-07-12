@@ -61,9 +61,9 @@ export function OpsHeader({
         <div className="min-w-0">
           <div className="flex items-baseline gap-2">
             <h1 className="text-lg font-semibold tracking-tight text-brand-900">{title}</h1>
-            {titleCn && <span className="text-xs text-slate-400">{titleCn}</span>}
+            {titleCn && <span className="text-xs text-brand-500">{titleCn}</span>}
           </div>
-          {subtitle && <div className="mt-0.5 text-2xs text-slate-400">{subtitle}</div>}
+          {subtitle && <div className="mt-0.5 text-2xs text-brand-500">{subtitle}</div>}
         </div>
       </div>
       {right && <div className="flex shrink-0 items-center gap-2">{right}</div>}
@@ -73,7 +73,7 @@ export function OpsHeader({
 
 export function OpsLoading() {
   return (
-    <div className="flex h-64 items-center justify-center text-sm text-slate-400">Loading…</div>
+    <div className="flex h-64 items-center justify-center text-sm text-brand-500">Loading…</div>
   );
 }
 
@@ -81,7 +81,7 @@ export function OpsError({ error }: { error: string }) {
   return (
     <Card className="p-6 text-center">
       <div className="text-sm font-semibold text-neg">加载失败 / Failed to load</div>
-      <div className="mt-1 text-2xs text-slate-400">{error}</div>
+      <div className="mt-1 text-2xs text-brand-500">{error}</div>
     </Card>
   );
 }
@@ -91,14 +91,14 @@ const STATUS_DOT: Record<string, string> = {
   done: "bg-pos",
   degraded: "bg-warn",
   empty: "bg-warn",
-  unconfigured: "bg-slate-300",
+  unconfigured: "bg-brand-500",
   fail: "bg-neg",
   started: "bg-accent",
 };
 
 /** Status indicator dot for selftest / source / connector states. */
 export function StatusDot({ status, className }: { status: string; className?: string }) {
-  return <span className={cn("inline-block h-2 w-2 rounded-full", STATUS_DOT[status] ?? "bg-slate-300", className)} />;
+  return <span className={cn("inline-block h-2 w-2 rounded-full", STATUS_DOT[status] ?? "bg-brand-500", className)} />;
 }
 
 export function statusChip(status: string): string {
@@ -114,7 +114,7 @@ export function statusChip(status: string): string {
     case "started":
       return "bg-accent-50 text-accent-700 ring-1 ring-inset ring-accent/20";
     default:
-      return "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line";
+      return "bg-surface-2 text-brand-500 ring-1 ring-inset ring-line";
   }
 }
 

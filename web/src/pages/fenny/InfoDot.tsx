@@ -18,13 +18,13 @@ export function InfoDot({ tip, className, down }: { tip: string; className?: str
     >
       <Info
         size={11}
-        className="cursor-help text-slate-500 transition-colors hover:text-accent-100 group-focus:text-accent-100"
+        className="cursor-help text-brand-200 transition-colors hover:text-accent-100 group-focus:text-accent-100"
         aria-hidden
       />
       <span
         role="tooltip"
         className={
-          "pointer-events-none absolute left-1/2 z-40 hidden w-56 -translate-x-1/2 rounded-md border border-line bg-surface px-2 py-1.5 text-[10px] font-normal normal-case leading-snug text-slate-200 shadow-xl group-hover:block group-focus-within:block " +
+          "pointer-events-none absolute left-1/2 z-40 hidden w-56 -translate-x-1/2 rounded-md border border-line bg-surface px-2 py-1.5 text-[10px] font-normal normal-case leading-snug text-brand-800 shadow-xl group-hover:block group-focus-within:block " +
           (down ? "top-full mt-1" : "bottom-full mb-1")
         }
       >

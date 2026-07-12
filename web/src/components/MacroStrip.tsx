@@ -42,7 +42,7 @@ export function MacroStrip({ theme, compact }: { theme: string; compact?: boolea
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <Link
           to="/andy"
-          className="group flex shrink-0 items-center gap-1.5 text-2xs font-semibold uppercase tracking-wide text-slate-400 transition-colors hover:text-andy-500"
+          className="group flex shrink-0 items-center gap-1.5 text-2xs font-semibold uppercase tracking-wide text-brand-500 transition-colors hover:text-andy-500"
           title="XAR Andy · 宏观指标终端"
         >
           <Activity size={13} strokeWidth={2.25} className="text-andy-500" />
@@ -66,7 +66,7 @@ export function MacroStrip({ theme, compact }: { theme: string; compact?: boolea
                 <span className="truncate text-brand-800">{m.display_name_zh}</span>
                 <span className="tnum shrink-0 font-semibold text-brand-900">
                   {fmtMetric(m.value)}
-                  {m.value !== null && m.unit ? <span className="ml-0.5 font-normal text-slate-500">{m.unit}</span> : null}
+                  {m.value !== null && m.unit ? <span className="ml-0.5 font-normal text-brand-200">{m.unit}</span> : null}
                 </span>
                 <span className={cn("tnum shrink-0 font-semibold", s.cls)}>{s.arrow}</span>
               </Link>

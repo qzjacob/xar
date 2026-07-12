@@ -25,11 +25,11 @@ export function Composer({ onSend, onStop, streaming }: {
             }
           }}
           placeholder="Ask Chathy about a company, theme, catalyst, supply chain…"
-          className="max-h-40 min-h-[24px] flex-1 resize-none bg-transparent px-1.5 py-1 text-sm text-brand-900 placeholder:text-slate-500 focus:outline-none"
+          className="max-h-40 min-h-[24px] flex-1 resize-none bg-transparent px-1.5 py-1 text-sm text-brand-900 placeholder:text-brand-200 focus:outline-none"
         />
         {streaming ? (
           <button type="button" onClick={onStop}
-            className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-2 text-slate-300 hover:text-brand-900">
+            className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-2 text-brand-700 hover:text-brand-900">
             <Square size={14} />
           </button>
         ) : (
@@ -39,7 +39,7 @@ export function Composer({ onSend, onStop, streaming }: {
           </button>
         )}
       </div>
-      <div className="mx-auto mt-1.5 max-w-3xl text-center text-[10px] text-slate-500">
+      <div className="mx-auto mt-1.5 max-w-3xl text-center text-[10px] text-brand-200">
         Chathy grounds answers in the XAR platform · research aide, not financial advice
       </div>
     </div>

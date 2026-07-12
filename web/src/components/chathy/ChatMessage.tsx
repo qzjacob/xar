@@ -11,7 +11,7 @@ export function ChatMessage({ m }: { m: Msg }) {
     <div className={cn("flex gap-3", isUser && "flex-row-reverse")}>
       <div className={cn(
         "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
-        isUser ? "bg-surface-2 text-slate-400"
+        isUser ? "bg-surface-2 text-brand-500"
           : "bg-accent-50 text-accent-500 ring-1 ring-inset ring-accent/25")}>
         {isUser ? <User size={14} /> : <Sparkles size={14} />}
       </div>

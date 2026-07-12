@@ -81,17 +81,17 @@ function CoverageBody({ data }: { data: OpsCoverageInfo }) {
           right={<HeatLegend />}
         />
         {themes.length === 0 ? (
-          <div className="px-4 py-10 text-center text-xs text-slate-400">暂无数据 · 采集中</div>
+          <div className="px-4 py-10 text-center text-xs text-brand-500">暂无数据 · 采集中</div>
         ) : (
           <div className="scroll-thin overflow-x-auto">
             <table className="w-full min-w-[1080px] border-collapse text-xs">
               <thead>
                 <tr className="border-b border-line">
-                  <th className="sticky left-0 z-10 bg-surface px-4 py-2 text-left text-2xs font-medium uppercase tracking-wide text-slate-400">
+                  <th className="sticky left-0 z-10 bg-surface px-4 py-2 text-left text-2xs font-medium uppercase tracking-wide text-brand-500">
                     Theme 主题链
                   </th>
                   <th
-                    className="px-2 py-2 text-right text-2xs font-medium uppercase tracking-wide text-slate-400"
+                    className="px-2 py-2 text-right text-2xs font-medium uppercase tracking-wide text-brand-500"
                     title="Average weighted composite across member companies"
                   >
                     综合
@@ -100,10 +100,10 @@ function CoverageBody({ data }: { data: OpsCoverageInfo }) {
                     <th
                       key={d.key}
                       title={`${d.name} · weight ${(d.weight * 100).toFixed(0)}%`}
-                      className="cursor-help whitespace-nowrap px-1 py-2 text-center text-2xs font-medium text-slate-400"
+                      className="cursor-help whitespace-nowrap px-1 py-2 text-center text-2xs font-medium text-brand-500"
                     >
                       {d.name_cn}
-                      <div className="tnum font-normal text-slate-500">
+                      <div className="tnum font-normal text-brand-200">
                         {(d.weight * 100).toFixed(0)}%
                       </div>
                     </th>
@@ -117,7 +117,7 @@ function CoverageBody({ data }: { data: OpsCoverageInfo }) {
                       <div className="whitespace-nowrap text-xs font-medium text-brand-900">
                         {t.name}
                       </div>
-                      <div className="whitespace-nowrap text-2xs text-slate-400">
+                      <div className="whitespace-nowrap text-2xs text-brand-500">
                         {t.name_cn} · <span className="tnum">{t.companies}</span> names
                       </div>
                     </td>
@@ -152,7 +152,7 @@ function CoverageBody({ data }: { data: OpsCoverageInfo }) {
         )}
       </Card>
 
-      <div className="text-2xs text-slate-500">
+      <div className="text-2xs text-brand-200">
         满足率口径:主题内单维度得分 ≥ 0.34 的公司占比;综合分为 16 维加权(权重合计 100%)。
       </div>
     </div>
@@ -163,7 +163,7 @@ function CoverageBody({ data }: { data: OpsCoverageInfo }) {
 function HeatLegend() {
   const stops = [0, 25, 50, 75, 100];
   return (
-    <span className="flex items-center gap-1 text-2xs text-slate-400">
+    <span className="flex items-center gap-1 text-2xs text-brand-500">
       <span className="tnum">0</span>
       {stops.map((s) => (
         <span

@@ -50,7 +50,7 @@ export function AndyOverclaimsPage() {
         subtitle={claimsQ.data?.disclaimer}
         right={
           <div className="flex items-center gap-2">
-            {evalNote && <span className="tnum text-2xs text-slate-400">{evalNote}</span>}
+            {evalNote && <span className="tnum text-2xs text-brand-500">{evalNote}</span>}
             <button
               type="button"
               onClick={runEvaluate}
@@ -74,7 +74,7 @@ export function AndyOverclaimsPage() {
           <ClaimCard key={c.claim_key} claim={c} asOf={asOf} withAsOf={withAsOf} />
         ))}
         {claims.length === 0 && (
-          <Card className="px-6 py-12 text-center text-sm text-slate-500">
+          <Card className="px-6 py-12 text-center text-sm text-brand-200">
             登记簿为空 · no claims registered
           </Card>
         )}
@@ -109,8 +109,8 @@ function ClaimCard({ claim: c, asOf, withAsOf }: {
       <p className="mt-2 text-base font-medium leading-relaxed text-brand-900">{c.claim_text_zh}</p>
 
       {/* meta row */}
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-slate-400">
-        <span className="font-mono text-slate-500">{c.claim_key}</span>
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-brand-500">
+        <span className="font-mono text-brand-200">{c.claim_key}</span>
         <span>owner · {c.owner ?? "—"}</span>
         <HardnessBadge hardness={c.hardness} withEn={false} />
         <span className="tnum">
@@ -125,11 +125,11 @@ function ClaimCard({ claim: c, asOf, withAsOf }: {
 
       {/* rules (collapsible) */}
       <details className="group mt-3">
-        <summary className="flex cursor-pointer select-none items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-slate-500 transition-colors hover:text-brand-900">
+        <summary className="flex cursor-pointer select-none items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-brand-200 transition-colors hover:text-brand-900">
           <Gavel size={12} strokeWidth={2.25} />
           判定规则 Fixation / Falsify rules
-          <span className="text-slate-600 group-open:hidden">▸</span>
-          <span className="hidden text-slate-600 group-open:inline">▾</span>
+          <span className="text-brand-200 group-open:hidden">▸</span>
+          <span className="hidden text-brand-200 group-open:inline">▾</span>
         </summary>
         <div className="mt-2 grid gap-2 md:grid-cols-2">
           <div className="rounded-lg border border-neg/25 bg-neg-50/60 p-2.5">
@@ -142,7 +142,7 @@ function ClaimCard({ claim: c, asOf, withAsOf }: {
           </div>
         </div>
         {c.verdict_note && (
-          <p className="mt-2 rounded-lg bg-surface-2 px-2.5 py-1.5 text-2xs leading-relaxed text-slate-400">
+          <p className="mt-2 rounded-lg bg-surface-2 px-2.5 py-1.5 text-2xs leading-relaxed text-brand-500">
             {c.verdict_note}
           </p>
         )}
@@ -151,13 +151,13 @@ function ClaimCard({ claim: c, asOf, withAsOf }: {
       {/* evidence: eval log + snapshot */}
       {(c.recent_eval_log?.length ?? 0) > 0 && (
         <div className="mt-3">
-          <div className="mb-1 text-2xs font-medium uppercase tracking-wide text-slate-500">
+          <div className="mb-1 text-2xs font-medium uppercase tracking-wide text-brand-200">
             判定留痕 Recent evaluations
           </div>
           <div className="scroll-thin overflow-x-auto rounded-lg border border-line">
             <table className="w-full min-w-[520px] border-collapse text-2xs">
               <thead>
-                <tr className="border-b border-line text-left uppercase tracking-wide text-slate-500">
+                <tr className="border-b border-line text-left uppercase tracking-wide text-brand-200">
                   <th className="px-2.5 py-1.5 font-medium">evaluated_at</th>
                   <th className="px-2.5 py-1.5 font-medium">as_of</th>
                   <th className="px-2.5 py-1.5 font-medium">verdict</th>
@@ -167,14 +167,14 @@ function ClaimCard({ claim: c, asOf, withAsOf }: {
               <tbody className="divide-y divide-line">
                 {(c.recent_eval_log ?? []).map((e, i) => (
                   <tr key={i} className="tnum">
-                    <td className="whitespace-nowrap px-2.5 py-1.5 font-mono text-slate-400">
+                    <td className="whitespace-nowrap px-2.5 py-1.5 font-mono text-brand-500">
                       {e.evaluated_at ? e.evaluated_at.slice(0, 19).replace("T", " ") : "—"}
                     </td>
-                    <td className="whitespace-nowrap px-2.5 py-1.5 font-mono text-slate-400">{e.as_of_date}</td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 font-mono text-brand-500">{e.as_of_date}</td>
                     <td className="whitespace-nowrap px-2.5 py-1.5">
                       <VerdictLamp status={e.verdict} size={8} />
                     </td>
-                    <td className={cn("whitespace-nowrap px-2.5 py-1.5 font-semibold", e.triggered ? "text-neg-700" : "text-slate-500")}>
+                    <td className={cn("whitespace-nowrap px-2.5 py-1.5 font-semibold", e.triggered ? "text-neg-700" : "text-brand-200")}>
                       {e.triggered ? "true" : "false"}
                     </td>
                   </tr>
@@ -187,9 +187,9 @@ function ClaimCard({ claim: c, asOf, withAsOf }: {
 
       {c.evidence_snapshot != null && (
         <details className="group mt-2">
-          <summary className="cursor-pointer select-none text-2xs font-medium uppercase tracking-wide text-slate-500 transition-colors hover:text-brand-900">
-            证据快照 evidence_snapshot <span className="text-slate-600 group-open:hidden">▸</span>
-            <span className="hidden text-slate-600 group-open:inline">▾</span>
+          <summary className="cursor-pointer select-none text-2xs font-medium uppercase tracking-wide text-brand-200 transition-colors hover:text-brand-900">
+            证据快照 evidence_snapshot <span className="text-brand-200 group-open:hidden">▸</span>
+            <span className="hidden text-brand-200 group-open:inline">▾</span>
           </summary>
           <pre className="scroll-thin mt-1.5 max-h-64 overflow-auto rounded-lg bg-surface-2 p-2.5 font-mono text-2xs leading-relaxed text-brand-700">
             {JSON.stringify(c.evidence_snapshot, null, 2)}
@@ -200,7 +200,7 @@ function ClaimCard({ claim: c, asOf, withAsOf }: {
       {/* related metrics */}
       {c.related_metrics.length > 0 && (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          <span className="text-2xs uppercase tracking-wide text-slate-500">关联指标</span>
+          <span className="text-2xs uppercase tracking-wide text-brand-200">关联指标</span>
           {c.related_metrics.map((mk) => (
             <MetricKeyChip key={mk} metricKey={mk} to={withAsOf(`/andy/metrics/${encodeURIComponent(mk)}`)} />
           ))}

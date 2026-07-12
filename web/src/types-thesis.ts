@@ -310,8 +310,8 @@ export function stanceMeta(stance: string): {
       return {
         en: "Neutral",
         cn: "中性",
-        chip: "bg-surface-2 text-slate-300 ring-1 ring-inset ring-line",
-        dot: "bg-slate-400",
+        chip: "bg-surface-2 text-brand-700 ring-1 ring-inset ring-line",
+        dot: "bg-brand-200",
       };
   }
 }
@@ -337,8 +337,8 @@ export function healthOverallMeta(overall: string): { en: string; cn: string; ch
       return {
         en: "Quiet",
         cn: "静默",
-        chip: "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line",
-        dot: "bg-slate-400",
+        chip: "bg-surface-2 text-brand-500 ring-1 ring-inset ring-line",
+        dot: "bg-brand-200",
       };
   }
 }
@@ -353,7 +353,7 @@ export function pillarStatusMeta(status: string): { en: string; cn: string; dot:
     case "mixed":
       return { en: "Mixed", cn: "多空交织", dot: "bg-warn" };
     default:
-      return { en: "Quiet", cn: "静默", dot: "bg-slate-500" };
+      return { en: "Quiet", cn: "静默", dot: "bg-brand-200" };
   }
 }
 
@@ -361,15 +361,15 @@ export function pillarStatusMeta(status: string): { en: string; cn: string; dot:
 const EVIDENCE_CHIP: Record<EvidenceKind, string> = {
   event: "bg-accent-50 text-accent-700 ring-accent/20",
   edge: "bg-andy-50 text-andy-700 ring-andy-500/20",
-  chunk: "bg-surface-2 text-slate-400 ring-line",
+  chunk: "bg-surface-2 text-brand-500 ring-line",
   insight: "bg-explore-50 text-explore-700 ring-explore-500/20",
   fundamental: "bg-pos-50 text-pos-700 ring-pos/20",
   estimate: "bg-brand-50 text-brand-200 ring-brand-100",
-  registry: "bg-surface-2 text-slate-500 ring-line",
+  registry: "bg-surface-2 text-brand-200 ring-line",
 };
 
 export function evidenceChipClass(kind: string): string {
-  const tone = (EVIDENCE_CHIP as Record<string, string>)[kind] ?? "bg-surface-2 text-slate-400 ring-line";
+  const tone = (EVIDENCE_CHIP as Record<string, string>)[kind] ?? "bg-surface-2 text-brand-500 ring-line";
   return `ring-1 ring-inset ${tone}`;
 }
 
@@ -383,7 +383,7 @@ export function debateStatusMeta(status: string): { en: string; cn: string; chip
     case "flipped":
       return { en: "Flipped", cn: "天平翻转", chip: "bg-warn-50 text-warn-700 ring-1 ring-inset ring-warn/30", dot: "bg-warn" };
     default:
-      return { en: "Quiet", cn: "静默", chip: "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line", dot: "bg-slate-400" };
+      return { en: "Quiet", cn: "静默", chip: "bg-surface-2 text-brand-500 ring-1 ring-inset ring-line", dot: "bg-brand-200" };
   }
 }
 

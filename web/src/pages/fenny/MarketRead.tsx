@@ -100,13 +100,13 @@ function Metric({
 }) {
   return (
     <div className="rounded-lg border border-line bg-surface-2 px-3 py-2">
-      <div className="flex items-center gap-1 text-2xs uppercase tracking-wide text-slate-500">
+      <div className="flex items-center gap-1 text-2xs uppercase tracking-wide text-brand-200">
         {label}
-        {cnLabel && <span className="normal-case text-slate-400">{cnLabel}</span>}
+        {cnLabel && <span className="normal-case text-brand-500">{cnLabel}</span>}
         {tip && <InfoDot tip={tip} />}
       </div>
       <div className="mt-0.5 text-lg font-semibold text-brand-900 tnum">{value}</div>
-      {hint && <div className="text-2xs text-slate-400">{hint}</div>}
+      {hint && <div className="text-2xs text-brand-500">{hint}</div>}
     </div>
   );
 }
@@ -172,7 +172,7 @@ export function MarketRead() {
         <div className="flex flex-wrap items-center gap-3 p-4">
           <div className="mr-auto">
             <h1 className="text-base font-semibold text-brand-900">Market Read · 市场解读</h1>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-brand-500">
               实时抓取指数真实数据(现价·实际波动率·国债利率),生成适配度与
               <span className="text-accent-100">月度择时</span>解读 — 无需手工输入。
             </p>
@@ -181,7 +181,7 @@ export function MarketRead() {
             {tickers.map((t) => (
               <span key={t} className="flex items-center gap-1 rounded-lg border border-line bg-surface-2 px-2 py-1 text-xs text-brand-900">
                 {t}
-                <button onClick={() => removeTicker(t)} className="text-slate-500 hover:text-neg" aria-label={`remove ${t}`}>
+                <button onClick={() => removeTicker(t)} className="text-brand-200 hover:text-neg" aria-label={`remove ${t}`}>
                   <X size={11} />
                 </button>
               </span>
@@ -194,7 +194,7 @@ export function MarketRead() {
               onKeyDown={(e) => e.key === "Enter" && addTicker()}
               onBlur={addTicker}
             />
-            <button onClick={addTicker} className="text-slate-500 hover:text-accent-100" aria-label="add index">
+            <button onClick={addTicker} className="text-brand-200 hover:text-accent-100" aria-label="add index">
               <Plus size={14} />
             </button>
           </div>
@@ -205,7 +205,7 @@ export function MarketRead() {
                 onClick={() => setLang(l)}
                 className={cn(
                   "px-2.5 py-1 text-2xs font-medium",
-                  lang === l ? "bg-accent-600 text-white" : "bg-surface-2 text-slate-400",
+                  lang === l ? "bg-accent-600 text-white" : "bg-surface-2 text-brand-500",
                 )}
               >
                 {l === "en" ? "EN" : "中文"}
@@ -223,7 +223,7 @@ export function MarketRead() {
       </Card>
 
       {loading && (
-        <div className="text-xs text-slate-400">
+        <div className="text-xs text-brand-500">
           抓取实时数据并解读… <span className="text-accent-100">{stage}</span>
         </div>
       )}
@@ -244,7 +244,7 @@ export function MarketRead() {
               icon={<Sparkles size={15} />}
               right={
                 <Badge
-                  className={res.narrative_source === "llm" ? "bg-accent-600/15 text-accent-100" : "bg-surface-2 text-slate-400"}
+                  className={res.narrative_source === "llm" ? "bg-accent-600/15 text-accent-100" : "bg-surface-2 text-brand-500"}
                   title={res.narrative_source === "llm" ? "AI 撰写(择优模型)" : "无 LLM 时的确定性模板"}
                 >
                   {res.narrative_source === "llm" ? "AI 解读" : "模板"}
@@ -263,7 +263,7 @@ export function MarketRead() {
                 icon={<CalendarClock size={15} />}
                 right={
                   res.trend && (
-                    <span className="text-2xs text-slate-500 tnum">
+                    <span className="text-2xs text-brand-200 tnum">
                       波动率环比 {(res.trend.vol_mom * 100).toFixed(1)}pt · 近3月 {(res.trend.px_3m * 100).toFixed(1)}%
                     </span>
                   )
@@ -278,7 +278,7 @@ export function MarketRead() {
                     </div>
                     <ul className="mt-2 space-y-1">
                       {t.drivers.map((d, i) => (
-                        <li key={i} className="text-2xs leading-snug text-slate-400">· {d}</li>
+                        <li key={i} className="text-2xs leading-snug text-brand-500">· {d}</li>
                       ))}
                     </ul>
                   </div>
@@ -301,7 +301,7 @@ export function MarketRead() {
                 <div className="overflow-x-auto p-4">
                   <table className="w-full min-w-[380px] text-xs tnum">
                     <thead>
-                      <tr className="text-right text-2xs uppercase tracking-wide text-slate-500">
+                      <tr className="text-right text-2xs uppercase tracking-wide text-brand-200">
                         <th className="pb-2 text-left font-medium">Month</th>
                         {res.trend.per_index.map((p) => (
                           <th key={p.ticker} className="pb-2 font-medium" colSpan={2}>{p.ticker} (px / vol)</th>
@@ -315,7 +315,7 @@ export function MarketRead() {
                           {res.trend!.per_index.map((p) => {
                             const s = p.samples.find((x) => x.month === mo);
                             return (
-                              <td key={p.ticker} className="py-1.5 text-slate-400" colSpan={2}>
+                              <td key={p.ticker} className="py-1.5 text-brand-500" colSpan={2}>
                                 {s ? `${s.spot.toFixed(0)} / ${(s.rv21 * 100).toFixed(0)}%` : "—"}
                               </td>
                             );
@@ -348,7 +348,7 @@ export function MarketRead() {
                   </div>
                   <div className="mt-1 flex items-baseline gap-1">
                     <span className="text-2xl font-semibold text-brand-900 tnum">{s.score}</span>
-                    <span className="text-2xs text-slate-500">/100</span>
+                    <span className="text-2xs text-brand-200">/100</span>
                   </div>
                   <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-canvas">
                     <div
@@ -361,7 +361,7 @@ export function MarketRead() {
                   </div>
                   <ul className="mt-2 space-y-1">
                     {s.drivers.map((d, i) => (
-                      <li key={i} className="text-2xs leading-snug text-slate-400">· {d}</li>
+                      <li key={i} className="text-2xs leading-snug text-brand-500">· {d}</li>
                     ))}
                   </ul>
                 </div>
@@ -376,7 +376,7 @@ export function MarketRead() {
               titleCn="市场指标(技术面)"
               icon={<Activity size={15} />}
               right={
-                <Badge className="bg-surface-2 text-slate-400" title={realized ? "无期权隐含波动率数据源时,以历史实际波动率为诚实代理" : undefined}>
+                <Badge className="bg-surface-2 text-brand-500" title={realized ? "无期权隐含波动率数据源时,以历史实际波动率为诚实代理" : undefined}>
                   {realized ? "实际波动率(历史)" : `source · ${res.source}`}
                 </Badge>
               }
@@ -397,7 +397,7 @@ export function MarketRead() {
               <div className="overflow-x-auto p-4">
                 <table className="w-full min-w-[420px] text-xs tnum">
                   <thead>
-                    <tr className="text-right text-2xs uppercase tracking-wide text-slate-500">
+                    <tr className="text-right text-2xs uppercase tracking-wide text-brand-200">
                       <th className="pb-2 text-left font-medium">Index</th>
                       <th className="pb-2 font-medium">Spot</th>
                       <th className="pb-2 font-medium">1M</th>
@@ -413,12 +413,12 @@ export function MarketRead() {
                         <td className="py-1.5 text-left font-medium text-brand-900">
                           {p.ticker}
                           {p.resolved_as && (
-                            <span className="ml-1 text-2xs text-slate-500" title="数据代理:该代码在数据源被限制,使用其对应指数的真实数据">
+                            <span className="ml-1 text-2xs text-brand-200" title="数据代理:该代码在数据源被限制,使用其对应指数的真实数据">
                               →{p.resolved_as}
                             </span>
                           )}
                         </td>
-                        <td className="py-1.5 text-slate-400">{p.spot.toFixed(2)}</td>
+                        <td className="py-1.5 text-brand-500">{p.spot.toFixed(2)}</td>
                         <td className="py-1.5 text-brand-900">{pct(p.atm_1m, 1)}</td>
                         <td className="py-1.5 text-brand-900">{pct(p.atm_3m, 1)}</td>
                         <td className="py-1.5 text-brand-900">{pct(p.atm_1y, 1)}</td>

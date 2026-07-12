@@ -117,14 +117,14 @@ export function signalTone(s: { good_when?: GoodWhen; contribution: number }): S
 export function signalToneChip(tone: SignalTone): string {
   if (tone === "pos") return "bg-pos-50 text-pos-700 ring-1 ring-inset ring-pos/20";
   if (tone === "neg") return "bg-neg-50 text-neg-700 ring-1 ring-inset ring-neg/20";
-  return "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line";
+  return "bg-surface-2 text-brand-500 ring-1 ring-inset ring-line";
 }
 
 /** Text-only color class for a signal tone. */
 export function signalToneText(tone: SignalTone): string {
   if (tone === "pos") return "text-pos";
   if (tone === "neg") return "text-neg";
-  return "text-slate-400";
+  return "text-brand-500";
 }
 
 /** ▲ / ▼ / • for a momentum reading (direction of the metric, not good/bad). */

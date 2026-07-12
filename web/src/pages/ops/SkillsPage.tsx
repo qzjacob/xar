@@ -49,9 +49,9 @@ function tierBadge(tier?: string): ReactNode {
     );
   if (t === "fast")
     return (
-      <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">fast</Badge>
+      <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">fast</Badge>
     );
-  return <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">—</Badge>;
+  return <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">—</Badge>;
 }
 
 /** Capability id → icon. */
@@ -117,7 +117,7 @@ function PipelineSection({ skills }: { skills: Skill[] }) {
         titleCn="可控报告 DAG"
         icon={<Workflow size={15} />}
         right={
-          <span className="text-2xs text-slate-400">scope → retrieve → analysts → … → approval</span>
+          <span className="text-2xs text-brand-500">scope → retrieve → analysts → … → approval</span>
         }
       />
       <div className="px-4 py-4">
@@ -136,15 +136,15 @@ function PipelineSection({ skills }: { skills: Skill[] }) {
 
               {/* stage label row */}
               <div className="mb-2 flex items-center gap-2 pt-1">
-                <span className="text-slate-400">{STAGE_META[stage]?.icon}</span>
-                <span className="text-2xs font-semibold uppercase tracking-wide text-slate-500">
+                <span className="text-brand-500">{STAGE_META[stage]?.icon}</span>
+                <span className="text-2xs font-semibold uppercase tracking-wide text-brand-200">
                   {STAGE_META[stage]?.label ?? `Stage ${stage}`}
                 </span>
                 {items.length > 1 && (
-                  <span className="text-2xs text-slate-400">· {items.length} parallel skills</span>
+                  <span className="text-2xs text-brand-500">· {items.length} parallel skills</span>
                 )}
                 {si < ordered.length - 1 && (
-                  <span className="ml-auto text-2xs text-slate-300">↓</span>
+                  <span className="ml-auto text-2xs text-brand-700">↓</span>
                 )}
               </div>
 
@@ -173,7 +173,7 @@ function SkillCard({ skill }: { skill: Skill }) {
     <div className="rounded-lg border border-line bg-canvas/40 px-3 py-2.5">
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <CircleDot size={13} className="shrink-0 text-slate-300" />
+          <CircleDot size={13} className="shrink-0 text-brand-700" />
           <span className="truncate text-xs font-semibold text-brand-900">{skill.name}</span>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
@@ -188,13 +188,13 @@ function SkillCard({ skill }: { skill: Skill }) {
           {tierBadge(skill.tier)}
         </div>
       </div>
-      <p className="mt-1.5 text-2xs leading-relaxed text-slate-500">{skill.desc}</p>
+      <p className="mt-1.5 text-2xs leading-relaxed text-brand-200">{skill.desc}</p>
       {terms.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">
           {terms.map((t, i) => (
             <span
               key={i}
-              className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[10px] leading-none text-slate-500"
+              className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[10px] leading-none text-brand-200"
             >
               {t}
             </span>
@@ -215,7 +215,7 @@ function CapabilitiesSection({ capabilities }: { capabilities: Capability[] }) {
         title="Platform Capabilities"
         titleCn="平台能力"
         icon={<Layers3 size={15} />}
-        right={<span className="text-2xs text-slate-400">{capabilities.length} primitives</span>}
+        right={<span className="text-2xs text-brand-500">{capabilities.length} primitives</span>}
       />
       <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
         {capabilities.map((c) => (
@@ -231,7 +231,7 @@ function CapabilitiesSection({ capabilities }: { capabilities: Capability[] }) {
                 {c.name}
               </span>
             </div>
-            <p className="mt-2 text-2xs leading-relaxed text-slate-500">{c.desc}</p>
+            <p className="mt-2 text-2xs leading-relaxed text-brand-200">{c.desc}</p>
           </div>
         ))}
       </div>

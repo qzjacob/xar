@@ -101,7 +101,7 @@ export function AndyMetricsPage() {
         titleCn="指标库"
         subtitle="理论本体目录 — 每个指标带 hardness / 识别策略 / 证伪条件；点击行进入审讯页。"
         right={
-          <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+          <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
             <span className="tnum">{rows.length}</span> / {metricsQ.data?.count ?? 0}
           </Badge>
         }
@@ -110,7 +110,7 @@ export function AndyMetricsPage() {
       {/* filter bar */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="relative">
-          <Search size={13} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
+          <Search size={13} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-brand-200" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -135,7 +135,7 @@ export function AndyMetricsPage() {
                 onClick={() => toggleHardness(h)}
                 className={cn(
                   "inline-flex items-center gap-1 rounded-md px-2 py-1 text-2xs font-medium ring-1 ring-inset transition-colors",
-                  on ? m.chip : "bg-surface text-slate-500 ring-line hover:bg-surface-2",
+                  on ? m.chip : "bg-surface text-brand-200 ring-line hover:bg-surface-2",
                 )}
               >
                 <span className={cn("h-1.5 w-1.5 rounded-full", m.dot)} aria-hidden="true" />
@@ -162,7 +162,7 @@ export function AndyMetricsPage() {
         <div className="scroll-thin overflow-x-auto">
           <table className="w-full min-w-[980px] border-collapse text-xs">
             <thead>
-              <tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-slate-500">
+              <tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-brand-200">
                 <th className="px-3 py-2 font-medium">指标 Metric</th>
                 <th className="px-3 py-2 font-medium">Family</th>
                 <th className="px-3 py-2 font-medium">硬度</th>
@@ -182,17 +182,17 @@ export function AndyMetricsPage() {
                 >
                   <td className="max-w-[280px] px-3 py-2">
                     <div className="truncate font-medium text-brand-900">{m.display_name_zh}</div>
-                    <div className="truncate font-mono text-2xs text-slate-500">{m.metric_key}</div>
+                    <div className="truncate font-mono text-2xs text-brand-200">{m.metric_key}</div>
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2 text-slate-400">{m.family}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-brand-500">{m.family}</td>
                   <td className="whitespace-nowrap px-3 py-2">
                     <HardnessBadge hardness={m.hardness} withEn={false} />
                   </td>
-                  <td className="max-w-[160px] truncate px-3 py-2 text-slate-400" title={m.binding_scarcity ?? undefined}>
+                  <td className="max-w-[160px] truncate px-3 py-2 text-brand-500" title={m.binding_scarcity ?? undefined}>
                     {m.binding_scarcity ?? "—"}
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2 text-slate-400">{m.phase ?? "—"}</td>
-                  <td className="whitespace-nowrap px-3 py-2 text-slate-400" title={m.source_grade ?? undefined}>
+                  <td className="whitespace-nowrap px-3 py-2 text-brand-500">{m.phase ?? "—"}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-brand-500" title={m.source_grade ?? undefined}>
                     {sourceGradeLabel(m.source_grade)}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2">
@@ -201,14 +201,14 @@ export function AndyMetricsPage() {
                         <AnchorChip key={a} anchor={a} />
                       ))}
                       {m.theory_anchor.length > 3 && (
-                        <span className="text-2xs text-slate-500">+{m.theory_anchor.length - 3}</span>
+                        <span className="text-2xs text-brand-200">+{m.theory_anchor.length - 3}</span>
                       )}
                     </span>
                   </td>
                   {themeInfo.available && (
                     <td className="max-w-[180px] px-3 py-2">
                       <span
-                        className="line-clamp-1 text-2xs text-slate-400"
+                        className="line-clamp-1 text-2xs text-brand-500"
                         title={(themeInfo.byMetric.get(m.metric_key) ?? []).join(" · ")}
                       >
                         {(themeInfo.byMetric.get(m.metric_key) ?? []).join(" · ") || "—"}
@@ -219,7 +219,7 @@ export function AndyMetricsPage() {
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={themeInfo.available ? 8 : 7} className="px-3 py-10 text-center text-slate-500">
+                  <td colSpan={themeInfo.available ? 8 : 7} className="px-3 py-10 text-center text-brand-200">
                     无匹配指标 · no metrics match the current filters
                   </td>
                 </tr>

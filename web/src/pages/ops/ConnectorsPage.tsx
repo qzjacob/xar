@@ -12,7 +12,7 @@ function categoryChip(category: string): string {
     "bg-pos-50 text-pos-700 ring-1 ring-inset ring-pos/20",
     "bg-warn-50 text-warn-700 ring-1 ring-inset ring-warn/20",
     "bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-200/60",
-    "bg-surface-2 text-slate-400 ring-1 ring-inset ring-line",
+    "bg-surface-2 text-brand-500 ring-1 ring-inset ring-line",
   ];
   let h = 0;
   for (let i = 0; i < category.length; i++) h = (h * 31 + category.charCodeAt(i)) >>> 0;
@@ -55,13 +55,13 @@ export function ConnectorsPage() {
           titleCn="对外数据源"
           icon={<ArrowUpFromLine size={14} />}
           right={
-            <span className="tnum text-2xs text-slate-400">
+            <span className="tnum text-2xs text-brand-500">
               {summary.configured}/{summary.outbound} configured
             </span>
           }
         />
         {outbound.length === 0 ? (
-          <div className="px-4 py-8 text-center text-2xs text-slate-400">No outbound connectors</div>
+          <div className="px-4 py-8 text-center text-2xs text-brand-500">No outbound connectors</div>
         ) : (
           <div className="divide-y divide-line">
             {outbound.map((c) => (
@@ -78,11 +78,11 @@ export function ConnectorsPage() {
           titleCn="对外暴露接口"
           icon={<ArrowDownToLine size={14} />}
           right={
-            <span className="tnum text-2xs text-slate-400">{summary.inboundGroups} groups</span>
+            <span className="tnum text-2xs text-brand-500">{summary.inboundGroups} groups</span>
           }
         />
         {inbound.length === 0 ? (
-          <div className="px-4 py-8 text-center text-2xs text-slate-400">No inbound groups</div>
+          <div className="px-4 py-8 text-center text-2xs text-brand-500">No inbound groups</div>
         ) : (
           <div className="divide-y divide-line">
             {inbound.map((g) => (
@@ -101,7 +101,7 @@ function OutboundRow({ c }: { c: OutboundConnector }) {
       <StatusDot status={c.configured ? "ok" : "unconfigured"} className="shrink-0" />
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <span className="shrink-0 text-sm font-medium text-brand-900">{c.name}</span>
-        <span className="truncate font-mono text-2xs text-slate-400" title={c.baseUrl}>
+        <span className="truncate font-mono text-2xs text-brand-500" title={c.baseUrl}>
           {c.baseUrl}
         </span>
       </div>
@@ -112,13 +112,13 @@ function OutboundRow({ c }: { c: OutboundConnector }) {
           </Badge>
         )}
         <Badge className={categoryChip(c.category)}>{c.category}</Badge>
-        <span className="tnum w-16 shrink-0 text-right font-mono text-2xs text-slate-500" title={`auth: ${c.auth}`}>
+        <span className="tnum w-16 shrink-0 text-right font-mono text-2xs text-brand-200" title={`auth: ${c.auth}`}>
           {c.auth}
         </span>
         <span
           className={cn(
             "w-20 shrink-0 text-right text-2xs font-medium",
-            c.configured ? "text-pos-700" : "text-slate-400",
+            c.configured ? "text-pos-700" : "text-brand-500",
           )}
         >
           {c.configured ? "configured" : "no key"}
@@ -133,14 +133,14 @@ function InboundRow({ g }: { g: InboundGroup }) {
     <div className="px-4 py-3">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <span className="text-sm font-medium text-brand-900">{g.group}</span>
-        <span className="tnum text-2xs text-slate-400">{g.endpoints.length} endpoints</span>
+        <span className="tnum text-2xs text-brand-500">{g.endpoints.length} endpoints</span>
       </div>
-      <div className="mt-0.5 text-2xs text-slate-500">{g.desc}</div>
+      <div className="mt-0.5 text-2xs text-brand-200">{g.desc}</div>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {g.endpoints.map((ep) => (
           <span
             key={ep}
-            className="inline-flex items-center rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-slate-400 ring-1 ring-inset ring-line"
+            className="inline-flex items-center rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-brand-500 ring-1 ring-inset ring-line"
           >
             {ep}
           </span>

@@ -63,7 +63,7 @@ export function CompanyWatchlist({
                 {marketLabel(market)}
               </Badge>
             )}
-            <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+            <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
               <Star size={11} strokeWidth={2} className="text-accent" />
               {watchedCount}/{rows.length}
             </Badge>
@@ -74,7 +74,7 @@ export function CompanyWatchlist({
       <div className="overflow-x-auto scroll-thin">
         <table className="w-full min-w-[760px] border-collapse text-sm">
           <thead>
-            <tr className="text-2xs uppercase tracking-wide text-slate-400">
+            <tr className="text-2xs uppercase tracking-wide text-brand-500">
               <Th className="w-7 pl-4" />
               <Th className="text-left">Company</Th>
               <Th className="text-left">Segment</Th>
@@ -94,7 +94,7 @@ export function CompanyWatchlist({
               <tr>
                 <td
                   colSpan={12}
-                  className="px-4 py-8 text-center text-sm text-slate-400"
+                  className="px-4 py-8 text-center text-sm text-brand-500"
                 >
                   No matches{selectedSegmentId ? " in this segment" : ""}.
                 </td>
@@ -128,7 +128,7 @@ export function CompanyWatchlist({
                       size={13}
                       strokeWidth={2}
                       className={cn(
-                        c.watched ? "text-accent" : "text-slate-300",
+                        c.watched ? "text-accent" : "text-brand-700",
                       )}
                       fill={c.watched ? "currentColor" : "none"}
                       aria-label={c.watched ? "Watched" : "Not watched"}
@@ -141,11 +141,11 @@ export function CompanyWatchlist({
                       {c.ticker}
                     </div>
                     <div className="flex items-baseline gap-1.5 leading-tight">
-                      <span className="truncate text-xs text-slate-400">
+                      <span className="truncate text-xs text-brand-500">
                         {c.name}
                       </span>
                       {c.nameCn && (
-                        <span className="truncate text-2xs text-slate-400">
+                        <span className="truncate text-2xs text-brand-500">
                           {c.nameCn}
                         </span>
                       )}
@@ -155,7 +155,7 @@ export function CompanyWatchlist({
                   {/* segment */}
                   <td className="py-2 pr-3 align-middle">
                     <Badge
-                      className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line"
+                      className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line"
                       title={segName(c.segmentId)}
                     >
                       <span className="max-w-[7.5rem] truncate">
@@ -166,7 +166,7 @@ export function CompanyWatchlist({
 
                   {/* market */}
                   <td className="py-2 pr-3 text-center align-middle">
-                    <Badge className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line">
+                    <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
                       {marketLabel(c.market)}
                     </Badge>
                   </td>
@@ -192,7 +192,7 @@ export function CompanyWatchlist({
                   </td>
 
                   {/* gross margin */}
-                  <td className="tnum py-2 pr-3 text-right align-middle text-slate-400">
+                  <td className="tnum py-2 pr-3 text-right align-middle text-brand-500">
                     {c.grossMargin.toFixed(0)}%
                   </td>
 
@@ -231,7 +231,7 @@ export function CompanyWatchlist({
                       {c.signals.slice(0, 3).map((t) => (
                         <Badge
                           key={t}
-                          className="bg-surface-2 text-slate-400 ring-1 ring-inset ring-line"
+                          className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line"
                           title={catalystLabel(t).en}
                         >
                           {abbrevCatalyst(catalystLabel(t).en)}
@@ -239,7 +239,7 @@ export function CompanyWatchlist({
                       ))}
                       {c.signals.length > 3 && (
                         <span
-                          className="text-2xs font-medium text-slate-400"
+                          className="text-2xs font-medium text-brand-500"
                           title={c.signals
                             .slice(3)
                             .map((t) => catalystLabel(t).en)
@@ -249,7 +249,7 @@ export function CompanyWatchlist({
                         </span>
                       )}
                       {c.signals.length === 0 && (
-                        <span className="text-2xs text-slate-300">&mdash;</span>
+                        <span className="text-2xs text-brand-700">&mdash;</span>
                       )}
                     </div>
                   </td>
