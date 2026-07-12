@@ -8,12 +8,15 @@ export function SidebarFrame({
   title,
   titleCn,
   badge,
+  pinned,
   children,
   footer,
 }: {
   title: string;
   titleCn?: string;
   badge?: string;
+  /** 常驻区:渲染在标题与滚动区之间,不随内容滚走(如 Chathy 的"新会话"按钮) */
+  pinned?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
 }) {
@@ -28,6 +31,7 @@ export function SidebarFrame({
           </span>
         )}
       </div>
+      {pinned && <div className="shrink-0 px-2 pb-2">{pinned}</div>}
       <div className="scroll-thin flex-1 overflow-y-auto px-2 pb-3">{children}</div>
       {footer && <div className="mt-auto border-t border-line px-4 py-3">{footer}</div>}
     </aside>

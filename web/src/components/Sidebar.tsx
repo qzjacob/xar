@@ -18,8 +18,6 @@ export function Sidebar(props: {
   coverage: CoverageMeta;
   segments: Segment[];
   companies: Company[];
-  currentPath: string;
-  onNavigate: (route: string) => void;
   selectedSegmentId: string | null;
   onSelectSegment: (id: string | null) => void;
   onCompany?: (id: string) => void;

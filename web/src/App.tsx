@@ -27,8 +27,10 @@ import { SkillsPage } from "./pages/ops/SkillsPage";
 
 /** 全局外壳:常驻顶栏(logo + 模块页签)渲染一次,切模块不重挂;下方是模块自己的行框架。 */
 function AppChrome() {
+  // [height:100dvh] 覆盖 h-screen:移动端动态视口下底栏不再被地址栏吃掉(不支持 dvh 的
+  // 浏览器丢弃该声明,回退 100vh)。
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-canvas">
+    <div className="flex h-screen flex-col overflow-hidden bg-canvas [height:100dvh]">
       <GlobalTopBar />
       <div className="flex min-h-0 flex-1 flex-col">
         <Outlet />
@@ -52,10 +54,13 @@ function LegacyRedirect({ to }: { to: "segment" | "company" }) {
   return <Navigate to={`/genny/${to}/${id ?? ""}`} replace />;
 }
 
-/** Redirect a whole legacy prefix (e.g. /ops/* → /jarvy/*) keeping the deep path. */
+/** Redirect a whole legacy prefix (e.g. /ops/* → /jarvy/*) keeping the deep path.
+ * Case-insensitive: React Router matches paths case-insensitively, so "/OPS/x" reaches
+ * here too — a case-sensitive replace would no-op and loop the redirect forever. */
 function LegacyPrefixRedirect({ from, to }: { from: string; to: string }) {
   const { pathname, search } = useLocation();
-  return <Navigate to={pathname.replace(from, to) + search} replace />;
+  const next = pathname.replace(new RegExp(`^${from}`, "i"), to);
+  return <Navigate to={(next === pathname ? to : next) + search} replace />;
 }
 
 function LazyFallback({ name }: { name: string }) {

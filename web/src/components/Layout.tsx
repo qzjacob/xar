@@ -30,8 +30,8 @@ export function Layout() {
   }
 
   const { segments, coverage, decision, regime } = overview;
-  const selectedSegmentId = loc.pathname.startsWith("/segment/")
-    ? decodeURIComponent(loc.pathname.split("/")[2] || "")
+  const selectedSegmentId = loc.pathname.startsWith("/genny/segment/")
+    ? decodeURIComponent(loc.pathname.split("/")[3] || "")
     : null;
 
   return (
@@ -41,8 +41,6 @@ export function Layout() {
           coverage={coverage}
           segments={segments}
           companies={companies}
-          currentPath={loc.pathname}
-          onNavigate={(route) => nav(route)}
           selectedSegmentId={selectedSegmentId}
           onSelectSegment={(id) => nav(id ? `/genny/segment/${id}` : "/genny")}
           onCompany={(id) => nav(`/genny/company/${id}`)}

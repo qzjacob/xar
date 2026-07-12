@@ -12,13 +12,17 @@ export function SessionList({ sessions, activeId, onSelect, onNew, onDelete }: {
   onDelete: (id: string) => void;
 }) {
   return (
-    <SidebarFrame title="Chathy" titleCn="对话分析" badge="Analyst">
-      <div className="px-1 pb-2">
+    <SidebarFrame
+      title="Chathy"
+      titleCn="对话分析"
+      badge="Analyst"
+      pinned={
         <button type="button" onClick={onNew}
           className="flex w-full items-center gap-2 rounded-lg bg-accent-600 px-3 py-2 text-xs font-semibold text-white hover:bg-accent-500">
           <MessageSquarePlus size={15} /> New chat · 新会话
         </button>
-      </div>
+      }
+    >
       <div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-brand-200">
         Conversations
       </div>

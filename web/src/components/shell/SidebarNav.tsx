@@ -35,7 +35,10 @@ export function SidebarNav({
         </div>
       )}
       {items.map((it) => {
-        const active = it.exact ? pathname === it.to : pathname.startsWith(it.to);
+        // 前缀匹配必须落在路径段边界上:/romy/ai 不得点亮 /romy/ai-hardware
+        const active = it.exact
+          ? pathname === it.to
+          : pathname === it.to || pathname.startsWith(it.to + "/");
         const Icon = it.icon;
         return (
           <Link

@@ -26,11 +26,14 @@
   --c-brand-DEFAULT: 231 237 245;
 
   /* accent = indigo (cold, Linear/Vercel-esque) for active / links / key highlights —
-   * the ONE project-wide accent; per-module hues below alias into this ramp. */
-  --c-accent-700: 79 70 229;    /* #4F46E5 */
+   * the ONE project-wide accent; per-module hues below alias into this ramp.
+   * NOTE the dark-theme role inversion: 700 is a TEXT stop (audited: 21 text uses, zero
+   * bg uses) — it must stay readable on the -50 panel (≥4.5:1), so it aliases the base. */
+  --c-accent-700: 129 140 248;  /* readable chip text on -50 panels (= 500; 5.4:1) */
   --c-accent-600: 99 102 241;   /* #6366F1 buttons */
   --c-accent-500: 129 140 248;  /* #818CF8 base */
   --c-accent-100: 165 180 252;  /* #A5B4FC bright indigo (text on dark) */
+  --c-accent-75:  44 46 84;     /* (bg) hover/active step above the -50 panel */
   --c-accent-50:  30 30 58;     /* (bg) subtle indigo-tinted panel */
   --c-accent-DEFAULT: 129 140 248;
 
@@ -48,10 +51,11 @@
   --c-explore-500: var(--c-accent-100); --c-explore-100: var(--c-accent-100);
   --c-explore-50: var(--c-accent-50); --c-explore-DEFAULT: var(--c-accent-500);
 
-  /* andy: 700/600 mid tones, 500 bright text on dark, 100/50 dark tinted panels */
+  /* andy: 700/600 mid tones, 500 bright text on dark, 100/50 dark tinted panels —
+   * 100 is one step ABOVE 50 so base-vs-hover / hover-vs-active stay distinguishable */
   --c-andy-700: var(--c-accent-600); --c-andy-600: var(--c-accent-600);
   --c-andy-500: var(--c-accent-100);
-  --c-andy-100: var(--c-accent-50); --c-andy-50: var(--c-accent-50);
+  --c-andy-100: var(--c-accent-75); --c-andy-50: var(--c-accent-50);
   --c-andy-DEFAULT: var(--c-accent-500);
 
   /* bare aliases — tailwind.config's c(base) resolves DEFAULT utilities (bg-pos,

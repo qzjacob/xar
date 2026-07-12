@@ -48,7 +48,7 @@
   .chathy-md table { @apply my-2 w-full border-collapse text-xs; }
   .chathy-md th, .chathy-md td { @apply border border-line px-2 py-1 text-left; }
   .chathy-md th { @apply bg-surface-2 font-semibold text-brand-900; }
-  .chathy-md blockquote { @apply my-2 border-l-2 border-line pl-3 text-slate-400; }
+  .chathy-md blockquote { @apply my-2 border-l-2 border-line pl-3 text-brand-500; }
   .scroll-thin {
     scrollbar-width: thin;
     scrollbar-color: rgb(var(--c-line)) transparent;
