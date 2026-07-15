@@ -888,6 +888,24 @@ def andy_sources():
     return andy_links.sources_status()
 
 
+# Andy 资金流策略面 — 同 andy_links 的 shadow 序:必须注册在 /api/andy mount 之前。
+@app.get("/api/andy/flow")
+def andy_flow(as_of: str | None = None):
+    """四面板:大类资产流向 / 风格与广度 / 情绪与仓位 / 策略综合(?as_of= PIT)。"""
+    from . import andy_flow as af
+    return af.flow_overview(as_of)
+
+
+@app.get("/api/andy/flow/series/{signal_key}")
+def andy_flow_series(signal_key: str, theme: str | None = None,
+                     company_id: str | None = None, as_of: str | None = None):
+    from . import andy_flow as af
+    out = af.flow_series(signal_key, theme=theme, company_id=company_id, as_of=as_of)
+    if "error" in out:
+        raise HTTPException(status_code=404, detail=out["error"])
+    return out
+
+
 # Andy (siliconomics macro-indicator platform) — vendored sub-app mounted under /api/andy.
 # XAR-native 勾稽 routes (/api/andy/link/*) are @app.get-registered above and shadow the
 # mount for their exact paths; everything else under /api/andy/* falls through to the slx

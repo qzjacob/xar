@@ -232,3 +232,74 @@ export interface LinkMetricDetail {
   companies: { id: string; name: string; ticker: string; theme: string; genny_link: string }[];
   recent_events: { summary: string; event_date: string; polarity: string; theme: string }[];
 }
+
+// ── Money flow strategy panel (/api/andy/flow) ────────────────────────────────
+export interface FlowSeriesPoint {
+  d: string;
+  v: number;
+}
+
+export interface FlowAsset {
+  ticker: string;
+  label: string;
+  label_cn: string;
+  asset_class: string;
+  obv_z: number | null;
+  dollar_vol_z: number | null;
+  mom_63d: number | null;
+  mom_z: number | null;
+  composite: number | null;
+  as_of: string | null;
+  spark: FlowSeriesPoint[];
+}
+
+export interface FlowStyle {
+  pair: string;
+  label: string;
+  label_cn: string;
+  rationale_zh: string;
+  z: number | null;
+  series: FlowSeriesPoint[];
+}
+
+export interface FlowEvent {
+  type: "flow_signal" | "flow_insight";
+  date: string | null;
+  polarity: "positive" | "negative" | "neutral";
+  summary: string;
+  company: string | null;
+  theme: string | null;
+  attrs: Record<string, unknown>;
+}
+
+export type FlowStance = "overweight" | "neutral" | "underweight" | "no_data";
+
+export interface FlowTilt {
+  asset_class: string;
+  label_cn: string;
+  score: number | null;
+  stance: FlowStance;
+  drivers: { ticker: string; composite: number | null; obv_z: number | null; mom_63d: number | null }[];
+}
+
+export interface AndyFlowResponse {
+  as_of: string;
+  assets: FlowAsset[];
+  styles: FlowStyle[];
+  sentiment: {
+    pc: { value: number | null; basis: string | null; series: FlowSeriesPoint[] };
+    short_interest_top: {
+      company_id: string;
+      name: string;
+      ticker: string | null;
+      days_to_cover: number;
+      period_end: string;
+    }[];
+    flow_events: FlowEvent[];
+  };
+  strategy: {
+    risk_on: { value: number | null; series: FlowSeriesPoint[] };
+    tilts: FlowTilt[];
+  };
+  themes: { theme: string; name_cn: string; score: number | null; as_of: string | null; genny_link: string }[];
+}

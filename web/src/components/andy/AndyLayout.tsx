@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo } from "react";
-import { BrickWall, Database, Gauge, Scale, Table2 } from "lucide-react";
+import { BrickWall, Database, Gauge, Scale, Table2, Waves } from "lucide-react";
 import { Outlet, useLocation, useSearchParams } from "react-router-dom";
 import { ModuleHeader } from "../shell/ModuleHeader";
 import { ModuleShell } from "../shell/ModuleShell";
@@ -33,6 +33,7 @@ export function useAndy(): AndyState {
 
 const NAV: SideNavItem[] = [
   { to: "/andy", label: "Overview", cn: "总览", icon: Gauge, exact: true },
+  { to: "/andy/flow", label: "Money Flow", cn: "资金流策略", icon: Waves },
   { to: "/andy/metrics", label: "Metrics", cn: "指标库", icon: Table2 },
   { to: "/andy/overclaims", label: "Overclaims", cn: "过度宣称登记簿", icon: Scale },
   { to: "/andy/walls", label: "Walls", cn: "承重墙", icon: BrickWall },

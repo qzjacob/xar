@@ -108,6 +108,28 @@ def _alt_signals(company_id: str) -> dict:
             "health": thesis_signals.health_v2(company_id)}
 
 
+def _capital_flow(scope: str = "market", theme: str | None = None,
+                  company_id: str | None = None, as_of: str | None = None) -> dict:
+    """资金流快照(market/theme/company 三档)。Chathy 压缩:序列砍掉保读数(8000 字符帽)。"""
+    from datetime import date as _date
+
+    from ..research import flow
+    asof = _date.fromisoformat(as_of) if as_of else None
+    snap = flow.flow_snapshot(scope, theme=theme, company_id=company_id, as_of=asof)
+    if scope == "theme":
+        snap.pop("series", None)
+    elif scope != "company":
+        for a in snap.get("assets", ()):
+            a.pop("spark", None)
+        for s in snap.get("styles", ()):
+            s.pop("series", None)
+        for k in ("risk_on", "pc"):
+            (snap.get(k) or {}).pop("series", None)
+    else:
+        (snap.get("futu_flow") or {}).pop("series", None)
+    return snap
+
+
 def _coverage_360(company_id: str | None = None) -> dict | list:
     from ..ontology import coverage360
     if company_id:
@@ -315,6 +337,22 @@ CAPABILITIES: list[CapabilitySpec] = [
                    "answer 'is the thesis still on track right now' — signals lead earnings by weeks.",
                    _obj({"company_id": _CID}, ["company_id"]),
                    _alt_signals),
+    CapabilitySpec("capital_flow",
+                   "MONEY-FLOW tracking across the stack. scope=market → cross-asset ETF flow matrix "
+                   "(OBV/dollar-volume/63d-momentum z), style-pair rotation (RSP/MTUM/QUAL/VLUE/IWM/"
+                   "SPHB-SPLV/BTAL), risk-on composite ∈[-1,1] and SPY put/call; scope=theme → the "
+                   "theme's net-flow score + member movers (Futu main-capital-inflow z, OBV z, "
+                   "short-interest z); scope=company → one name's flow panel (OBV/momentum z, short "
+                   "interest + days-to-cover, put/call, 13F institutional delta, Futu main inflow). "
+                   "Investor-type breakdown (HF/LO/retail/CTA) beyond 13F & short interest comes from "
+                   "semantic flow_insight events — cross-check semantic_facts. Use for any 资金流/"
+                   "仓位/风格轮动/risk-on question.",
+                   _obj({"scope": {"type": "string", "enum": ["market", "theme", "company"],
+                                   "default": "market"},
+                         "theme": _THEME, "company_id": _CID,
+                         "as_of": {"type": "string",
+                                   "description": "ISO date PIT boundary; default today"}}),
+                   _capital_flow),
     CapabilitySpec("coverage_360",
                    "360° information-coverage score: per-dimension (16 dims: financials/estimates/"
                    "ownership/catalysts/thesis/...) coverage for one company (with gap list), or the "

@@ -614,6 +614,7 @@ def company_detail(cid: str, theme: str | None = None) -> dict | None:
             "thesis": _thesis_block(cid), "coverage": _coverage_block(cid),
             "estimates": _estimates_block(cid), "holdings": _holdings_block(cid),
             "calendar": _calendar_block(cid), "alt": _alt_block(cid),
+            "flow": _flow_block_company(cid),
             "earnings": _earnings_block(cid)}
 
 
@@ -724,6 +725,32 @@ def _coverage_block(cid: str) -> dict | None:
         return None
 
 
+def _flow_block_company(cid: str) -> dict | None:
+    """资金流面板(公司级):量价 z / 空头+DTC / 期权 P/C / 机构Δ / 富途主力。"""
+    try:
+        from ..research import flow
+
+        snap = flow.flow_snapshot("company", company_id=cid)
+        return snap if len(snap) > 1 else None      # 只剩 company_id 键 = 无任何 flow 数据
+    except Exception as e:  # noqa: BLE001
+        log.warning("flow block %s: %s", cid, e)
+        return None
+
+
+def _flow_block_theme(theme: str) -> dict | None:
+    """资金流面板(主题级):净分序列 + 成员资金流榜。"""
+    try:
+        from ..research import flow
+
+        snap = flow.flow_snapshot("theme", theme=theme)
+        if snap.get("net_score") is None and not snap.get("movers"):
+            return None
+        return snap
+    except Exception as e:  # noqa: BLE001
+        log.warning("flow block theme %s: %s", theme, e)
+        return None
+
+
 def _estimates_block(cid: str) -> list[dict]:
     try:
         rows = db.query("SELECT metric, period, value, high, low, n_analysts, as_of "
@@ -790,4 +817,5 @@ def segment_detail(sid: str) -> dict | None:
         "WHERE v.invalidated_at IS NULL AND v.company_id = ANY(%s) "
         "ORDER BY COALESCE(v.event_date, v.observed_at::date) DESC LIMIT 40", (member_ids,))
     sigs = [_signal_shape(r, comp_index, tick_index) for r in sig_rows]
-    return {"segment": seg, "companies": members, "signals": sigs}
+    return {"segment": seg, "companies": members, "signals": sigs,
+            "flow": _flow_block_theme(theme)}

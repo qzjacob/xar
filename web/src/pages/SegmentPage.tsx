@@ -15,6 +15,7 @@ import {
 } from "../lib/format";
 import { REGIME_LABEL, type SegmentDetail } from "../types";
 import { CompanyWatchlist } from "../components/CompanyWatchlist";
+import { ThemeFlowSection } from "../components/FlowSection";
 import { MacroStrip } from "../components/MacroStrip";
 import { SignalFeed } from "../components/SignalFeed";
 import { Badge, Card, SectionHeader, Sparkline } from "../components/ui";
@@ -241,6 +242,9 @@ export function SegmentPage() {
 
       {/* macro crosswalk (renders nothing if the Andy link API is unavailable) */}
       <MacroStrip theme={theme} compact />
+
+      {/* theme money flow (null 时整体隐藏) */}
+      <ThemeFlowSection flow={detail.flow} />
 
       {/* members */}
       <CompanyWatchlist

@@ -31,6 +31,7 @@ import { SignalFeed } from "../components/SignalFeed";
 import { EarningsSection } from "../components/EarningsSection";
 import { ThesisSection } from "../components/ThesisSection";
 import { AltDataPanel } from "../components/AltDataPanel";
+import { CompanyFlowSection } from "../components/FlowSection";
 import { CoverageRing } from "../components/CoverageRing";
 import { CalendarPanel, EstimatesPanel, HoldingsPanel } from "../components/CompanyDataPanels";
 
@@ -258,6 +259,9 @@ export function CompanyPage() {
 
       {/* ==================== ALT-DATA HIGH-FREQ SIGNALS =================== */}
       <AltDataPanel alt={detail.alt} />
+
+      {/* ======================= MONEY FLOW 资金面 ========================= */}
+      <CompanyFlowSection flow={detail.flow} />
 
       {/* ============================ BODY GRID ============================ */}
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">

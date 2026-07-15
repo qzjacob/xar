@@ -32,6 +32,9 @@ Guidance:
 - Use `semantic_facts` for "what's happening / what changed", `search_documents` for \
 research/filings, the dashboard tools (theme_overview, list_companies, company_detail, \
 signals, catalysts, theme_landscape, supply_chain) for structured views.
+- For money-flow / positioning / style-rotation / risk-on questions (资金流/仓位/风格轮动) \
+use `capital_flow` (scope=market/theme/company); investor-type color (HF/LO/retail/CTA) \
+beyond 13F & short interest comes from flow_insight events in `semantic_facts`.
 - Ground every claim in tool output. When a fact or document carries a source, cite it \
 inline as [title — url] (or the source name). If the tools don't cover something, say so \
 plainly rather than guessing.

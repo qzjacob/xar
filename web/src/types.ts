@@ -263,8 +263,47 @@ export interface CompanyDetail {
   // High-frequency alternative-data signals — null for the ~99% of names with
   // no bindings yet; consumers hide the panel entirely when null.
   alt?: AltData | null;
+  // Money-flow panel (量价/空头/期权/机构Δ/富途主力) — null 时组件整体隐藏。
+  flow?: CompanyFlow | null;
   // Pre-earnings event-trading block — only for EARNINGS_UNIVERSE US names; null otherwise.
   earnings?: EarningsBlock | null;
+}
+
+// --- money-flow blocks (mirrors dashboard._flow_block_company/_flow_block_theme) ---
+export interface FlowStat {
+  value: number;
+  period_end: string;
+  unit: string;
+  name_cn: string;
+  z?: number;
+}
+
+export interface CompanyFlow {
+  company_id: string;
+  obv_z?: FlowStat;
+  dollar_vol_z?: FlowStat;
+  mom_63d?: FlowStat;
+  pc_ratio?: FlowStat;
+  inst_own_delta?: FlowStat;
+  short_interest?: FlowStat;
+  days_to_cover?: FlowStat;
+  futu_flow?: { z: number; name_cn: string; series: { d: string; v: number }[] };
+}
+
+export interface ThemeFlow {
+  theme: string;
+  name_cn: string | null;
+  net_score: number | null;
+  series: { d: string; v: number }[];
+  movers: {
+    company_id: string;
+    name: string;
+    ticker: string | null;
+    futu_flow_z?: number;
+    obv_z?: number;
+    short_interest_z?: number;
+    score?: number;
+  }[];
 }
 
 // --- pre-earnings event-trading (mirrors dashboard._earnings_block) ---------
@@ -301,6 +340,7 @@ export interface SegmentDetail {
   segment: Segment;
   companies: Company[];
   signals: Signal[];
+  flow?: ThemeFlow | null;
 }
 
 /** Human-readable labels for catalyst types (EN + CN). */

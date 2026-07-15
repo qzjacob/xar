@@ -51,7 +51,8 @@ def test_registry_shape_and_theme_coverage():
     for f in FEEDS:
         assert f["url"].startswith("https://")
         assert f["name"] and f["lang"]
-        assert f["themes"] and all(t in THEMES for t in f["themes"]), f"bad themes on {f['id']}"
+        # themes 可为空(市场级资金流源不挂链主题,走 flow_extract 语义道);非空必须合法
+        assert all(t in THEMES for t in f["themes"]), f"bad themes on {f['id']}"
     covered = {t for f in FEEDS for t in f["themes"]}
     assert covered == set(THEMES), f"themes without a feed: {set(THEMES) - covered}"
     assert feed_by_id("spacenews")["name"] == "SpaceNews"

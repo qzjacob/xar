@@ -6,6 +6,7 @@ import type {
   AndyAnchorsList,
   AndyClaimsList,
   AndyEvaluateResult,
+  AndyFlowResponse,
   AndyMetricReading,
   AndyMetricsList,
   AndySourcesResponse,
@@ -57,4 +58,6 @@ export const andy = {
     get<LinkThemeResponse>(`/api/andy/link/theme/${encodeURIComponent(theme)}${q({ as_of: asOf })}`),
   linkMetric: (key: string) =>
     get<LinkMetricDetail>(`/api/andy/link/metric/${encodeURIComponent(key)}`),
+  // 资金流策略面(XAR-native shadow route;与勾稽同约:404 时调用方优雅降级)
+  flow: (asOf: string) => get<AndyFlowResponse>(`/api/andy/flow${q({ as_of: asOf })}`),
 };

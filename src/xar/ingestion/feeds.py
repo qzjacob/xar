@@ -64,6 +64,12 @@ FEEDS: list[dict] = [
      "url": "https://www.restaurantdive.com/feeds/news/", "themes": ["restaurants"]},
     {"id": "nrn", "name": "Nation's Restaurant News", "lang": "en",
      "url": "https://www.nrn.com/rss.xml", "themes": ["restaurants"]},
+    # --- money flow / positioning (market-wide, no chain theme; verified 2026-07
+    #     with the project UA: HTTP 200 + valid RSS) — feeds kg/flow_extract -----
+    {"id": "etftrends", "name": "ETF Trends", "lang": "en",
+     "url": "https://www.etftrends.com/feed/", "themes": []},
+    {"id": "zerohedge", "name": "ZeroHedge", "lang": "en",
+     "url": "https://feeds.feedburner.com/zerohedge/feed", "themes": []},
 ]
 
 

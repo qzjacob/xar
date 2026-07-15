@@ -129,9 +129,11 @@ def _save_entries(feed: dict, entries: list[dict], since: datetime | None, limit
             license_tag=feed.get("license_tag") or _DEFAULT_LICENSE,
             meta={"feed_id": feed["id"], "feed_name": feed["name"],
                   "themes": feed["themes"], "lang": feed["lang"]}))
-        # theme-tag the doc (single primary theme column; full list stays in meta)
-        db.execute("UPDATE documents SET theme=%s WHERE id=%s AND theme IS NULL",
-                   (feed["themes"][0], doc_id))
+        # theme-tag the doc (single primary theme column; full list stays in meta)。
+        # 无主题 feed(市场级资金流源)合法:不打 theme,靠 flow_extract 语义道消费。
+        if feed["themes"]:
+            db.execute("UPDATE documents SET theme=%s WHERE id=%s AND theme IS NULL",
+                       (feed["themes"][0], doc_id))
         n += 1
     return n
 

@@ -116,6 +116,7 @@ FETCHY_SOURCES: dict[str, dict] = {   # cadence key → 标签/节拍(小时;Non
     "wind_edb": {"label": "万得 EDB 数据追踪", "hours": 24},
     "aifinmarket_theme": {"label": "万得主题资讯", "hours": 24},
     "earnings_watch": {"label": "季报观察窗(日历/预期/隐波)", "hours": 6},
+    "flow": {"label": "资金流(ETF/风格/空头/期权)", "hours": 24},
 }
 FETCHY_STAGES: dict[str, str] = {     # run_once 阶段 → 标签
     "parse": "解析 + 本地嵌入(零 LLM)",
@@ -400,7 +401,14 @@ def _pull_fresh(cfg: dict | None = None) -> dict:
     _run("wind_edb", 24 * 3600, _wind_edb)
     _run("aifinmarket_theme", 24 * 3600, _aifin_theme)
     _run("earnings_watch", 6 * 3600, _earnings_watch)   # 季报观察窗:日历/analyst/隐含波动刷新
+    _run("flow", 24 * 3600, _flow_daily)                # 资金流:ETF/风格/空头/期权 → alt_signals
     return out
+
+
+def _flow_daily() -> dict:
+    from ..research import flow
+
+    return flow.run_daily()
 
 
 def _earnings_watch() -> dict:
@@ -440,6 +448,9 @@ def _llm_stage(batch_docs: int, q: dict, pin: tuple[str, ...] = GLM_PIN) -> tupl
                 limit=s.glm_worker_triage_docs, run_id=run_id)
             out["kg"] = kg_extract.build_kg(limit=batch_docs, run_id=run_id)
             out["expert"] = expert.process(limit=max(batch_docs // 2, 5), run_id=run_id)
+            # 资金流定向抽取(flow 点评/仓位表述 → kg_events(flow_insight);关键词 triage 先筛)
+            from ..kg import flow_extract
+            out["flow"] = flow_extract.process(limit=max(batch_docs // 4, 3), run_id=run_id)
             # 相对主张证据链接:同周期新事实 → 争论/支柱裁决(订阅池;RateLimitError 中止本批)
             out["links"] = evidence_link.link_pending(s.glm_worker_link_companies, run_id=run_id)
     except Exception as e:  # noqa: BLE001
