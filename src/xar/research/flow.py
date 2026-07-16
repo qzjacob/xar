@@ -66,9 +66,11 @@ def _bars(ticker: str, days: int = 460) -> list[dict]:
         src = max(counts, key=lambda s: counts[s])
     if src is None:
         return []
+    # close > 0:坏行(0/负)会让 mom 除零、_pair_tail 的 log 抛 domain error,一条毒
+    # 数据沉掉当天全部信号(评审 #12)——量价计算对非正价一律视同缺行。
     return db.query(
         "SELECT d, close, volume FROM prices WHERE ticker=%s AND source=%s AND d >= %s "
-        "AND close IS NOT NULL ORDER BY d ASC",
+        "AND close > 0 ORDER BY d ASC",
         (ticker, src, date.today() - timedelta(days=days)))
 
 
@@ -238,19 +240,25 @@ def _short_interest_stage() -> dict:
     off = int(get_state("cursor").get("flow_si", 0)) % len(uni)
     todo = (uni + uni)[off:off + min(_SI_SLICE, len(uni))]
     rows = 0
-    for cid, tkr in todo:
-        for r in massive.short_interest(tkr):
-            pe = date.fromisoformat(str(r["settlement_date"])[:10])
-            _put("flow.short_interest", pe, r["short_interest"], company_id=cid,
-                 meta={"ticker": tkr, "avg_daily_volume": r.get("avg_daily_volume")},
-                 source="massive")
-            rows += 1
-            if r.get("days_to_cover") is not None:
-                _put("flow.days_to_cover", pe, float(r["days_to_cover"]), company_id=cid,
-                     meta={"ticker": tkr}, source="massive")
-    cur = get_state("cursor")
-    cur["flow_si"] = (off + len(todo)) % len(uni)
-    save_state("cursor", cur)
+    try:
+        for cid, tkr in todo:
+            try:                                 # 单名失败不沉切片
+                for r in massive.short_interest(tkr):
+                    pe = date.fromisoformat(str(r["settlement_date"])[:10])
+                    _put("flow.short_interest", pe, r["short_interest"], company_id=cid,
+                         meta={"ticker": tkr, "avg_daily_volume": r.get("avg_daily_volume")},
+                         source="massive")
+                    rows += 1
+                    if r.get("days_to_cover") is not None:
+                        _put("flow.days_to_cover", pe, float(r["days_to_cover"]),
+                             company_id=cid, meta={"ticker": tkr}, source="massive")
+            except Exception as e:  # noqa: BLE001
+                log.warning("flow short_interest %s: %s", tkr, str(e)[:120])
+    finally:
+        # 游标必须前进(即便中途异常),否则毒切片每轮重试、轮转永久卡死(评审 #23)
+        cur = get_state("cursor")
+        cur["flow_si"] = (off + len(todo)) % len(uni)
+        save_state("cursor", cur)
     return {"companies": len(todo), "rows": rows} if rows else {
         "companies": len(todo), "rows": 0, "note": "no data — endpoint not entitled?"}
 
@@ -393,16 +401,20 @@ def sync_flow_events(*, z_threshold: float = 2.0, score_threshold: float = 0.6) 
 
 
 def run_daily() -> dict:
-    """glm_worker "flow" 源入口(日频,零 LLM):取数 → 全量计算 → 事件同步。"""
+    """glm_worker "flow" 源入口(日频,零 LLM):取数 → 全量计算 → 事件同步。
+    阶段间互不连坐:单阶段异常记录后继续(评审 #23 —— 一条毒数据不许沉掉整天)。"""
     from ..providers import massive
 
-    out: dict = {"prices": massive.pull_etf_prices()}
-    out["etf"] = _etf_stage()
-    out["pc"] = _pc_stage()
-    out["short_interest"] = _short_interest_stage()
-    out["holdings"] = _holdings_stage()
-    out["themes"] = _theme_stage()
-    out["events"] = sync_flow_events()
+    out: dict = {}
+    for key, fn in (("prices", massive.pull_etf_prices), ("etf", _etf_stage),
+                    ("pc", _pc_stage), ("short_interest", _short_interest_stage),
+                    ("holdings", _holdings_stage), ("themes", _theme_stage),
+                    ("events", sync_flow_events)):
+        try:
+            out[key] = fn()
+        except Exception as e:  # noqa: BLE001
+            out[key] = {"error": str(e)[:160]}
+            log.warning("flow stage %s failed: %s", key, str(e)[:160])
     log.info("flow run_daily: %s", {k: v for k, v in out.items() if k != "themes"})
     return out
 

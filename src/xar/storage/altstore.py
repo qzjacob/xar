@@ -10,12 +10,16 @@ from . import db
 def upsert_signal(signal_key: str, *, period_end: date, value: float,
                   company_id: str | None = None, theme: str | None = None,
                   unit: str | None = None, source: str = "", meta: dict | None = None) -> None:
+    # DO UPDATE 带值变守卫:值没变就不动行(尤其不动 observed_at)。observed_at 是
+    # series(as_of) 的 PIT 谓词——回填式重写(flow 的 90 日尾巴/富途 7 日窗)若无条件
+    # 刷 now(),历史行的"知晓时间"每日归零,任何过去 as_of 都读空(MF 评审 #1)。
     db.execute(
         """INSERT INTO alt_signals(signal_key, company_id, theme, period_end, value,
                                    unit, meta, source)
            VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s)
            ON CONFLICT (signal_key, COALESCE(company_id, ''), COALESCE(theme, ''), period_end)
-           DO UPDATE SET value=EXCLUDED.value, meta=EXCLUDED.meta, observed_at=now()""",
+           DO UPDATE SET value=EXCLUDED.value, meta=EXCLUDED.meta, observed_at=now()
+           WHERE alt_signals.value IS DISTINCT FROM EXCLUDED.value""",
         (signal_key, company_id, theme, period_end, float(value), unit,
          json.dumps(meta or {}, ensure_ascii=False, default=str), source))
 

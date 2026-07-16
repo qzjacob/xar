@@ -171,7 +171,8 @@ export function AndyFlowPage() {
                       <span className="ml-2 text-2xs text-brand-500">{a.label_cn}</span>
                     </td>
                     <td className={cn("tnum px-2 py-1.5", zTone(a.obv_z))}>{fmtZ(a.obv_z)}</td>
-                    <td className={cn("tnum px-2 py-1.5", zTone(a.dollar_vol_z))}>{fmtZ(a.dollar_vol_z)}</td>
+                    {/* 成交额 z 方向不定(good_when=None):放量可能是抢筹也可能是出逃,不给多空着色 */}
+                    <td className="tnum px-2 py-1.5 text-brand-700">{fmtZ(a.dollar_vol_z)}</td>
                     <td className={cn("tnum px-2 py-1.5", zTone(a.mom_z))}>{fmtPct(a.mom_63d)}</td>
                     <td className={cn("tnum px-2 py-1.5 font-semibold", zTone(a.composite == null ? null : a.composite * 3))}>
                       {a.composite == null ? "—" : a.composite.toFixed(2)}
@@ -198,7 +199,8 @@ export function AndyFlowPage() {
               <div key={s.pair} title={s.rationale_zh} className="rounded-lg border border-line bg-canvas px-3 py-2.5">
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="tnum text-xs font-semibold text-brand-900">{s.pair}</span>
-                  <span className={cn("tnum text-sm font-semibold", zTone(s.z))}>{fmtZ(s.z)}</span>
+                  {/* 风格对 z 是轮动方向,不是多空好坏(BTAL 走强=防御资金,涂绿会误读) */}
+                  <span className="tnum text-sm font-semibold text-brand-900">{fmtZ(s.z)}</span>
                 </div>
                 <div className="mt-0.5 truncate text-2xs text-brand-500">{s.label_cn}</div>
                 {s.series.length > 1 && (

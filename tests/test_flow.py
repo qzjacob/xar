@@ -29,6 +29,9 @@ def test_flow_specs_valid():
     # risk-on/off 分组是资产篮成员(面板 drivers 可解释)
     basket = {e.ticker for e in fo.ASSET_ETFS}
     assert set(fo.RISK_ON_TICKERS) <= basket and set(fo.RISK_OFF_TICKERS) <= basket
+    # 关键词表要能安全进 PG 正则(flow_extract 词界 triage):只允许字母/数字/空格/连字符/汉字
+    import re
+    assert all(re.fullmatch(r"[A-Za-z0-9 \-一-鿿]+", k) for k in fo.FLOW_KEYWORDS)
 
 
 # ── 序列数学(合成 bars,确定性)────────────────────────────────────────────────
@@ -84,6 +87,15 @@ def test_market_row_upsert_idempotent(_clean_sig):
     n2 = db.query("SELECT count(*) c FROM alt_signals WHERE signal_key='flow.risk_on_composite' "
                   "AND company_id IS NULL AND theme IS NULL AND period_end=%s", (pe,))[0]["c"]
     assert n1 == 1 and n2 == 1
+    # PIT 铁律:值不变的重写**不得**刷 observed_at(否则每日 90 行回填把历史行的
+    # 知晓时间归零,任何过去 as_of 都读空);值变了才允许前进。
+    q = ("SELECT observed_at FROM alt_signals WHERE signal_key='flow.obv_z' "
+         "AND theme='etf:TEST99'")
+    obs1 = db.query(q)[0]["observed_at"]
+    fl._put("flow.obv_z", pe, 1.5, theme="etf:TEST99", meta={"ticker": "TEST99"})
+    assert db.query(q)[0]["observed_at"] == obs1     # 同值重写:纹丝不动
+    fl._put("flow.obv_z", pe, 2.5, theme="etf:TEST99", meta={"ticker": "TEST99"})
+    assert db.query(q)[0]["observed_at"] >= obs1     # 值变:知晓时间前进
 
 
 def test_sync_flow_events_dedup(seeded_db):
@@ -137,7 +149,8 @@ def test_massive_parsers(monkeypatch):
                  "avg_daily_volume": 100.0, "days_to_cover": 9.0}]}
         if "v3/snapshot/options" in url:
             return {"results": [
-                {"details": {"contract_type": "put"}, "day": {"volume": 30}, "open_interest": 300},
+                {"details": {"contract_type": "put"}, "day": {"volume": 30}, "open_interest": 300,
+                 "underlying_asset": {"price": 100.0}},
                 {"details": {"contract_type": "call"}, "day": {"volume": 60}, "open_interest": 200}]}
         if "v2/aggs" in url:
             return {"results": [{"t": 4070908800000, "o": 1, "h": 1, "l": 1, "c": 1.0, "v": 10}]}
@@ -150,15 +163,19 @@ def test_massive_parsers(monkeypatch):
     pc = mv.pc_snapshot("SPY")
     assert pc == {"ticker": "SPY", "pc": 0.5, "basis": "volume", "contracts": 2}
 
-    # 无量 → OI 口径;全缺 → None
-    def fake_oi(url, **kw):
+    # 单边无量 → 退 OI 口径(volume 口径要求两侧都有量);现货探针失败 → None(绝不
+    # 退回无 strike 括号的失真采样);空链 → None
+    def fake_oi(url, *, params=None, headers=None, host=None, timeout=30):
         return {"results": [
-            {"details": {"contract_type": "put"}, "open_interest": 300},
-            {"details": {"contract_type": "call"}, "open_interest": 200}]}
+            {"details": {"contract_type": "put"}, "open_interest": 300,
+             "underlying_asset": {"price": 100.0}},
+            {"details": {"contract_type": "call"}, "day": {"volume": 60}, "open_interest": 200}]}
     monkeypatch.setattr(mv, "get_json", fake_oi)
     assert mv.pc_snapshot("SPY")["basis"] == "oi"
+    monkeypatch.setattr(mv, "get_json", lambda *a, **k: None)
+    assert mv.pc_snapshot("SPY") is None             # 探针失败
     monkeypatch.setattr(mv, "get_json", lambda *a, **k: {"results": []})
-    assert mv.pc_snapshot("SPY") is None
+    assert mv.pc_snapshot("SPY") is None             # 无现货价/空链
 
     # ETF 日线:available 门 + upsert 计数(不真写库)
     monkeypatch.setattr(mv, "get_json", fake)
@@ -178,8 +195,13 @@ def test_capital_flow_capability(seeded_db):
     spec = next(s for s in caps.CAPABILITIES if s.name == "capital_flow")
     assert spec.chathy and spec.kind == "read"
     out = caps._capital_flow(scope="market")         # Chathy 压缩:序列被剥掉
+    assert out["scope"] == "market"
     assert "assets" in out and all("spark" not in a for a in out["assets"])
     assert all("series" not in s for s in out["styles"])
+    # 缺参显式报错,绝不静默回退 market(否则全量 market 数据顶着 theme 名义回给模型)
+    assert "error" in caps._capital_flow(scope="theme")
+    assert "error" in caps._capital_flow(scope="company")
+    assert "error" in caps._capital_flow(scope="market", as_of="2026-7-1")
 
 
 def test_fetchy_flow_source_registered():
@@ -213,9 +235,10 @@ def test_flow_extract_stubbed(seeded_db, monkeypatch):
                       (f"flowdoc:{did}",))
         assert ev and ev[0]["attrs"]["investor_type"] == "CTA"
         assert ev[0]["polarity"] == "neutral"        # rotation → neutral
-        # 幂等盖戳:meta.flow_extract=true → process() 不再选中该文档
-        meta = db.query("SELECT meta FROM documents WHERE id=%s", (did,))[0]["meta"]
-        assert meta.get("flow_extract") is True
+        # 幂等盖戳:flow_extracted_at 专列(meta 会被 save() 覆盖,列不会)
+        stamped = db.query("SELECT flow_extracted_at FROM documents WHERE id=%s",
+                           (did,))[0]["flow_extracted_at"]
+        assert stamped is not None
         # 低强度/不相关 → 不入库但仍盖戳(负例不复烧 LLM)
         monkeypatch.setattr(fx.llm, "complete_json",
                             lambda *a, **k: FlowInsight(relevant=False))

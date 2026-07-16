@@ -893,14 +893,20 @@ def andy_sources():
 def andy_flow(as_of: str | None = None):
     """四面板:大类资产流向 / 风格与广度 / 情绪与仓位 / 策略综合(?as_of= PIT)。"""
     from . import andy_flow as af
-    return af.flow_overview(as_of)
+    try:
+        return af.flow_overview(as_of)
+    except ValueError as e:                     # 非法 as_of → 400,不 500
+        raise HTTPException(status_code=400, detail=f"bad as_of: {e}") from e
 
 
 @app.get("/api/andy/flow/series/{signal_key}")
 def andy_flow_series(signal_key: str, theme: str | None = None,
                      company_id: str | None = None, as_of: str | None = None):
     from . import andy_flow as af
-    out = af.flow_series(signal_key, theme=theme, company_id=company_id, as_of=as_of)
+    try:
+        out = af.flow_series(signal_key, theme=theme, company_id=company_id, as_of=as_of)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"bad as_of: {e}") from e
     if "error" in out:
         raise HTTPException(status_code=404, detail=out["error"])
     return out

@@ -114,8 +114,18 @@ def _capital_flow(scope: str = "market", theme: str | None = None,
     from datetime import date as _date
 
     from ..research import flow
-    asof = _date.fromisoformat(as_of) if as_of else None
+    # 缺参必须显式报错,不能让 flow_snapshot 静默回退 market——否则全量 market 序列
+    # 顶着 theme/company 的名义回给模型,再被 8000 字符帽任意截断(MF 评审 #3)。
+    if scope == "theme" and not theme:
+        return {"error": "scope='theme' requires the `theme` argument", "themes": _THEME_ENUM}
+    if scope == "company" and not company_id:
+        return {"error": "scope='company' requires `company_id` (use find_company first)"}
+    try:
+        asof = _date.fromisoformat(as_of) if as_of else None
+    except ValueError:
+        return {"error": f"bad as_of {as_of!r} — use ISO YYYY-MM-DD"}
     snap = flow.flow_snapshot(scope, theme=theme, company_id=company_id, as_of=asof)
+    snap["scope"] = scope
     if scope == "theme":
         snap.pop("series", None)
     elif scope != "company":

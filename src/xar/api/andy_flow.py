@@ -53,14 +53,19 @@ def _short_interest_top(as_of: date | None, limit: int = 10) -> list[dict]:
 
 
 def _flow_events(as_of: date | None, limit: int = 12) -> list[dict]:
-    """语义 flow 事件流:量价越阈信号 + 投行点评抽取(市场级含 company/theme 双空行)。"""
+    """语义 flow 事件流:量价越阈信号 + 投行点评抽取(市场级含 company/theme 双空行)。
+    PIT 用 observed_at(知晓时)而非 event_date(经济期)——事件常在期末之后才插入,
+    只滤 event_date 会把后来才知道的事件泄进历史 as_of 视图(前视)。"""
+    from datetime import timedelta
+
+    pit = (as_of + timedelta(days=1)) if as_of else None
     rows = db.query(
         "SELECT e.event_type, e.event_date, e.polarity, e.summary, e.attrs, e.theme, "
         "c.name company FROM kg_events e LEFT JOIN companies c ON c.id=e.company_id "
         "WHERE e.event_type IN ('flow_signal','flow_insight') AND e.invalidated_at IS NULL"
-        + (" AND e.event_date <= %s" if as_of else "") +
+        + (" AND e.observed_at < %s" if pit else "") +
         " ORDER BY e.event_date DESC NULLS LAST, e.id DESC LIMIT %s",
-        ((as_of, limit) if as_of else (limit,)))
+        ((pit, limit) if pit else (limit,)))
     return [{"type": r["event_type"], "date": str(r["event_date"]) if r["event_date"] else None,
              "polarity": r["polarity"], "summary": r["summary"], "company": r["company"],
              "theme": r["theme"], "attrs": r["attrs"] or {}} for r in rows]

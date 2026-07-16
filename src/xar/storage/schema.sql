@@ -423,6 +423,10 @@ ALTER TABLE kg_events       ADD COLUMN IF NOT EXISTS realizes_event_id BIGINT RE
 CREATE INDEX IF NOT EXISTS idx_expert_asof  ON expert_insights(as_of);
 CREATE INDEX IF NOT EXISTS idx_events_theme ON kg_events(theme);
 CREATE INDEX IF NOT EXISTS idx_events_resolution ON kg_events(time_orientation, resolution);
+-- 资金流语义抽取(kg/flow_extract.py)的处理游标:专列而非 meta 键——ingestion.save()
+-- 的 ON CONFLICT 会整体覆盖 meta,meta 里的标记在文档重复入库时被抹掉导致复烧 LLM;
+-- 独立列与 kg_extracted_at 同一范式,不受 meta 覆盖影响。
+ALTER TABLE documents       ADD COLUMN IF NOT EXISTS flow_extracted_at TIMESTAMPTZ;
 
 -- Single timestamped "semantic fact stream": the surface the LLM agent and the
 -- backtest read. Unions the catalyst-event layer (kg_events) and the expert

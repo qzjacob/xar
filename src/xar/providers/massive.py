@@ -85,39 +85,49 @@ def short_interest(ticker: str, limit: int = 12) -> list[dict]:
 
 # ── 3) 期权 Put/Call 快照 ──────────────────────────────────────────────────────
 def pc_snapshot(ticker: str, window_days: int = 30) -> dict | None:
-    """近月 ±10% 平值带期权链的 Put/Call 比。volume 口径优先(日内活跃度),链上无量
-    (盘前/字段缺失)退回 open_interest 口径;两者皆缺 → None。
+    """近月 ±10% 平值带期权链的 Put/Call 比。volume 口径优先(日内活跃度,两侧都要有量
+    才可信),退回 open_interest 口径;两者皆缺 → None。
 
-    必须加 strike 括号:不加时 limit=250 只取到期权符号排序的前段(call 在 put 前),
-    样本几乎全是 call,P/C 严重失真(真机捕获 0.05);平值带内 put/call 都在且成交
-    集中,是常用的 NTM P/C 口径。"""
+    两条采样纪律(真机捕获):① 必须加 strike 括号——不加时结果按期权符号排序,
+    call 整块在 put 前,首页样本几乎全 call,P/C 失真到 0.05;拿不到现货价就放弃,
+    绝不退回无括号采样。② 必须跟 next_url 分页——SPY 平值带 × 30 天窗仍超单页
+    250 张,单页会把 put 块截掉。"""
     today = date.today()
     first = _get(f"v3/snapshot/options/{ticker}", {"limit": 1})
     spot = (((first or {}).get("results") or [{}])[0].get("underlying_asset") or {}).get("price")
+    if not spot:
+        return None
     params = {"expiration_date.gte": today.isoformat(),
               "expiration_date.lte": (today + timedelta(days=window_days)).isoformat(),
+              "strike_price.gte": round(0.9 * float(spot), 2),
+              "strike_price.lte": round(1.1 * float(spot), 2),
               "limit": 250}
-    if spot:
-        params["strike_price.gte"] = round(0.9 * float(spot), 2)
-        params["strike_price.lte"] = round(1.1 * float(spot), 2)
-    js = _get(f"v3/snapshot/options/{ticker}", params)
-    rows = (js or {}).get("results") or []
     vol = {"put": 0.0, "call": 0.0}
     oi = {"put": 0.0, "call": 0.0}
-    for r in rows:
-        ctype = (r.get("details") or {}).get("contract_type")
-        if ctype not in ("put", "call"):
-            continue
-        v = (r.get("day") or {}).get("volume")
-        if v:
-            vol[ctype] += float(v)
-        o = r.get("open_interest")
-        if o:
-            oi[ctype] += float(o)
+    n = 0
+    js = _get(f"v3/snapshot/options/{ticker}", params)
+    for _page in range(6):                       # 分页帽:6 × 250 = 1500 张,平值带足够
+        rows = (js or {}).get("results") or []
+        n += len(rows)
+        for r in rows:
+            ctype = (r.get("details") or {}).get("contract_type")
+            if ctype not in ("put", "call"):
+                continue
+            v = (r.get("day") or {}).get("volume")
+            if v:
+                vol[ctype] += float(v)
+            o = r.get("open_interest")
+            if o:
+                oi[ctype] += float(o)
+        nxt = (js or {}).get("next_url")
+        if not nxt:
+            break
+        headers = {"Authorization": f"Bearer {get_settings().massive_api_key}"}
+        js = get_json(nxt, headers=headers, host=_HOST)
     for basis, agg in (("volume", vol), ("oi", oi)):
-        if agg["call"] > 0 and (agg["put"] + agg["call"]) > 0:
+        if agg["call"] > 0 and agg["put"] > 0:   # 两侧都有数据才选该口径(单边0=数据残缺)
             return {"ticker": ticker, "pc": round(agg["put"] / agg["call"], 4),
-                    "basis": basis, "contracts": len(rows)}
-    if rows:
-        log.warning("massive pc_snapshot %s: %d contracts but no volume/OI fields", ticker, len(rows))
+                    "basis": basis, "contracts": n}
+    if n:
+        log.warning("massive pc_snapshot %s: %d contracts but one-sided volume/OI", ticker, n)
     return None
