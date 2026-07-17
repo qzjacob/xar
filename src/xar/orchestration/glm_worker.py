@@ -117,6 +117,7 @@ FETCHY_SOURCES: dict[str, dict] = {   # cadence key → 标签/节拍(小时;Non
     "aifinmarket_theme": {"label": "万得主题资讯", "hours": 24},
     "earnings_watch": {"label": "季报观察窗(日历/预期/隐波)", "hours": 6},
     "flow": {"label": "资金流(ETF/风格/空头/期权)", "hours": 24},
+    "andy_macro": {"label": "Andy 宏观库(FRED vintage/识别/登记簿/勾稽)", "hours": 24},
 }
 FETCHY_STAGES: dict[str, str] = {     # run_once 阶段 → 标签
     "parse": "解析 + 本地嵌入(零 LLM)",
@@ -402,6 +403,7 @@ def _pull_fresh(cfg: dict | None = None) -> dict:
     _run("aifinmarket_theme", 24 * 3600, _aifin_theme)
     _run("earnings_watch", 6 * 3600, _earnings_watch)   # 季报观察窗:日历/analyst/隐含波动刷新
     _run("flow", 24 * 3600, _flow_daily)                # 资金流:ETF/风格/空头/期权 → alt_signals
+    _run("andy_macro", 24 * 3600, _andy_macro)          # Andy 宏观库:连接器/识别/登记簿/勾稽
     return out
 
 
@@ -409,6 +411,46 @@ def _flow_daily() -> dict:
     from ..research import flow
 
     return flow.run_daily()
+
+
+def _andy_macro() -> dict:
+    """Andy 宏观库日更(零 LLM):FRED 等连接器 → 识别引擎 → 登记簿评估 → 勾稽桥。
+    复刻 daily.py 的 opt-in macro 块为常驻源(Fetchy 可关);全链幂等,双跑无害。"""
+    from datetime import date as _date
+
+    from slx.engine import overclaim
+    from slx.ingestion.discovery import discover_connectors
+    from slx.ingestion.identification_panels import run_identification
+
+    from ..cli import _bridge_slx_env
+    from ..ingestion import macro_bridge
+
+    _bridge_slx_env()                      # xar settings → slx env(FRED/BEA/… key 注入)
+    swept, failed = 0, []
+    for source_id, (cls, is_primary) in sorted(discover_connectors().items()):
+        # seed=测试种子;stooq/bls 沙箱网络被封从未成功——跳过省时,别的源单跑单容错
+        if not is_primary or source_id in ("seed", "stooq", "bls"):
+            continue
+        try:
+            cls().run()                    # 行落 slx.observation;审计在 audit_log
+            swept += 1
+        except Exception as e:  # noqa: BLE001
+            failed.append(source_id)
+            log.warning("andy_macro connector %s: %s", source_id, str(e)[:120])
+    out: dict = {"sources": swept}
+    if failed:
+        out["failed"] = failed
+    try:
+        run_identification(_date.today())
+        overclaim.run(_date.today())
+        out["engine"] = "ok"
+    except Exception as e:  # noqa: BLE001
+        out["engine_error"] = str(e)[:120]
+    try:
+        out["bridge"] = macro_bridge.sync(_date.today())
+    except Exception as e:  # noqa: BLE001
+        out["bridge_error"] = str(e)[:120]
+    return out
 
 
 def _earnings_watch() -> dict:

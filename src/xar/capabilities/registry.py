@@ -371,11 +371,16 @@ CAPABILITIES: list[CapabilitySpec] = [
                    _obj({"company_id": _CID}),
                    _coverage_360),
     CapabilitySpec("macro_indicators",
-                   "XAR Andy macro module (siliconomics 宏观指标库). Modes: theme → the macro panel "
-                   "cross-linked (勾稽) to one industry chain, with point-in-time readings at as_of "
-                   "(look-ahead-safe) + overclaim-claim statuses; metric → reverse crosswalk for one "
-                   "metric_key (linked themes/segments/tech-routes/companies + rationale); omit both → "
-                   "the full 8-theme crosswalk matrix. ALWAYS quote the identification watermark: soft "
+                   "XAR Andy macro module — a macro-economics DATABASE with siliconomics at its core "
+                   "(rates/inflation/growth/liquidity/credit/fiscal/fx/sentiment families + the silicon "
+                   "ontology, all vintage-aware PIT). Modes: theme → the macro panel cross-linked (勾稽) "
+                   "to one industry chain, with point-in-time readings at as_of (look-ahead-safe) + "
+                   "overclaim-claim statuses; metric → reverse crosswalk for one metric_key (linked "
+                   "themes/segments/tech-routes/companies + rationale + its TRANSMISSION chains "
+                   "upstream/downstream, e.g. real rates → hyperscaler capex → training compute); omit "
+                   "both → the full 8-theme crosswalk matrix. For 利率/流动性/通胀 questions, query the "
+                   "relevant metric_key (e.g. rates.ust_10y_real, liquidity.bank_reserves, credit.hy_oas) "
+                   "and follow its transmissions. ALWAYS quote the identification watermark: soft "
                    "metrics are 未识别 (unidentified) — never present them as causal facts.",
                    _obj({"theme": _THEME,
                          "metric_key": {"type": "string",

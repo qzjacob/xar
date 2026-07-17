@@ -4,9 +4,11 @@
 // 404 until the backend lands — callers must catch and degrade gracefully.
 import type {
   AndyAnchorsList,
+  AndyChainResponse,
   AndyClaimsList,
   AndyEvaluateResult,
   AndyFlowResponse,
+  AndyMacroResponse,
   AndyMetricReading,
   AndyMetricsList,
   AndySourcesResponse,
@@ -60,4 +62,10 @@ export const andy = {
     get<LinkMetricDetail>(`/api/andy/link/metric/${encodeURIComponent(key)}`),
   // 资金流策略面(XAR-native shadow route;与勾稽同约:404 时调用方优雅降级)
   flow: (asOf: string) => get<AndyFlowResponse>(`/api/andy/flow${q({ as_of: asOf })}`),
+  // 宏观数据库台 + 传导链(AM;XAR-native shadow routes)
+  macro: (asOf: string) => get<AndyMacroResponse>(`/api/andy/macro${q({ as_of: asOf })}`),
+  chain: (key: string, asOf: string, depth = 3) =>
+    get<AndyChainResponse>(
+      `/api/andy/link/chain/${encodeURIComponent(key)}${q({ as_of: asOf, depth })}`,
+    ),
 };

@@ -18,6 +18,9 @@ from xar.ontology.macro_links import (
     OVERCLAIM_LINKS,
     PLATFORM_METRICS,
     THEME_TO_METRICS,
+    TRANSMISSIONS,
+    TRANSMISSIONS_BY_FROM,
+    TRANSMISSIONS_BY_TO,
 )
 
 _REG = Path(slx.__file__).resolve().parent / "registry"
@@ -87,3 +90,33 @@ def test_reverse_index_consistency():
         assert theme in THEMES
         for li in links:
             assert theme in li.themes
+
+
+def test_transmissions_valid():
+    """传导链本体（AM）：端点合法（metric ∪ theme:{id} ∪ flow:risk_on）、sign 词表、
+    无自环、rationale 非空;from 端必须是可观测 metric（哨兵只能当 to 端）。"""
+    reg = _registry_metric_keys()
+
+    def endpoint_ok(k: str) -> bool:
+        if k.startswith("theme:"):
+            return k.removeprefix("theme:") in THEMES
+        if k.startswith("flow:"):
+            return k == "flow:risk_on"
+        return k in reg
+
+    assert TRANSMISSIONS, "TRANSMISSIONS empty"
+    for t in TRANSMISSIONS:
+        assert t.from_key in reg, f"{t.from_key}: from 端必须是 registry metric"
+        assert endpoint_ok(t.to_key), f"{t.from_key}->{t.to_key}: bad to endpoint"
+        assert t.from_key != t.to_key, f"self-loop {t.from_key}"
+        assert t.sign in ("+", "-", "±"), f"{t.from_key}->{t.to_key}: bad sign {t.sign}"
+        assert t.rationale_zh, f"{t.from_key}->{t.to_key}: rationale_zh required"
+    # 派生索引一致
+    assert sum(len(v) for v in TRANSMISSIONS_BY_FROM.values()) == len(TRANSMISSIONS)
+    assert sum(len(v) for v in TRANSMISSIONS_BY_TO.values()) == len(TRANSMISSIONS)
+
+
+def test_bridge_min_gap_sane():
+    """节流字段:非负;日频市场序列(28)之外默认 0。"""
+    for link in MACRO_LINKS:
+        assert link.bridge_min_gap_days >= 0, link.metric_key

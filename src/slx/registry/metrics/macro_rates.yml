@@ -1,0 +1,139 @@
+# 指标族：rates（利率）—— 宏观外环第一环：贴现锚与政策传导。
+# AM 波次：AI 资本形成是超长久期资产，利率结构 = 其贴现率与融资成本的全部前提。
+# 全部 FRED/ALFRED（A_official，vintage-aware PIT）；锚定 META_transmission + A5/A8。
+metrics:
+  - metric_key: rates.ust_2y
+    display_name_zh: 美债 2 年期收益率
+    family: rates
+    theory_anchor: [META_transmission, A5]
+    mechanism: 政策路径预期的市场定价——领先联邦基金利率转向，决定风险资产贴现的前段与融资市场的边际价格。
+    hardness: hard
+    falsification_condition: 与联邦基金利率实际路径持续背离 >200bp 达 4 季，则"政策预期定价"通道在该窗内失真。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 日频市场价，无修订；反映预期而非政策本身。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: DGS2, source_grade: A_official, ingest_cadence: daily, vintage_aware: false, url: "https://fred.stlouisfed.org/series/DGS2" }
+
+  - metric_key: rates.ust_10y
+    display_name_zh: 美债 10 年期收益率
+    family: rates
+    theory_anchor: [META_transmission, A5]
+    mechanism: 全球资产定价锚——AI 基础设施是超长久期资产，10Y 名义收益率是其贴现率中枢与全部估值倍数的分母。
+    hardness: hard
+    falsification_condition: 10Y 大幅上行而 hyperscaler capex 与科技估值倍数长期不响应（8 季），则"贴现锚传导"被削弱。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 名义收益率=实际+盈亏平衡通胀，判读须与 DFII10/T10YIE 分解联读。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: DGS10, source_grade: A_official, ingest_cadence: daily, vintage_aware: false, url: "https://fred.stlouisfed.org/series/DGS10" }
+
+  - metric_key: rates.ust_30y
+    display_name_zh: 美债 30 年期收益率
+    family: rates
+    theory_anchor: [META_transmission, A5]
+    mechanism: 超长端=期限溢价+长期增长/通胀预期；数据中心 30 年实物资产久期的直接对标利率。
+    hardness: hard
+    falsification_condition: 超长端与数据中心项目融资利率长期脱钩，则久期对标失效。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 期限溢价不可直接观测，需模型分解（ACM 等）辅助判读。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: DGS30, source_grade: A_official, ingest_cadence: daily, vintage_aware: false, url: "https://fred.stlouisfed.org/series/DGS30" }
+
+  - metric_key: rates.ust_2s10s_spread
+    display_name_zh: 2s10s 期限利差
+    family: rates
+    theory_anchor: [META_transmission, A5]
+    mechanism: 收益率曲线斜率=最经典的周期领先指标——倒挂压缩银行息差、收缩信贷供给，领先实体投资（含 AI capex 的信贷融资部分）转弱。
+    hardness: hard
+    falsification_condition: 深度倒挂后 8 季内实际 GDP 与工业产出未减速，则本轮"曲线→周期"领先性失效（须记录为反例）。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 本轮 QE/QT 扭曲期限溢价，倒挂的衰退信号含义弱于历史基准。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: T10Y2Y, source_grade: A_official, ingest_cadence: daily, vintage_aware: false, url: "https://fred.stlouisfed.org/series/T10Y2Y" }
+
+  - metric_key: rates.ust_10y_real
+    display_name_zh: 10 年期实际利率（TIPS）
+    family: rates
+    theory_anchor: [META_transmission, A5]
+    mechanism: AI capex 是超长久期实物投资，实际利率=其真实融资成本锚——实际利率每上 100bp，超大规模云厂资本开支的 NPV 门槛同步抬升；这是宏观外环压向硅基核心的最短传导链。
+    hardness: hard
+    falsification_condition: 实际利率 ≥2% 持续 4 季而 hyperscaler capex 增速不降（capex.hyperscaler_capex slope ≥ 0），则"贴现压制"被证伪（对应登记簿 high_real_rates_compress_capex）。
+    decision_window: 1-2y
+    source_grade: A_official
+    caveat: TIPS 市场含流动性溢价，极端时点（2020-03）读数失真。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: DFII10, source_grade: A_official, ingest_cadence: daily, vintage_aware: false, url: "https://fred.stlouisfed.org/series/DFII10" }
+
+  - metric_key: rates.breakeven_10y
+    display_name_zh: 10 年期盈亏平衡通胀
+    family: rates
+    theory_anchor: [META_transmission, A8]
+    mechanism: 市场通胀预期——名义/实际利率的分解件，判断利率上行由"增长"还是"通胀"驱动；对硅基通缩叙事（单位智能价格指数下行）是货币侧对照组。
+    hardness: hard
+    falsification_condition: 盈亏平衡与实际通胀实现值系统性偏离 >150bp 达 8 季，则该预期代理失真。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 含通胀风险溢价与流动性溢价，非纯预期。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: T10YIE, source_grade: A_official, ingest_cadence: daily, vintage_aware: false, url: "https://fred.stlouisfed.org/series/T10YIE" }
+
+  - metric_key: rates.sofr
+    display_name_zh: SOFR 担保隔夜融资利率
+    family: rates
+    theory_anchor: [META_transmission, META_liquidity]
+    mechanism: 货币市场的实际资金价格——政策利率向融资市场传导的第一站；SOFR 对 IORB 的偏离是准备金稀缺度的直接体温计。
+    hardness: hard
+    falsification_condition: SOFR 持续显著高于政策走廊上沿而准备金充裕，则"第一站传导"须重估（回购市场结构变化）。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 月末/季末回购市场技术性尖峰须剔除后判读。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: SOFR, source_grade: A_official, ingest_cadence: daily, vintage_aware: true, url: "https://fred.stlouisfed.org/series/SOFR" }
+
+  - metric_key: rates.mortgage_30y
+    display_name_zh: 30 年期按揭利率
+    family: rates
+    theory_anchor: [META_transmission, A5]
+    mechanism: 利率→居民部门传导的主通道——压制房市→建筑→耐用品消费链条，牵动消费周期主题（retail/restaurants）的宏观闸门。
+    hardness: hard
+    falsification_condition: 按揭利率高位 4 季而新屋开工不降，则居民端利率传导钝化（锁定效应主导）。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 存量低息按揭锁定效应使本轮传导弱于历史弹性。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: MORTGAGE30US, source_grade: A_official, ingest_cadence: weekly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/MORTGAGE30US" }

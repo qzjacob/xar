@@ -1,0 +1,156 @@
+# 指标族：liquidity（流动性层级）+ credit（信用条件）—— 宏观外环第三环：
+# 央行→银行准备金→市场融资条件→风险资产/AI 资本形成承接力（META_liquidity 逐层追踪纪律）。
+# 全部 FRED（A_official；ICE BofA OAS 两条 B_public_curated）。
+metrics:
+  - metric_key: liquidity.fed_total_assets
+    display_name_zh: 美联储总资产
+    family: liquidity
+    theory_anchor: [META_liquidity, A8]
+    mechanism: 流动性层级之源——QE/QT 直接改变系统准备金与风险资产承接力；恒等式起点：Fed 资产 − RRP − TGA ≈ 银行准备金。
+    hardness: hard
+    falsification_condition: 追踪指标；证伪对象在传导链 fed_total_assets→bank_reserves。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 周三快照（H.4.1），含临时工具（BTFP 类）需分项判读。
+    is_quantifiable: true
+    unit: mil_usd
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: WALCL, source_grade: A_official, ingest_cadence: weekly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/WALCL" }
+
+  - metric_key: liquidity.on_rrp
+    display_name_zh: 隔夜逆回购余额（ON RRP）
+    family: liquidity
+    theory_anchor: [META_liquidity, A8]
+    mechanism: 体系过剩流动性的蓄水池——货币基金停泊处；RRP 抽干=缓冲耗尽，其后 QT 直接侵蚀银行准备金，流动性边际由钝转锐。
+    hardness: hard
+    falsification_condition: RRP 归零后准备金不降而 QT 继续，则蓄水池次序论须重估（TGA/其他项吸收）。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 季末监管冲点造成尖峰，判读剔除。
+    is_quantifiable: true
+    unit: bil_usd
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: RRPONTSYD, source_grade: A_official, ingest_cadence: daily, vintage_aware: false, url: "https://fred.stlouisfed.org/series/RRPONTSYD" }
+
+  - metric_key: liquidity.tga
+    display_name_zh: 财政部一般账户（TGA）
+    family: liquidity
+    theory_anchor: [META_liquidity, A8]
+    mechanism: 财政的抽放水阀——TGA 重建=从市场抽流动性，TGA 下放=注入;债务上限周期使其成为准备金的高频扰动源。
+    hardness: hard
+    falsification_condition: 追踪指标；证伪对象在传导链 tga→bank_reserves。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 受发债节奏与税期驱动，短期波动与政策意图无关。
+    is_quantifiable: true
+    unit: bil_usd
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: WTREGEN, source_grade: A_official, ingest_cadence: weekly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/WTREGEN" }
+
+  - metric_key: liquidity.bank_reserves
+    display_name_zh: 银行准备金
+    family: liquidity
+    theory_anchor: [META_liquidity, A8]
+    mechanism: 流动性层级的关键中间变量——Fed 资产−RRP−TGA 的恒等式余项，直接决定银行体系的风险承接与做市能力；对风险资产广度（等权跑赢）与资金流 risk-on 是最硬的流动性解释变量。
+    hardness: hard
+    falsification_condition: 准备金持续收缩 4 季而市场广度（mktcap.rsp_vs_spy_excess_return）与 risk-on 不响应，则"准备金→风险资产承接"传导被削弱（对应登记簿 liquidity_drives_breadth）。
+    decision_window: 1-2y
+    source_grade: A_official
+    caveat: 「充裕准备金」阈值不可直接观测（联储自己也在探），水平判读须对 GDP/银行资产标准化。
+    is_quantifiable: true
+    unit: bil_usd
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: WRESBAL, source_grade: A_official, ingest_cadence: weekly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/WRESBAL" }
+
+  - metric_key: liquidity.m2
+    display_name_zh: M2 货币供应
+    family: liquidity
+    theory_anchor: [META_liquidity, A8]
+    mechanism: 广义货币存量——货币主义对照组：M2 增速对通胀的长滞后（18-24 月）领先关系；也是 A8"货币锚让渡"论的传统侧基准。
+    hardness: hard
+    falsification_condition: M2 增速大幅波动而 2 年后通胀无响应（连续两轮），则货币数量论通道在现代金融结构下失效。
+    decision_window: 2-3y
+    source_grade: A_official
+    caveat: 2020 疫情后货币流通速度剧变，Q 理论判读须谨慎。
+    is_quantifiable: true
+    unit: bil_usd
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: M2SL, source_grade: A_official, ingest_cadence: monthly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/M2SL" }
+
+  - metric_key: credit.hy_oas
+    display_name_zh: 高收益债 OAS（ICE BofA）
+    family: credit
+    theory_anchor: [META_liquidity, A5]
+    mechanism: 风险融资成本的市场定价——AI 中小链公司（光模块/设备/新进入者）融资面的直接约束；A5 双相论的"撞墙"预警器：信用压力是递增相翻转为硬约束相的第一金融信号。
+    hardness: hard
+    falsification_condition: HY OAS ≥500bp 持续 2 季而 AI 中小链融资/capex 不收缩，则"信用面约束"传导被削弱（对应登记簿 credit_stress_breaks_ai_loop）。
+    decision_window: 1-2y
+    source_grade: B_public_curated
+    caveat: ICE BofA 指数口径；能源占 HY 权重高，油价冲击会污染总口径。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: BAMLH0A0HYM2, source_grade: B_public_curated, ingest_cadence: daily, vintage_aware: true, url: "https://fred.stlouisfed.org/series/BAMLH0A0HYM2" }
+
+  - metric_key: credit.ig_oas
+    display_name_zh: 投资级 OAS（ICE BofA）
+    family: credit
+    theory_anchor: [META_liquidity, A5]
+    mechanism: 大盘融资成本的价差基准——hyperscaler 与大型半导体公司发债融 capex 的直接定价；IG 利差走阔=巨头资本开支的债券融资通道收紧。
+    hardness: hard
+    falsification_condition: 追踪指标；证伪对象在传导链 nfci→hy_oas 与 hy_oas→capex。
+    decision_window: testable_now
+    source_grade: B_public_curated
+    caveat: 久期构成随发行结构漂移；与国债流动性溢价纠缠。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: BAMLC0A0CM, source_grade: B_public_curated, ingest_cadence: daily, vintage_aware: true, url: "https://fred.stlouisfed.org/series/BAMLC0A0CM" }
+
+  - metric_key: credit.nfci
+    display_name_zh: 芝加哥联储金融条件指数（NFCI）
+    family: credit
+    theory_anchor: [META_liquidity, A5]
+    mechanism: 金融条件的综合刻度（利率/信用/杠杆 105 个分项）——领先信用利差与实体信贷；正值=紧于历史均值。
+    hardness: hard
+    falsification_condition: NFCI 持续为正（紧）4 季而信用利差与实体投资不响应，则综合指数的领先性失效。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 指数会全序列重估（模型重估计），vintage 读取必要。
+    is_quantifiable: true
+    unit: index
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: NFCI, source_grade: A_official, ingest_cadence: weekly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/NFCI" }
+
+  - metric_key: credit.sloos_ci_standards
+    display_name_zh: SLOOS 工商业贷款标准收紧净比例
+    family: credit
+    theory_anchor: [META_transmission, A5]
+    mechanism: 银行信贷闸门的调查真值——大中型企业工商业贷款标准收紧比例领先工业产出与中小企业投资 2-3 季；是"利率→银行→实体"传导链的中间证词。
+    hardness: hard
+    falsification_condition: 收紧净比例 >30% 持续 2 季而工业产出 4 季不降，则信贷闸门传导钝化（直接融资替代）。
+    decision_window: 1-2y
+    source_grade: A_official
+    caveat: 季频调查，样本为高级信贷官主观判断；幅度含义弱于方向。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: DRTSCILM, source_grade: A_official, ingest_cadence: quarterly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/DRTSCILM" }

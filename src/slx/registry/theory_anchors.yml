@@ -61,3 +61,16 @@ anchors:
     industrial_assumption: 被松弛的约束净消失。
     silicon_restatement: 解除一类约束必把另一类顶到瓶颈；总稀缺不会净消失，只会改址。对每条"AI 解除了 X"强制追问"什么顶替了 X"。
     verdict: 承重梁（禁止净消失）
+
+  # ── 宏观外环元锚点（AM 波次）：把传统宏观追踪族咬合进硅基核心的两条纪律 ──
+  - anchor_key: META_transmission
+    title: 宏观传导（Macro Transmission to the Silicon Core）
+    industrial_assumption: 宏观变量（利率、增长、通胀、汇率）通过一般均衡弥散作用于所有部门，无需为单一产业单列传导。
+    silicon_restatement: AI 资本形成是超长久期、超大单笔的实物投资：实际利率=其贴现锚，融资条件=其闸门，宏观不再是背景噪声而是硅基回路的一阶输入。每条宏观指标必须写明"经由何种机制传导到算力/能源/资本开支"，传导链显式建模（TRANSMISSIONS），不做无逻辑堆数。
+    verdict: 承重梁（宏观须显式传导，禁止背景化）
+
+  - anchor_key: META_liquidity
+    title: 流动性层级（The Liquidity Hierarchy）
+    industrial_assumption: 货币数量单层作用于价格水平；流动性是同质总量。
+    silicon_restatement: 流动性分层传导：央行资产负债表 → 银行准备金（−RRP−TGA 恒等式余项）→ 市场融资条件 → 风险资产与 AI 资本形成的承接力。每层有独立蓄水池与阀门，边际变化在层间非线性放大；追踪必须逐层，不看单一总量。
+    verdict: 承重梁（逐层追踪，禁止单总量）

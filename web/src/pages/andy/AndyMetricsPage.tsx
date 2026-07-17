@@ -9,6 +9,7 @@ import {
   AnchorChip,
   HARDNESS_META,
   HardnessBadge,
+  familyMeta,
   sourceGradeLabel,
 } from "../../components/andy/constants";
 import { AndyContainer, AndyError, AndyHeader, AndyLoading, useAsync } from "./_shared";
@@ -40,7 +41,10 @@ export function AndyMetricsPage() {
   const [theme, setTheme] = useState<string | null>(() => sp.get("theme"));
 
   const families = useMemo(
-    () => [...new Set((metricsQ.data?.metrics ?? []).map((m) => m.family))].sort(),
+    () =>
+      [...new Set((metricsQ.data?.metrics ?? []).map((m) => m.family))].sort(
+        (a, b) => familyMeta(a).order - familyMeta(b).order || a.localeCompare(b),
+      ),
     [metricsQ.data],
   );
 
@@ -121,7 +125,7 @@ export function AndyMetricsPage() {
         <select value={family} onChange={(e) => setFamily(e.target.value)} className={INPUT}>
           <option value="">全部 family</option>
           {families.map((f) => (
-            <option key={f} value={f}>{f}</option>
+            <option key={f} value={f}>{familyMeta(f).cn} · {f}</option>
           ))}
         </select>
         <div className="flex items-center gap-1">

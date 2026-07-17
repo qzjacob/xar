@@ -3,6 +3,8 @@
 产出（registry sources 标 source_id=fred, vintage_aware=true）：
   labor.labor_share   ← FRED series PRS85006173（非农劳动报酬份额，季度）
   macro.fed_funds_rate ← FRED series FEDFUNDS（联邦基金有效利率，月度）
+  + AM 宏观外环 38 序列（rates/inflation/growth/liquidity/credit/fiscal/fx_commodity/
+    sentiment 八族,见 SERIES 表;vintage 窗统一截到 2015,老观测只会"晚知"不"早知"）
 
 为什么必须带 vintage（前视防护命门）：
   这两个序列**会被修订**。回测/登记簿判定只能用"那天能知道的值"。ALFRED 暴露每个
@@ -21,16 +23,73 @@
 from __future__ import annotations
 
 import os
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd  # fredapi 依赖 pandas；与现有栈一致
 
 from slx.ingestion.base import Connector
 
-# (metric_key, series_id, unit) —— series_id 与 registry/metrics/*.yml 完全一致。
+# (metric_key, series_id, unit, realtime_start) —— series_id 与 registry/metrics/*.yml 完全一致。
+# realtime_start：vintage 窗下界（None=全历史）。AM 宏观族统一截到 2015——重修订月频序列
+# (CPI/GDP/非农…) 的全量 vintage 可达 10^5 行/序列;截断后 PIT 语义仍保守安全
+# (老观测的 knowledge_time 被钳到窗口起点,只会"晚知"不会"早知")。
+_RT = "2015-01-01"
+
+# 日频"从不修订"的市场序列走普通序列取数(真机捕获:ALFRED 对窗口内 >2000 个
+# vintage 日期的序列直接 400——日频序列每天一个 vintage,2015 起 ≈2900 个超帽)。
+# 这些序列本就无修订,vintage 展开无信息;knowledge_time 合成为 valid_time 次日
+# (市场收盘数据次日可知,PIT 保守诚实)。
+_DAILY_MODE = {"DGS2", "DGS10", "DGS30", "T10Y2Y", "DFII10", "T10YIE",
+               "RRPONTSYD", "VIXCLS"}
 SERIES = [
-    ("labor.labor_share", "PRS85006173", "pct"),
-    ("macro.fed_funds_rate", "FEDFUNDS", "pct"),
+    ("labor.labor_share", "PRS85006173", "pct", None),
+    ("macro.fed_funds_rate", "FEDFUNDS", "pct", None),
+    # ── rates 利率(AM 波次) ──────────────────────────────────────────────
+    ("rates.ust_2y", "DGS2", "pct", _RT),
+    ("rates.ust_10y", "DGS10", "pct", _RT),
+    ("rates.ust_30y", "DGS30", "pct", _RT),
+    ("rates.ust_2s10s_spread", "T10Y2Y", "pct", _RT),
+    ("rates.ust_10y_real", "DFII10", "pct", _RT),
+    ("rates.breakeven_10y", "T10YIE", "pct", _RT),
+    ("rates.sofr", "SOFR", "pct", _RT),
+    ("rates.mortgage_30y", "MORTGAGE30US", "pct", _RT),
+    # ── inflation 通胀 ───────────────────────────────────────────────────
+    ("inflation.cpi", "CPIAUCSL", "index", _RT),
+    ("inflation.core_cpi", "CPILFESL", "index", _RT),
+    ("inflation.core_pce", "PCEPILFE", "index", _RT),
+    ("inflation.sticky_cpi_yoy", "CORESTICKM159SFRBATL", "pct", _RT),
+    ("inflation.ppi", "PPIACO", "index", _RT),
+    # ── growth 增长 ──────────────────────────────────────────────────────
+    ("growth.real_gdp", "GDPC1", "bil_usd", _RT),
+    ("growth.industrial_production", "INDPRO", "index", _RT),
+    ("growth.retail_sales", "RSAFS", "mil_usd", _RT),
+    ("growth.nonfarm_payrolls", "PAYEMS", "thousands", _RT),
+    ("growth.unemployment_rate", "UNRATE", "pct", _RT),
+    ("growth.initial_claims", "ICSA", "count", _RT),
+    ("growth.housing_starts", "HOUST", "thousands", _RT),
+    ("growth.job_openings", "JTSJOL", "thousands", _RT),
+    ("growth.avg_hourly_earnings", "CES0500000003", "usd", _RT),
+    # ── liquidity 流动性层级 ─────────────────────────────────────────────
+    ("liquidity.fed_total_assets", "WALCL", "mil_usd", _RT),
+    ("liquidity.on_rrp", "RRPONTSYD", "bil_usd", _RT),
+    ("liquidity.tga", "WTREGEN", "bil_usd", _RT),
+    ("liquidity.bank_reserves", "WRESBAL", "bil_usd", _RT),
+    ("liquidity.m2", "M2SL", "bil_usd", _RT),
+    # ── credit 信用条件 ──────────────────────────────────────────────────
+    ("credit.hy_oas", "BAMLH0A0HYM2", "pct", _RT),
+    ("credit.ig_oas", "BAMLC0A0CM", "pct", _RT),
+    ("credit.nfci", "NFCI", "index", _RT),
+    ("credit.sloos_ci_standards", "DRTSCILM", "pct", _RT),
+    # ── fiscal 财政 ──────────────────────────────────────────────────────
+    ("fiscal.federal_deficit", "MTSDS133FMS", "mil_usd", _RT),
+    ("fiscal.public_debt", "GFDEBTN", "mil_usd", _RT),
+    # ── fx_commodity 汇率商品 ────────────────────────────────────────────
+    ("fx.usd_broad", "DTWEXBGS", "index", _RT),
+    ("cmdty.wti_crude", "DCOILWTICO", "usd_per_barrel", _RT),
+    ("cmdty.copper", "PCOPPUSDM", "usd_per_tonne", _RT),
+    # ── sentiment 情绪 ───────────────────────────────────────────────────
+    ("sentiment.umich", "UMCSENT", "index", _RT),
+    ("sentiment.vix", "VIXCLS", "index", _RT),
 ]
 
 
@@ -63,17 +122,53 @@ class FredAlfredConnector(Connector):
         return Fred(api_key=self._api_key)
 
     def fetch(self) -> list[dict]:
+        import time
+
         fred = self._client()
         rows: list[dict] = []
+        failed: list[str] = []
 
-        for metric_key, series_id, unit in SERIES:
+        for metric_key, series_id, unit, rt in SERIES:
             # get_series_all_releases：返回长表 [realtime_start(=发布日), date(=观测期), value]。
             # 这是 ALFRED 的 vintage 全量——每个 (观测期, 发布版) 一行。
-            df = fred.get_series_all_releases(series_id)
+            # 单序列失败绝不沉整跑（40 序列的批量拉取,一个停更/改名的 id 不能拖垮全部）。
+            n_before = len(rows)
+            if series_id in _DAILY_MODE:
+                try:
+                    ser = fred.get_series(series_id, observation_start=rt or "2015-01-01")
+                except Exception as e:  # noqa: BLE001
+                    failed.append(series_id)
+                    print(f"[fred_alfred] 警告：{metric_key}({series_id}) 拉取失败,跳过：{e}")
+                    continue
+                for idx, val in ser.items():
+                    if val is None or pd.isna(val):
+                        continue
+                    valid = _to_date(idx)
+                    release = valid + timedelta(days=1)   # 收盘数据次日可知(保守 PIT)
+                    rows.append({
+                        "metric_key": metric_key, "source_id": "fred",
+                        "value": float(val), "unit": unit, "valid_time": valid,
+                        "knowledge_time": datetime(release.year, release.month, release.day,
+                                                   tzinfo=timezone.utc),
+                        "vintage_date": release,
+                    })
+                print(f"[fred_alfred] {metric_key}({series_id}): 日频普通序列 "
+                      f"{len(rows) - n_before} 行(knowledge=次日)。")
+                time.sleep(0.6)
+                continue
+            try:
+                try:
+                    df = (fred.get_series_all_releases(series_id, realtime_start=rt)
+                          if rt else fred.get_series_all_releases(series_id))
+                except TypeError:      # 旧版 fredapi 不接受 realtime_start —— 退回全量
+                    df = fred.get_series_all_releases(series_id)
+            except Exception as e:  # noqa: BLE001
+                failed.append(series_id)
+                print(f"[fred_alfred] 警告：{metric_key}({series_id}) 拉取失败,跳过：{e}")
+                continue
             if df is None or len(df) == 0:
                 print(f"[fred_alfred] 提示：{series_id} 无数据返回，跳过。")
                 continue
-            n_before = len(rows)
             for _, r in df.iterrows():
                 val = r.get("value")
                 if val is None or pd.isna(val):
@@ -91,9 +186,12 @@ class FredAlfredConnector(Connector):
                     "vintage_date": release,  # ALFRED 口径：哪一版发布
                 })
             print(f"[fred_alfred] {metric_key}({series_id}): 展开 {len(rows) - n_before} 个 vintage 行。")
+            time.sleep(0.6)     # FRED 限速 120 req/min —— 批量拉取保持礼貌节拍
 
+        if failed:
+            print(f"[fred_alfred] 本轮失败序列({len(failed)}): {failed}")
         if not rows:
-            raise RuntimeError("[fred_alfred] 两序列均无数据——检查 API key 与连通性。")
+            raise RuntimeError("[fred_alfred] 全部序列均无数据——检查 API key 与连通性。")
         return rows
 
 

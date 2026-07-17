@@ -1,0 +1,241 @@
+# 指标族：inflation（通胀）+ growth（增长）—— 宏观外环第二环：联储反应函数的自变量与实体周期刻度。
+# AM 波次：通胀决定政策利率路径（→贴现锚），增长/劳动决定 A3/A6 解耦检验场。
+# 全部 FRED/ALFRED（A_official，vintage-aware：这些正是重修订序列，PIT 价值最大）。
+metrics:
+  - metric_key: inflation.cpi
+    display_name_zh: CPI 总指数（季调）
+    family: inflation
+    theory_anchor: [META_transmission, A8]
+    mechanism: 通胀总量刻度——联储反应函数的头号自变量，经政策利率传导为全链贴现率；修订与季调 vintage 使 PIT 读数与当期市场认知严格对齐。
+    hardness: hard
+    falsification_condition: 追踪指标；其证伪对象是所挂传导链 core_pce→fed_funds（见 TRANSMISSIONS），非序列本身。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 季调因子年度重估会改写历史；判读用同比/三月折年环比双口径。
+    is_quantifiable: true
+    unit: index
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: CPIAUCSL, source_grade: A_official, ingest_cadence: monthly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/CPIAUCSL" }
+
+  - metric_key: inflation.core_cpi
+    display_name_zh: 核心 CPI（季调，除食品能源）
+    family: inflation
+    theory_anchor: [META_transmission, A8]
+    mechanism: 剔除波动项后的底层通胀趋势——政策路径定价（rates.ust_2y）的核心输入。
+    hardness: hard
+    falsification_condition: 追踪指标；证伪对象在传导链。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 住房分项（OER）滞后市场租金约 4 季，判读需前瞻修正。
+    is_quantifiable: true
+    unit: index
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: CPILFESL, source_grade: A_official, ingest_cadence: monthly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/CPILFESL" }
+
+  - metric_key: inflation.core_pce
+    display_name_zh: 核心 PCE 物价指数
+    family: inflation
+    theory_anchor: [META_transmission, A8]
+    mechanism: 美联储 2% 目标的官方变量——联储反应函数最直接的自变量：core_pce 高于目标 → 政策利率维持限制性 → 全链贴现率承压。
+    hardness: hard
+    falsification_condition: core_pce 回到 2% 而政策利率长期不降（8 季），则简单反应函数失效（须补充金融稳定/财政主导项）。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: BEA 序列修订频繁，vintage 读取尤为重要。
+    is_quantifiable: true
+    unit: index
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: PCEPILFE, source_grade: A_official, ingest_cadence: monthly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/PCEPILFE" }
+
+  - metric_key: inflation.sticky_cpi_yoy
+    display_name_zh: 粘性 CPI 同比（亚特兰大联储）
+    family: inflation
+    theory_anchor: [META_transmission, A8]
+    mechanism: 服务/工资粘性通胀=鲍莫尔成本病的现世刻度——A8"软硬两相价格剪刀差"的宏观对照组：软相（智能）通缩 vs 粘性服务通胀的剪刀差是硅基经济学的核心价格现象。
+    hardness: hard
+    falsification_condition: 粘性通胀与软件/智能价格指数（price.software_vs_atom_scissors）剪刀差收敛归零达 8 季，则双相价格论被削弱。
+    decision_window: 1-2y
+    source_grade: A_official
+    caveat: 亚特兰大联储方法论固定但分项权重随 CPI 改版微调。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: CORESTICKM159SFRBATL, source_grade: A_official, ingest_cadence: monthly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/CORESTICKM159SFRBATL" }
+
+  - metric_key: inflation.ppi
+    display_name_zh: PPI 全部商品
+    family: inflation
+    theory_anchor: [META_transmission, A8]
+    mechanism: 上游价格→企业毛利传导——硬件链（芯片/光模块/服务器）成本侧压力表，领先 CPI 商品分项。
+    hardness: hard
+    falsification_condition: 追踪指标；证伪对象在传导链。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 全部商品口径含能源，波动大；判读辅以核心 PPI。
+    is_quantifiable: true
+    unit: index
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: PPIACO, source_grade: A_official, ingest_cadence: monthly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/PPIACO" }
+
+  - metric_key: growth.real_gdp
+    display_name_zh: 实际 GDP（链式 2017 美元）
+    family: growth
+    theory_anchor: [META_transmission, A6]
+    mechanism: 总量增长的权威刻度——AI 资本形成对 GDP 贡献（macro.ai_capex_gdp_contribution）的分母与对照；A6 解耦论的总量检验场：若 AI 兑现，GDP 与总工时增速应现剪刀差。
+    hardness: hard
+    falsification_condition: AI capex 高增 8 季而实际 GDP 增速无超额（对潜在增速），则"AI 资本形成拉动增长"在该窗内存疑。
+    decision_window: 2-3y
+    source_grade: A_official
+    caveat: 三次估计+年度基准修订，初值噪声大——vintage 读取是硬要求。
+    is_quantifiable: true
+    unit: bil_usd
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: GDPC1, source_grade: A_official, ingest_cadence: quarterly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/GDPC1" }
+
+  - metric_key: growth.industrial_production
+    display_name_zh: 工业产出指数
+    family: growth
+    theory_anchor: [META_transmission, A6]
+    mechanism: 实体制造业月频真值——信贷收紧（SLOOS）与利率传导的第一实体响应件；数据中心设备/电力设备制造在其分项中。
+    hardness: hard
+    falsification_condition: 追踪指标；证伪对象在传导链 sloos→industrial_production。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 修订频繁；制造业占经济比重持续下降，代表性递减。
+    is_quantifiable: true
+    unit: index
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: INDPRO, source_grade: A_official, ingest_cadence: monthly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/INDPRO" }
+
+  - metric_key: growth.retail_sales
+    display_name_zh: 零售销售（季调）
+    family: growth
+    theory_anchor: [META_transmission, A6]
+    mechanism: 居民需求高频真值——消费周期主题（retail/restaurants/internet）的宏观闸门；与主题级 Wind 社零/公司级月度数据构成宏微对照。
+    hardness: hard
+    falsification_condition: 追踪指标；证伪对象在传导链 umich→retail_sales。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 名义值含价格效应；修订可观，vintage 必要。
+    is_quantifiable: true
+    unit: mil_usd
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: RSAFS, source_grade: A_official, ingest_cadence: monthly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/RSAFS" }
+
+  - metric_key: growth.nonfarm_payrolls
+    display_name_zh: 非农就业人数
+    family: growth
+    theory_anchor: [META_transmission, A3]
+    mechanism: 劳动市场总量——A3（要素二分坍塌）与 A6（产出-人时解耦）的宏观检验场：若 AI 兑现，产出增速与就业增速应持续解耦；非农是这道剪刀差的分母侧。
+    hardness: hard
+    falsification_condition: 产出高增而非农同步高增（无解耦迹象）达 8 季，则解耦论在总量层未获支持。
+    decision_window: 2-3y
+    source_grade: A_official
+    caveat: 初值→终值修订可达数十万；基准年修订改写全序列——vintage 读取是硬要求。
+    is_quantifiable: true
+    unit: thousands
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: PAYEMS, source_grade: A_official, ingest_cadence: monthly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/PAYEMS" }
+
+  - metric_key: growth.unemployment_rate
+    display_name_zh: 失业率
+    family: growth
+    theory_anchor: [A3, META_transmission]
+    mechanism: 劳动市场松紧的存量刻度——萨姆规则等衰退判据的输入；AI 结构性替代若兑现，将首先表现为特定职业失业率的分化（与 labor_distribution 族微观面对照）。
+    hardness: hard
+    falsification_condition: 追踪指标；证伪对象在传导链 initial_claims→unemployment_rate。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 家庭调查口径，月度噪声大；劳动参与率变动会扭曲读数。
+    is_quantifiable: true
+    unit: pct
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: UNRATE, source_grade: A_official, ingest_cadence: monthly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/UNRATE" }
+
+  - metric_key: growth.initial_claims
+    display_name_zh: 初请失业金人数
+    family: growth
+    theory_anchor: [A3, META_transmission]
+    mechanism: 劳动市场最高频领先指标（周频）——裁员脉冲先于失业率 1-2 月出现；AI 替代叙事的最早宏观信号位。
+    hardness: hard
+    falsification_condition: 初请持续 >300k 而失业率 8 周不升，则领先关系临时失效（须查招聘吸收）。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 季调对假日/气候敏感，单周噪声大——判读用 4 周均线。
+    is_quantifiable: true
+    unit: count
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: ICSA, source_grade: A_official, ingest_cadence: weekly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/ICSA" }
+
+  - metric_key: growth.housing_starts
+    display_name_zh: 新屋开工（年化）
+    family: growth
+    theory_anchor: [META_transmission, A5]
+    mechanism: 利率传导→地产实体投资的第一反应件——按揭利率上行的最短实体响应链；建筑活动牵动耐用品与就业。
+    hardness: hard
+    falsification_condition: 追踪指标；证伪对象在传导链 mortgage_30y→housing_starts。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 月度波动极大（±10%常见），判读用 3 月均线。
+    is_quantifiable: true
+    unit: thousands
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: HOUST, source_grade: A_official, ingest_cadence: monthly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/HOUST" }
+
+  - metric_key: growth.job_openings
+    display_name_zh: 职位空缺（JOLTS）
+    family: growth
+    theory_anchor: [A3, META_transmission]
+    mechanism: 劳动需求存量——贝弗里奇曲线的纵轴；与平台的 alt.hiring_velocity（公司级 ATS 在招数）构成宏微对照：AI 替代若兑现，空缺/失业比应结构性下移。
+    hardness: hard
+    falsification_condition: 空缺/失业比持续正常化而无失业率上升（完美软着陆达 8 季），则贝弗里奇位移论证伪。
+    decision_window: 1-2y
+    source_grade: A_official
+    caveat: JOLTS 调查响应率降至历史低位，噪声递增；发布滞后 2 月。
+    is_quantifiable: true
+    unit: thousands
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: JTSJOL, source_grade: A_official, ingest_cadence: monthly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/JTSJOL" }
+
+  - metric_key: growth.avg_hourly_earnings
+    display_name_zh: 平均时薪（私营部门）
+    family: growth
+    theory_anchor: [A3, A8]
+    mechanism: 工资通胀=生产率-工资传导带（A8 断裂论）的直接观测——若 AI 生产率增益不传导为时薪，即为"传导带断裂"的宏观证据；同时是粘性通胀（服务）的成本源。
+    hardness: hard
+    falsification_condition: 生产率高增而时薪增速同步高增（传导带完好）达 8 季，则 A8 断裂论在总量层被削弱。
+    decision_window: 2-3y
+    source_grade: A_official
+    caveat: 构成效应（低薪岗位裁减推高均值）会污染周期拐点读数。
+    is_quantifiable: true
+    unit: usd
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: CES0500000003, source_grade: A_official, ingest_cadence: monthly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/CES0500000003" }

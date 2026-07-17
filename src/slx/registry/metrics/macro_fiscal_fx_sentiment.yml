@@ -1,0 +1,122 @@
+# 指标族：fiscal（财政）+ fx_commodity（汇率商品）+ sentiment（情绪）—— 宏观外环收口:
+# 财政脉冲与债务存量（→流动性/期限溢价）、美元与实物原料（→全球传导/能源墙影子价格）、
+# 情绪（→消费先导与风险偏好,勾 flow 资金流台）。全部 FRED（A_official）。
+metrics:
+  - metric_key: fiscal.federal_deficit
+    display_name_zh: 联邦月度财政赤字/盈余
+    family: fiscal
+    theory_anchor: [META_liquidity, A8]
+    mechanism: 财政脉冲=私人部门净金融资产注入——赤字扩张托底名义增长与企业利润（Kalecki 恒等式），同时抬升发债量与期限溢价；是本轮"财政主导"叙事的月频流量刻度。
+    hardness: hard
+    falsification_condition: 赤字大幅收缩 4 季而名义增长/企业利润不响应，则财政脉冲通道被削弱。
+    decision_window: 1-2y
+    source_grade: A_official
+    caveat: 月度季节性极强（4 月税期/10 月财年），判读用 12 月滚动。
+    is_quantifiable: true
+    unit: mil_usd
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: MTSDS133FMS, source_grade: A_official, ingest_cadence: monthly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/MTSDS133FMS" }
+
+  - metric_key: fiscal.public_debt
+    display_name_zh: 联邦公共债务总额
+    family: fiscal
+    theory_anchor: [META_liquidity, A8]
+    mechanism: 发债存量→久期供给→期限溢价——财政主导风险的存量刻度；国债供给挤占与 AI 超长久期资产在同一久期市场竞价。
+    hardness: hard
+    falsification_condition: 债务/GDP 持续攀升而期限溢价长期不升（8 季），则供给-溢价通道被吸收（央行/海外承接）。
+    decision_window: 2-3y
+    source_grade: A_official
+    caveat: 名义存量；判读须对 GDP 标准化并区分公众持有口径。
+    is_quantifiable: true
+    unit: mil_usd
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: GFDEBTN, source_grade: A_official, ingest_cadence: quarterly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/GFDEBTN" }
+
+  - metric_key: fx.usd_broad
+    display_name_zh: 美元广义指数
+    family: fx_commodity
+    theory_anchor: [META_transmission, A8]
+    mechanism: 全球流动性的价格——强美元收紧离岸美元融资并压缩美企海外盈利折算；AI 芯片链海外营收敞口大（台/韩/欧客户），美元是其盈利折算与全球需求的双通道变量。
+    hardness: hard
+    falsification_condition: 美元大幅走强 4 季而芯片链海外营收折算/全球半导体出货不响应，则美元传导对该链钝化。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 广义口径含新兴市场权重，与 DXY（发达为主）方向可背离。
+    is_quantifiable: true
+    unit: index
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: DTWEXBGS, source_grade: A_official, ingest_cadence: daily, vintage_aware: true, url: "https://fred.stlouisfed.org/series/DTWEXBGS" }
+
+  - metric_key: cmdty.wti_crude
+    display_name_zh: WTI 原油现货价
+    family: fx_commodity
+    theory_anchor: [META_transmission, A2]
+    mechanism: 能源价格→通胀→政策的传统传导；同时是"能源墙"（A2 约束守恒：算力扩张把约束顶到能源）的市场端影子价格之一——油价是全社会能源成本的高频代理。
+    hardness: hard
+    falsification_condition: 追踪指标；证伪对象在传导链 wti→cpi。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 数据中心用电与油价仅弱相关（电源结构为气/核/可再生），能源墙判读须与电价/电网指标（dc_power 族）联读。
+    is_quantifiable: true
+    unit: usd_per_barrel
+    geo_scope: global
+    status: active
+    sources:
+      - { source_id: fred, series_id: DCOILWTICO, source_grade: A_official, ingest_cadence: daily, vintage_aware: true, url: "https://fred.stlouisfed.org/series/DCOILWTICO" }
+
+  - metric_key: cmdty.copper
+    display_name_zh: 铜价（全球）
+    family: fx_commodity
+    theory_anchor: [META_transmission, A2]
+    mechanism: 「铜博士」=全球实体需求温度计——同时是电网扩容与数据中心建设的直接原料（dc_power 族的成本侧）：AI 电力建设潮直接抬升铜需求，铜价是能源墙资本开支的原料端印证。
+    hardness: hard
+    falsification_condition: 数据中心/电网建设潮持续而铜需求与铜价长期不响应，则"AI→电网→铜"传导量级被高估。
+    decision_window: 1-2y
+    source_grade: A_official
+    caveat: IMF 全球月均价，含中国地产周期主导的传统需求，AI 增量占比尚小。
+    is_quantifiable: true
+    unit: usd_per_tonne
+    geo_scope: global
+    status: active
+    sources:
+      - { source_id: fred, series_id: PCOPPUSDM, source_grade: A_official, ingest_cadence: monthly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/PCOPPUSDM" }
+
+  - metric_key: sentiment.umich
+    display_name_zh: 密歇根消费者信心指数
+    family: sentiment
+    theory_anchor: [META_transmission, A5]
+    mechanism: 居民预期→消费的软先导——领先零售销售拐点；消费周期主题（retail/restaurants）的情绪闸门；其通胀预期分项亦是联储反应函数的关注变量。
+    hardness: hard
+    falsification_condition: 信心指数与随后 2 季零售销售方向持续背离（连续两轮），则该调查的先导性失效。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 调查样本小、党派倾向污染近年加剧；方向价值大于水平。
+    is_quantifiable: true
+    unit: index
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: UMCSENT, source_grade: A_official, ingest_cadence: monthly, vintage_aware: true, url: "https://fred.stlouisfed.org/series/UMCSENT" }
+
+  - metric_key: sentiment.vix
+    display_name_zh: VIX 波动率指数
+    family: sentiment
+    theory_anchor: [META_transmission, A5]
+    mechanism: 风险偏好的期权定价刻度——SPX 隐含波动率是 risk-on/off 的市场共识读数；与平台资金流台的 flow.risk_on_composite 互为印证（宏观库↔资金流的显式接口，见 TRANSMISSIONS vix→flow:risk_on）。
+    hardness: hard
+    falsification_condition: VIX 持续高位而资金流 risk-on 综合分不转负（8 周），则两台刻度之一失真（须对账）。
+    decision_window: testable_now
+    source_grade: A_official
+    caveat: 期限结构（VIX 期货贴水/升水）比水平更有信息；单日尖峰多为技术性。
+    is_quantifiable: true
+    unit: index
+    geo_scope: US
+    status: active
+    sources:
+      - { source_id: fred, series_id: VIXCLS, source_grade: A_official, ingest_cadence: daily, vintage_aware: false, url: "https://fred.stlouisfed.org/series/VIXCLS" }

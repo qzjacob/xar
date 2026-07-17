@@ -303,3 +303,58 @@ export interface AndyFlowResponse {
   };
   themes: { theme: string; name_cn: string; score: number | null; as_of: string | null; genny_link: string }[];
 }
+
+// ── Macro database console (/api/andy/macro + /api/andy/link/chain) ───────────
+export interface MacroSeriesPoint {
+  t: string;
+  v: number;
+}
+
+export interface MacroMetricRow {
+  metric_key: string;
+  name_cn: string;
+  hardness: Hardness;
+  unit: string | null;
+  good_when: "rising" | "falling" | null;
+  value: number | null;
+  valid_time: string | null;
+  slope: number | null;
+  series: MacroSeriesPoint[];
+  has_chain: boolean;
+}
+
+export interface MacroTransmissionEdge {
+  from: string;
+  to: string;
+  sign: "+" | "-" | "±";
+  lag_hint: string;
+  rationale_zh: string;
+}
+
+export interface AndyMacroResponse {
+  as_of: string;
+  families: { family: string; metrics: MacroMetricRow[] }[];
+  transmissions: MacroTransmissionEdge[];
+  silicon_families: { family: string; count: number }[];
+}
+
+export interface ChainNode {
+  kind: "metric" | "theme" | "flow";
+  key: string;
+  name_cn: string;
+  family?: string | null;
+  hardness?: string | null;
+  unit?: string | null;
+  value?: number | null;
+  valid_time?: string | null;
+  link: string;
+}
+
+export interface AndyChainResponse {
+  root: string;
+  as_of: string;
+  depth: number;
+  nodes: Record<string, ChainNode>;
+  upstream: MacroTransmissionEdge[];
+  downstream: MacroTransmissionEdge[];
+}

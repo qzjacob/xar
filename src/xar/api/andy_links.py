@@ -18,6 +18,8 @@ from ..ontology.macro_links import (
     OVERCLAIM_LINKS,
     PLATFORM_METRICS,
     THEME_TO_METRICS,
+    TRANSMISSIONS_BY_FROM,
+    TRANSMISSIONS_BY_TO,
     MacroLink,
     theme_overclaims,
 )
@@ -75,15 +77,23 @@ def _enrich(link: MacroLink, reg: dict[str, dict]) -> dict:
     return d
 
 
+def _theme_sort_key(reg: dict[str, dict]):
+    """链面板排序：chain 定向指标优先、platform 殿后（防宏观外环挤掉硅基指标——
+    compact_theme_macro 只取前 8 条),再按 hardness、key。"""
+    def key(x: MacroLink):
+        return (0 if x.scope == "chain" else 1,
+                _HARD_ORDER.get((reg.get(x.metric_key) or {}).get("hardness"), 9),
+                x.metric_key)
+    return key
+
+
 def link_themes() -> dict:
     """全量勾稽矩阵：8 链 × 关联指标 + 登记簿断言；另附平台级指标。"""
     reg = _registry_rows()
     claim_status = _claim_statuses()
     themes = []
     for tid, meta in THEMES.items():
-        links = sorted(THEME_TO_METRICS.get(tid, ()),
-                       key=lambda x: (_HARD_ORDER.get((reg.get(x.metric_key) or {}).get("hardness"), 9),
-                                      x.metric_key))
+        links = sorted(THEME_TO_METRICS.get(tid, ()), key=_theme_sort_key(reg))
         themes.append({
             "theme": tid, "name": meta["name"], "name_cn": meta["nameCn"],
             "kind": meta.get("kind", "chain"),
@@ -114,9 +124,7 @@ def link_theme(theme: str, as_of: str | None = None) -> dict | None:
         return None
     asof = date.fromisoformat(as_of) if as_of else date.today()
     reg = _registry_rows()
-    links = sorted(THEME_TO_METRICS.get(theme, ()),
-                   key=lambda x: (_HARD_ORDER.get((reg.get(x.metric_key) or {}).get("hardness"), 9),
-                                  x.metric_key))
+    links = sorted(THEME_TO_METRICS.get(theme, ()), key=_theme_sort_key(reg))
     metrics = []
     readings: dict[str, dict] = {}
     try:
@@ -227,6 +235,86 @@ def link_metric(metric_key: str) -> dict | None:
         "rationale_zh": link.rationale_zh,
         "themes": themes, "segments": segments, "tech_routes": routes,
         "companies": companies, "recent_events": recent,
+        # 宏观传导链(AM):该指标的上下游传导边——Chathy metric 模式随 link_metric 自动获得
+        "transmissions": {
+            "upstream": [_edge_dict(t) for t in TRANSMISSIONS_BY_TO.get(metric_key, ())],
+            "downstream": [_edge_dict(t) for t in TRANSMISSIONS_BY_FROM.get(metric_key, ())],
+        },
+    }
+
+
+# ── 宏观传导链（AM 波次）───────────────────────────────────────────────────────
+def _edge_dict(t) -> dict:
+    return {"from": t.from_key, "to": t.to_key, "sign": t.sign,
+            "lag_hint": t.lag_hint, "rationale_zh": t.rationale_zh}
+
+
+def _chain_node(key: str, reg: dict[str, dict], readings: dict) -> dict:
+    """链上一个端点的展示体:metric / theme:{id} / flow:risk_on 三形态。"""
+    if key.startswith("theme:"):
+        tid = key.removeprefix("theme:")
+        meta = THEMES.get(tid) or {}
+        return {"kind": "theme", "key": key, "name_cn": meta.get("nameCn", tid),
+                "link": "/genny"}
+    if key.startswith("flow:"):
+        return {"kind": "flow", "key": key, "name_cn": "资金流 risk-on 综合分",
+                "link": "/andy/flow"}
+    m = reg.get(key) or {}
+    r = readings.get(key) or {}
+    return {"kind": "metric", "key": key,
+            "name_cn": m.get("display_name_zh", key), "family": m.get("family"),
+            "hardness": m.get("hardness"), "unit": m.get("unit"),
+            "value": r.get("value"), "valid_time": r.get("valid_time"),
+            "link": f"/andy/metrics/{key}"}
+
+
+def link_chain(metric_key: str, as_of: str | None = None, depth: int = 3) -> dict | None:
+    """传导链展开:自 metric_key 沿 TRANSMISSIONS 下游 BFS(≤depth 跳)+ 上游 1 跳。
+    节点 enrich 注册行 + as_of 视角最新 PIT 读数;theme:/flow: 哨兵端点给深链。"""
+    if metric_key not in LINKS_BY_KEY:
+        return None
+    asof = date.fromisoformat(as_of) if as_of else date.today()
+    # 下游 BFS
+    edges: list = []
+    seen = {metric_key}
+    frontier = [metric_key]
+    for _hop in range(max(1, depth)):
+        nxt: list[str] = []
+        for k in frontier:
+            for t in TRANSMISSIONS_BY_FROM.get(k, ()):
+                edges.append(t)
+                if t.to_key not in seen:
+                    seen.add(t.to_key)
+                    if not t.to_key.startswith(("theme:", "flow:")):
+                        nxt.append(t.to_key)
+        frontier = nxt
+        if not frontier:
+            break
+    upstream = list(TRANSMISSIONS_BY_TO.get(metric_key, ()))
+    for t in upstream:
+        seen.add(t.from_key)
+    # 节点 enrich(单查询取全部读数;slx 不可用则读数留空)
+    metric_keys = [k for k in seen if not k.startswith(("theme:", "flow:"))]
+    reg = _registry_rows()
+    readings: dict[str, dict] = {}
+    try:
+        from slx.db import connect
+
+        with connect() as conn:
+            for k in metric_keys:
+                row = conn.execute(
+                    "SELECT valid_time, value FROM observation "
+                    "WHERE metric_key=%s AND knowledge_time <= %s AND value IS NOT NULL "
+                    "ORDER BY valid_time DESC, knowledge_time DESC LIMIT 1", (k, asof)).fetchone()
+                if row:
+                    readings[k] = {"valid_time": str(row[0]), "value": float(row[1])}
+    except Exception as e:  # noqa: BLE001
+        log.warning("slx PIT unavailable for chain: %s", e)
+    return {
+        "root": metric_key, "as_of": str(asof), "depth": depth,
+        "nodes": {k: _chain_node(k, reg, readings) for k in seen},
+        "upstream": [_edge_dict(t) for t in upstream],
+        "downstream": [_edge_dict(t) for t in edges],
     }
 
 
@@ -308,5 +396,5 @@ def sources_status() -> dict:
     return {"connectors": connectors, "metrics_freshness": freshness}
 
 
-__all__ = ["link_themes", "link_theme", "link_metric", "sync_events",
+__all__ = ["link_themes", "link_theme", "link_metric", "link_chain", "sync_events",
            "MACRO_LINKS", "OVERCLAIM_LINKS"]

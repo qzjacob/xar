@@ -46,6 +46,41 @@ export function hardnessMeta(h: string | null | undefined) {
   );
 }
 
+// --- family（AM：宏观数据库台的族目录——中文名/排序/分组）----------------------
+// group: "macro"=宏观外环（AM 波次新族 + macro_controls 归组）| "silicon_core"=硅基核心。
+// family 在后端是自由字符串,注册新族后 Metrics 下拉自动出现;此表只补人话与版面序。
+export const FAMILY_META: Record<
+  string,
+  { en: string; cn: string; order: number; group: "macro" | "silicon_core" }
+> = {
+  rates: { en: "Rates", cn: "利率", order: 1, group: "macro" },
+  inflation: { en: "Inflation", cn: "通胀", order: 2, group: "macro" },
+  growth: { en: "Growth", cn: "增长", order: 3, group: "macro" },
+  liquidity: { en: "Liquidity", cn: "流动性层级", order: 4, group: "macro" },
+  credit: { en: "Credit", cn: "信用条件", order: 5, group: "macro" },
+  fiscal: { en: "Fiscal", cn: "财政", order: 6, group: "macro" },
+  fx_commodity: { en: "FX & Commodity", cn: "汇率商品", order: 7, group: "macro" },
+  sentiment: { en: "Sentiment", cn: "情绪", order: 8, group: "macro" },
+  macro_controls: { en: "Macro Controls", cn: "宏观控制变量", order: 9, group: "macro" },
+  unit_intelligence_cost: { en: "Unit Intelligence Cost", cn: "单位智能成本", order: 10, group: "silicon_core" },
+  dc_power: { en: "DC Power", cn: "数据中心电力", order: 11, group: "silicon_core" },
+  capex_concentration: { en: "Capex & Concentration", cn: "资本开支与集中度", order: 12, group: "silicon_core" },
+  labor_distribution: { en: "Labor & Distribution", cn: "劳动与分配", order: 13, group: "silicon_core" },
+  ai_wage_premium: { en: "AI Wage Premium", cn: "AI 工资溢价", order: 14, group: "silicon_core" },
+  dual_phase_price: { en: "Dual-Phase Price", cn: "双相价格", order: 15, group: "silicon_core" },
+  identification_result: { en: "Identification", cn: "识别结果", order: 16, group: "silicon_core" },
+  legitimacy_proxy: { en: "Legitimacy Proxy", cn: "合法性代理", order: 17, group: "silicon_core" },
+  positional_authenticity: { en: "Positionality", cn: "位置性/真实性", order: 18, group: "silicon_core" },
+  load_bearing_wall: { en: "Load-Bearing Walls", cn: "承重墙", order: 19, group: "silicon_core" },
+};
+
+/** Crash-proof lookup: 未注册 family 落回英文原串、殿后排序（不炸新族）。 */
+export function familyMeta(f: string | null | undefined) {
+  return (
+    FAMILY_META[f ?? ""] ?? { en: f ?? "?", cn: f ?? "?", order: 999, group: "silicon_core" as const }
+  );
+}
+
 export function HardnessBadge({ hardness, withEn = true, className }: {
   hardness: string | null | undefined;
   withEn?: boolean;

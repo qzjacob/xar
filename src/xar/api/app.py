@@ -875,6 +875,19 @@ def andy_link_metric(metric_key: str):
     return out
 
 
+@app.get("/api/andy/link/chain/{metric_key}")
+def andy_link_chain(metric_key: str, as_of: str | None = None, depth: int = 3):
+    """宏观传导链展开（AM）：下游 BFS ≤depth 跳 + 上游 1 跳,节点带 PIT 读数。"""
+    from . import andy_links
+    try:
+        out = andy_links.link_chain(metric_key, as_of=as_of, depth=min(max(depth, 1), 5))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"bad as_of: {e}") from e
+    if out is None:
+        raise HTTPException(status_code=404, detail=f"metric {metric_key} has no crosswalk entry")
+    return out
+
+
 @app.post("/api/andy/link/sync-events")
 def andy_link_sync_events(as_of: str | None = None):
     from . import andy_links
@@ -886,6 +899,17 @@ def andy_sources():
     """数据源面板:连接器运行状态 + key 就绪(布尔) + 指标观测新鲜度。"""
     from . import andy_links
     return andy_links.sources_status()
+
+
+# Andy 宏观数据库台（AM）— 同 andy_links 的 shadow 序:必须注册在 /api/andy mount 之前。
+@app.get("/api/andy/macro")
+def andy_macro(as_of: str | None = None):
+    """宏观组全族批量读数（DISTINCT ON + 窗口,一次取齐）+ 传导链 + 硅基核心计数。"""
+    from . import andy_macro_db
+    try:
+        return andy_macro_db.macro_overview(as_of)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"bad as_of: {e}") from e
 
 
 # Andy 资金流策略面 — 同 andy_links 的 shadow 序:必须注册在 /api/andy mount 之前。
