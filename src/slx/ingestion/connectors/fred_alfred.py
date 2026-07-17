@@ -35,12 +35,14 @@ from slx.ingestion.base import Connector
 # (老观测的 knowledge_time 被钳到窗口起点,只会"晚知"不会"早知")。
 _RT = "2015-01-01"
 
-# 日频"从不修订"的市场序列走普通序列取数(真机捕获:ALFRED 对窗口内 >2000 个
-# vintage 日期的序列直接 400——日频序列每天一个 vintage,2015 起 ≈2900 个超帽)。
-# 这些序列本就无修订,vintage 展开无信息;knowledge_time 合成为 valid_time 次日
-# (市场收盘数据次日可知,PIT 保守诚实)。
+# 日频"从不/几乎不修订"的市场序列走普通序列取数(真机捕获:ALFRED 对窗口内 >2000 个
+# vintage 日期的序列直接 400——日频序列每天一个 vintage,2015 起 ≈2900 个超帽;
+# SOFR/DTWEXBGS/DCOILWTICO 今天还没过帽但每天 +1,一年内必炸,一并纳入)。
+# 这些序列 vintage 展开无信息;knowledge_time 合成为 valid_time 次日(市场收盘数据
+# 次日可知,PIT 保守诚实)。**append-only**:已有 valid_time 的行绝不重写——若 FRED
+# 事后订正历史值,原始印字保持不动(否则订正值会顶着原 knowledge_time 前视泄漏)。
 _DAILY_MODE = {"DGS2", "DGS10", "DGS30", "T10Y2Y", "DFII10", "T10YIE",
-               "RRPONTSYD", "VIXCLS"}
+               "RRPONTSYD", "VIXCLS", "SOFR", "DTWEXBGS", "DCOILWTICO"}
 SERIES = [
     ("labor.labor_share", "PRS85006173", "pct", None),
     ("macro.fed_funds_rate", "FEDFUNDS", "pct", None),
@@ -78,7 +80,9 @@ SERIES = [
     # ── credit 信用条件 ──────────────────────────────────────────────────
     ("credit.hy_oas", "BAMLH0A0HYM2", "pct", _RT),
     ("credit.ig_oas", "BAMLC0A0CM", "pct", _RT),
-    ("credit.nfci", "NFCI", "index", _RT),
+    # NFCI 每周全序列重估:2015 窗的 (obs×vintage) 行数 87 万,远超 FRED 单请求 10 万帽
+    # (fredapi 不分页,oldest-first 截断会丢最新数据,评审真机捕获)——窗收到 1 年。
+    ("credit.nfci", "NFCI", "index", "2025-07-01"),
     ("credit.sloos_ci_standards", "DRTSCILM", "pct", _RT),
     # ── fiscal 财政 ──────────────────────────────────────────────────────
     ("fiscal.federal_deficit", "MTSDS133FMS", "mil_usd", _RT),
@@ -97,6 +101,22 @@ def _to_date(x) -> date:
     if isinstance(x, date) and not isinstance(x, datetime):
         return x
     return pd.Timestamp(x).date()
+
+
+def _existing_max_valid(metric_key: str) -> date | None:
+    """日频 append-only 闸的水位线（该 metric 已入库的最大 valid_time）。
+    DB 不可用（离线测试/首跑无表）→ None = 全量写入。"""
+    try:
+        from slx.db import connect
+
+        with connect() as conn:
+            row = conn.execute(
+                "SELECT max(valid_time) FROM observation "
+                "WHERE metric_key=%s AND source_id='fred'", (metric_key,)).fetchone()
+        v = row[0] if row else None
+        return v.date() if isinstance(v, datetime) else v
+    except Exception:  # noqa: BLE001
+        return None
 
 
 class FredAlfredConnector(Connector):
@@ -122,12 +142,27 @@ class FredAlfredConnector(Connector):
         return Fred(api_key=self._api_key)
 
     def fetch(self) -> list[dict]:
+        import socket
         import time
 
         fred = self._client()
         rows: list[dict] = []
         failed: list[str] = []
+        # fredapi 用无 timeout 的 urlopen——一次挂起的响应会永久卡死工人循环(评审捕获)。
+        # 进程级默认超时 + finally 复原,给 40 个请求一个硬上界。
+        _old_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(60)
+        try:
+            self._fetch_all(fred, rows, failed, time)
+        finally:
+            socket.setdefaulttimeout(_old_timeout)
+        if failed:
+            print(f"[fred_alfred] 本轮失败序列({len(failed)}): {failed}")
+        if not rows:
+            raise RuntimeError("[fred_alfred] 全部序列均无数据——检查 API key 与连通性。")
+        return rows
 
+    def _fetch_all(self, fred, rows: list[dict], failed: list[str], time) -> None:
         for metric_key, series_id, unit, rt in SERIES:
             # get_series_all_releases：返回长表 [realtime_start(=发布日), date(=观测期), value]。
             # 这是 ALFRED 的 vintage 全量——每个 (观测期, 发布版) 一行。
@@ -140,10 +175,16 @@ class FredAlfredConnector(Connector):
                     failed.append(series_id)
                     print(f"[fred_alfred] 警告：{metric_key}({series_id}) 拉取失败,跳过：{e}")
                     continue
+                # append-only 闸:该 metric 已入库的最大 valid_time 之后才写。当前 vintage
+                # 序列对历史日期的事后订正一律丢弃——base 的双时态 upsert 会用订正值顶着
+                # 原 knowledge_time 重写历史(前视泄漏,评审捕获);原始印字必须不可变。
+                existing_max = _existing_max_valid(metric_key)
                 for idx, val in ser.items():
                     if val is None or pd.isna(val):
                         continue
                     valid = _to_date(idx)
+                    if existing_max is not None and valid <= existing_max:
+                        continue
                     release = valid + timedelta(days=1)   # 收盘数据次日可知(保守 PIT)
                     rows.append({
                         "metric_key": metric_key, "source_id": "fred",
@@ -153,7 +194,7 @@ class FredAlfredConnector(Connector):
                         "vintage_date": release,
                     })
                 print(f"[fred_alfred] {metric_key}({series_id}): 日频普通序列 "
-                      f"{len(rows) - n_before} 行(knowledge=次日)。")
+                      f"{len(rows) - n_before} 新行(knowledge=次日,append-only)。")
                 time.sleep(0.6)
                 continue
             try:
@@ -187,12 +228,6 @@ class FredAlfredConnector(Connector):
                 })
             print(f"[fred_alfred] {metric_key}({series_id}): 展开 {len(rows) - n_before} 个 vintage 行。")
             time.sleep(0.6)     # FRED 限速 120 req/min —— 批量拉取保持礼貌节拍
-
-        if failed:
-            print(f"[fred_alfred] 本轮失败序列({len(failed)}): {failed}")
-        if not rows:
-            raise RuntimeError("[fred_alfred] 全部序列均无数据——检查 API key 与连通性。")
-        return rows
 
 
 if __name__ == "__main__":

@@ -335,6 +335,8 @@ export interface AndyMacroResponse {
   as_of: string;
   families: { family: string; metrics: MacroMetricRow[] }[];
   transmissions: MacroTransmissionEdge[];
+  /** 传导链端点中文名（硅基核心 metric + theme:/flow: 哨兵，后端权威）。 */
+  labels: Record<string, string>;
   silicon_families: { family: string; count: number }[];
 }
 

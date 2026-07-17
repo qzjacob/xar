@@ -298,14 +298,20 @@ def link_chain(metric_key: str, as_of: str | None = None, depth: int = 3) -> dic
     reg = _registry_rows()
     readings: dict[str, dict] = {}
     try:
+        from datetime import datetime, timedelta, timezone
+
         from slx.db import connect
 
+        # knowledge_time 是 timestamptz:次日 0 点 UTC 排他上界,免裸 date 被会话时区
+        # cast 到当日 0 点、漏掉"当日可知"的行(MF 波次同款边界)。
+        _nxt = asof + timedelta(days=1)
+        pit = datetime(_nxt.year, _nxt.month, _nxt.day, tzinfo=timezone.utc)
         with connect() as conn:
             for k in metric_keys:
                 row = conn.execute(
                     "SELECT valid_time, value FROM observation "
-                    "WHERE metric_key=%s AND knowledge_time <= %s AND value IS NOT NULL "
-                    "ORDER BY valid_time DESC, knowledge_time DESC LIMIT 1", (k, asof)).fetchone()
+                    "WHERE metric_key=%s AND knowledge_time < %s AND value IS NOT NULL "
+                    "ORDER BY valid_time DESC, knowledge_time DESC LIMIT 1", (k, pit)).fetchone()
                 if row:
                     readings[k] = {"valid_time": str(row[0]), "value": float(row[1])}
     except Exception as e:  # noqa: BLE001

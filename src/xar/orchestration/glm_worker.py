@@ -450,6 +450,10 @@ def _andy_macro() -> dict:
         out["bridge"] = macro_bridge.sync(_date.today())
     except Exception as e:  # noqa: BLE001
         out["bridge_error"] = str(e)[:120]
+    if not swept:
+        # 全军覆没(断网/DB down/key 失效)必须上抛——_run 才会 _stamp(ok=False),
+        # 1/4 间隔(6h)重试;否则静默盖 ok 戳,失败一次等满 24h(评审捕获)。
+        raise RuntimeError(f"andy_macro: all connectors failed {failed}")
     return out
 
 

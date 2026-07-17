@@ -119,7 +119,7 @@ metrics:
     geo_scope: US
     status: active
     sources:
-      - { source_id: fred, series_id: SOFR, source_grade: A_official, ingest_cadence: daily, vintage_aware: true, url: "https://fred.stlouisfed.org/series/SOFR" }
+      - { source_id: fred, series_id: SOFR, source_grade: A_official, ingest_cadence: daily, vintage_aware: false, url: "https://fred.stlouisfed.org/series/SOFR" }
 
   - metric_key: rates.mortgage_30y
     display_name_zh: 30 年期按揭利率

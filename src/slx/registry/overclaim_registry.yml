@@ -145,11 +145,11 @@ claims:
     hardness: medium
     decision_window: 1-2y
     window_start: "2026-07-01"
-    fixation_rule: "slope(liquidity.bank_reserves, 4q) < 0 AND value(mktcap.rsp_vs_spy_excess_return) < 0"
-    falsify_rule: "slope(liquidity.bank_reserves, 4q) < 0 AND value(mktcap.rsp_vs_spy_excess_return) > 130"
+    fixation_rule: "slope(liquidity.bank_reserves, 26q) < 0 AND value(mktcap.rsp_vs_spy_excess_return) < 0"
+    falsify_rule: "slope(liquidity.bank_reserves, 26q) < 0 AND value(mktcap.rsp_vs_spy_excess_return) > 130"
     status: open
     owner: Andi
-    note: META_liquidity 的检验：流动性边际收缩时资金龟缩巨头（广度恶化）；若准备金收缩而广度大幅改善，则流动性→广度通道被证伪。
+    note: META_liquidity 的检验：流动性边际收缩时资金龟缩巨头（广度恶化）；若准备金收缩而广度大幅改善，则流动性→广度通道被证伪。DSL 的 Nq=近 N 个观测点（非日历季）——WRESBAL 周频，26 点≈半年收缩期；写 4q 会退化成 4 周噪声（评审捕获）。
 
   - claim_key: credit_stress_breaks_ai_loop
     claim_text_zh: "信用压力打断 AI 资本回路（HY OAS≥5% 的信用环境下，capex 军备竞赛不可持续）"

@@ -51,7 +51,7 @@ metrics:
     geo_scope: US
     status: active
     sources:
-      - { source_id: fred, series_id: DTWEXBGS, source_grade: A_official, ingest_cadence: daily, vintage_aware: true, url: "https://fred.stlouisfed.org/series/DTWEXBGS" }
+      - { source_id: fred, series_id: DTWEXBGS, source_grade: A_official, ingest_cadence: daily, vintage_aware: false, url: "https://fred.stlouisfed.org/series/DTWEXBGS" }
 
   - metric_key: cmdty.wti_crude
     display_name_zh: WTI 原油现货价
@@ -68,7 +68,7 @@ metrics:
     geo_scope: global
     status: active
     sources:
-      - { source_id: fred, series_id: DCOILWTICO, source_grade: A_official, ingest_cadence: daily, vintage_aware: true, url: "https://fred.stlouisfed.org/series/DCOILWTICO" }
+      - { source_id: fred, series_id: DCOILWTICO, source_grade: A_official, ingest_cadence: daily, vintage_aware: false, url: "https://fred.stlouisfed.org/series/DCOILWTICO" }
 
   - metric_key: cmdty.copper
     display_name_zh: 铜价（全球）

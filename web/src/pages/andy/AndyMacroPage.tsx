@@ -13,10 +13,10 @@ import type { MacroMetricRow, MacroTransmissionEdge } from "../../types-andy";
  * (a) 9 个宏观族的批量 PIT 读数面板;(b) 传导链视图（利率→贴现→capex→算力…,
  * 端点勾到 Genny 主题与资金流台）;(c) 硅基核心族入口。全部经 as-of PIT 边界。 */
 
-// 传导链哨兵端点的中文名(端点集见 macro_links.TRANSMISSIONS;未知键回退原串)
-const SENTINEL_CN: Record<string, string> = {
-  "flow:risk_on": "资金流 risk-on 综合分",
-  "theme:ai_chip": "AI 算力芯片产业链",
+// 单位短后缀:混单位族(流动性 mil/bil 并存)不带单位裸数会误导量级
+const UNIT_SUFFIX: Record<string, string> = {
+  pct: "%", usd: "$", mil_usd: " M$", bil_usd: " B$", thousands: " k",
+  usd_per_barrel: " $/bbl", usd_per_tonne: " $/t",
 };
 
 const fmtVal = (v: number | null, unit: string | null) => {
@@ -24,7 +24,7 @@ const fmtVal = (v: number | null, unit: string | null) => {
   const abs = Math.abs(v);
   const s = abs >= 100_000 ? Intl.NumberFormat("en", { notation: "compact" }).format(v)
     : abs >= 100 ? v.toFixed(1) : v.toFixed(2);
-  return unit === "pct" ? `${s}%` : s;
+  return `${s}${UNIT_SUFFIX[unit ?? ""] ?? ""}`;
 };
 
 /** 斜率箭头着色:good_when × 斜率符号(与 macro_bridge 事件极性同口径)。 */
@@ -32,6 +32,15 @@ const slopeTone = (slope: number | null, goodWhen: "rising" | "falling" | null) 
   if (slope == null || slope === 0 || goodWhen == null) return "text-brand-500";
   const aligned = goodWhen === "rising" ? slope : -slope;
   return aligned > 0 ? "text-pos" : "text-neg";
+};
+
+/** 火花线颜色:同一 good_when 口径——Sparkline 默认"涨绿跌红"会跟旁边的趋势箭头
+ * 对着干(利率/OAS/VIX 这类 falling=利好的指标占一半);方向不定给中性灰。 */
+const sparkColor = (m: MacroMetricRow) => {
+  if (m.series.length < 2 || m.good_when == null) return "#9caabe";
+  const up = m.series[m.series.length - 1].v >= m.series[0].v;
+  const good = m.good_when === "rising" ? up : !up;
+  return good ? "#2dc876" : "#f46060";
 };
 
 function MetricRow({ m, withAsOf }: { m: MacroMetricRow; withAsOf: (p: string) => string }) {
@@ -54,7 +63,9 @@ function MetricRow({ m, withAsOf }: { m: MacroMetricRow; withAsOf: (p: string) =
         {m.slope == null ? "—" : m.slope > 0 ? "↗" : m.slope < 0 ? "↘" : "→"}
       </td>
       <td className="px-2 py-1.5">
-        {m.series.length > 1 && <Sparkline data={m.series.map((p) => p.v)} width={84} height={20} />}
+        {m.series.length > 1 && (
+          <Sparkline data={m.series.map((p) => p.v)} width={84} height={20} color={sparkColor(m)} />
+        )}
       </td>
       <td className="tnum px-2 py-1.5 text-right text-2xs text-brand-200">{m.valid_time ?? "—"}</td>
     </tr>
@@ -78,7 +89,7 @@ export function AndyMacroPage() {
   const d = macroQ.data;
   if (!d) return null;
 
-  const nodeLabel = (k: string) => metricName.get(k) ?? SENTINEL_CN[k] ?? k;
+  const nodeLabel = (k: string) => metricName.get(k) ?? d.labels[k] ?? k;
   const nodeLink = (k: string) =>
     k.startsWith("flow:") ? withAsOf("/andy/flow")
       : k.startsWith("theme:") ? "/genny"
@@ -106,7 +117,10 @@ export function AndyMacroPage() {
                 icon={<Landmark size={15} strokeWidth={2} />}
                 right={
                   <span className="flex items-center gap-2">
-                    <HardnessBadge hardness={f.metrics[0]?.hardness} withEn={false} />
+                    {/* 族级 hardness 徽章只在全族同 hardness 时展示(混族不冒充) */}
+                    {new Set(f.metrics.map((m) => m.hardness)).size === 1 && (
+                      <HardnessBadge hardness={f.metrics[0]?.hardness} withEn={false} />
+                    )}
                     <Badge className="bg-surface-2 text-brand-500 ring-1 ring-inset ring-line">
                       {f.metrics.length}
                     </Badge>
