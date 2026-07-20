@@ -433,3 +433,12 @@ def test_discover_via_wcda_skips_seen_url(monkeypatch):
     monkeypatch.setattr(wd.wcda_api, "parse_article", lambda url: pytest.fail("已抓过不得解析"))
     monkeypatch.setattr(wd, "save", lambda doc: pytest.fail("不得落库"))
     assert wd.discover_via_wcda() == []
+
+
+def test_precise_queries_excludes_ambiguous_company_aliases():
+    """wcda 账号搜索查询 = 主题+路线中文词;剔除短公司别名(避免 searchbiz 命中无关号)。"""
+    q = wd._precise_queries()
+    assert "光模块" in q and "人形机器人" in q and "硅光" in q     # 主题/路线词在
+    assert "华通" not in q and "旭创" not in q and "联华" not in q  # 歧义短别名不在
+    assert all(wd._has_cjk(x) for x in q)                        # 全 CJK
+    assert q == list(dict.fromkeys(q))                          # 去重保序

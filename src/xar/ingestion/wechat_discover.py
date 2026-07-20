@@ -221,6 +221,23 @@ def discover_accounts(limit: int | None = None) -> dict:
 # → 现有 triage。无需订阅(wcda 按 fakeid 直取),URL 去重避免重复解析(解析最贵)。
 
 
+def _precise_queries() -> list[str]:
+    """账号搜索用**高精度**查询:主题 + 路线中文词(去重保序)。
+    刻意**不含公司短别名** —— searchbiz 匹配的是账号名,"华通"/"联华" 这类 2 字别名会命中
+    华通巴士/联华超市等无关号(实测今日切片 9 篇全被 triage 判噪)。主题/路线词(光模块/
+    人形机器人/CPO/800G…)歧义小,能稳定命中垂直投研号(实测光模块→光通信女人等)。"""
+    seen: set[str] = set()
+    out: list[str] = []
+    for table in (cn_routing.CN_THEME_TERMS, cn_routing.CN_ROUTE_TERMS):
+        for terms in table.values():
+            for t in terms:
+                t = (t or "").strip()
+                if t and _has_cjk(t) and t not in seen:   # 纯 ASCII 术语(800G)留给主题词携带
+                    seen.add(t)
+                    out.append(t)
+    return out
+
+
 def wcda_available() -> bool:
     """wcda 文章级发现:发现已开启 且 wcda 后端已配置(WCDA_BASE_URL)。"""
     return bool(get_settings().wechat_discover_enabled) and wcda_api.available()
@@ -234,7 +251,7 @@ def discover_via_wcda(limit: int | None = None) -> list[str]:
 
     s = get_settings()
     max_articles = limit or s.wechat_discover_max_articles
-    queries = _slice_for_today(_queries(), s.wechat_discover_queries_per_run)
+    queries = _slice_for_today(_precise_queries(), s.wechat_discover_queries_per_run)
     aliases = _alias_index()
 
     # 1) 搜号 → 收集候选账号(按 fakeid 去重),记 wechat_discovered(不订阅,feed_id=None)
