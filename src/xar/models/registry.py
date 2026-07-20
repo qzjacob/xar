@@ -185,6 +185,32 @@ MODELS: list[ModelSpec] = [
               0.0, 0.0, context_window=16_384, max_output=4096,
               released="2026-07",
               notes="GLM-4-9B q4_K_M @ minis 3090 (ollama);本地零成本,宕机自动回落云 GLM;仅钉扎/显式选用"),
+    # Phase 4 赛马候选(算力调度方案 §9 Phase 4)。与 glm4-local 同纪律:capabilities=()
+    # 不入默认链、SUBSCRIPTION usd=0、短超时自动继承(llm._build_kwargs 按 provider=="ollama")。
+    # status=PREVIEW = 赛马期隔离:llm.pinned()/评测可驱动(registry.get 不看 status),但
+    # model_usable() 拒绝 → 不进 Fetchy 目录、不可被 save_fetchy 选中、不领 _fetchy_pin 本地头。
+    # 胜者晋升 ACTIVE(一行改动),败者删 spec + ollama rm;评测判定门见 bench/phase4/。
+    ModelSpec("qwen35-local", "ollama", "openai/qwen35-xar",
+              (), Billing.SUBSCRIPTION,
+              0.0, 0.0, context_window=16_384, max_output=4096,
+              status=Status.PREVIEW, released="2026-07",
+              notes="Qwen3.5-9B Instruct q4_K_M @ minis 3090;赛马主推候选(C-Eval 88.2/IFEval ~91.5)"),
+    ModelSpec("qwen3-local", "ollama", "openai/qwen3-xar",
+              (), Billing.SUBSCRIPTION,
+              0.0, 0.0, context_window=16_384, max_output=4096,
+              status=Status.PREVIEW, released="2026-07",
+              notes="Qwen3-8B 非思考 q4_K_M @ minis 3090;赛马保底候选"),
+    ModelSpec("glm4-0414-local", "ollama", "openai/glm4-0414-xar",
+              (), Billing.SUBSCRIPTION,
+              0.0, 0.0, context_window=16_384, max_output=4096,
+              status=Status.PREVIEW, released="2026-07",
+              notes="GLM-4-9B-0414 q4_K_M @ minis 3090;赛马低迁移风险候选(现役直系升级)"),
+    ModelSpec("qwen3-14b-local", "ollama", "openai/qwen3-14b-xar",
+              (), Billing.SUBSCRIPTION,
+              0.0, 0.0, context_window=16_384, max_output=4096,
+              released="2026-07",
+              notes="Qwen3-14B 非思考 q4_K_M @ minis 3090;赛马胜者(2026-07-19:ok 0.825/F1 0.224 "
+                    "= 基线 2.6x,唯一 ok 率超云锚;VRAM 实测 11.17G,红线记 11.2G 用户裁定)"),
     # Kimi (Moonshot) — SUBSCRIPTION: bulk fallback + long-context
     ModelSpec("kimi-k2-sub", "moonshot", "openai/kimi-k2-0905-preview",
               (Capability.CHEAP_BULK, Capability.FAST, Capability.STRONG, Capability.LONG_CONTEXT),

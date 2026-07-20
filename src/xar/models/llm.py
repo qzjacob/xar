@@ -228,6 +228,16 @@ def _build_kwargs(spec, messages, max_tokens, want_strong, json_mode, s, base, k
         kwargs["api_key"] = os.environ[key_env]
     if spec.provider == "ollama":  # 本地端点:短超时防挂死(连接拒绝本就秒败→轮转云端)
         kwargs["timeout"] = s.llm_local_timeout_s
+        if not spec.supports_reasoning:
+            # ollama 对 thinking-capable 模型(如 Qwen3.5 renderer)默认开思考,/v1 端点
+            # 把 reasoning 与 content 分离 → 4000 token 预算被思考耗尽即 content 空
+            # ("empty completion" 轮转云端,赛马实测 30/40 空)。Modelfile 无法关思考
+            # (ollama#10961/#14809),/v1 唯一开关是 reasoning_effort="none";非思考模型
+            # (glm4 系/模板已预填空 think 的 qwen3 系)收到后忽略,实测无害。
+            # 必须走 extra_body:顶层 reasoning_effort 的 "none" 不在 OpenAI SDK 枚举,
+            # 会被 litellm.drop_params=True 静默丢弃(赛马重跑实测:直连 curl 生效、
+            # litellm 顶层传参无效);extra_body 原样并入请求体绕过校验。
+            kwargs["extra_body"] = {"reasoning_effort": "none"}
     return kwargs
 
 
@@ -443,11 +453,7 @@ def complete_json(
     """Structured output: prompt for JSON matching `schema`, parse + validate, retry once.
     Provider-agnostic; a hard provider failure rotates providers (see complete), and the
     empty schema is only the final safety net."""
-    js = json.dumps(schema.model_json_schema(), ensure_ascii=False)
-    instruction = (
-        f"{prompt}\n\nReturn ONLY a JSON object matching this JSON Schema "
-        f"(no markdown, no prose):\n{js}"
-    )
+    instruction = json_instruction(prompt, schema)
     last_err = None
     for attempt in range(2):
         raw = complete(
@@ -465,6 +471,17 @@ def complete_json(
             last_err = ValueError("no JSON object found")
     log.warning("structured output failed for %s: %s", node, last_err)
     return schema()  # safe empty default
+
+
+def json_instruction(prompt: str, schema: Type[T]) -> str:
+    """The exact instruction complete_json sends (prompt + schema clause). Module-level so
+    the bench harness can issue byte-identical calls via complete() and score raw validity
+    itself — complete_json's empty-default fallback would hide invalid JSON from a benchmark."""
+    js = json.dumps(schema.model_json_schema(), ensure_ascii=False)
+    return (
+        f"{prompt}\n\nReturn ONLY a JSON object matching this JSON Schema "
+        f"(no markdown, no prose):\n{js}"
+    )
 
 
 def _extract_json(text: str) -> dict | None:

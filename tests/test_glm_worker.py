@@ -41,14 +41,19 @@ def test_glm4_local_spec_registered():
 
 
 def test_local_candidate_gets_short_timeout():
-    """本地候选带短超时(防挂死);云候选不受影响。"""
+    """本地候选带短超时(防挂死)+ 显式关思考;云候选不受影响。"""
     from xar.config import get_settings
 
     s = get_settings()
     kw = llm._build_kwargs(registry.get("glm4-local"), [], 100, False, False, s, "http://x/v1", None)
     assert kw["timeout"] == s.llm_local_timeout_s
+    # ollama 对 thinking-capable 模型默认开思考,/v1 唯一开关 reasoning_effort="none";
+    # 必须经 extra_body(顶层 "none" 非 OpenAI 枚举,被 litellm.drop_params 静默丢弃——
+    # 赛马重跑实测:直连生效/顶层传参无效)
+    assert kw["extra_body"] == {"reasoning_effort": "none"}
     kw2 = llm._build_kwargs(registry.get("glm-5.2-sub"), [], 100, True, False, s, None, None)
     assert "timeout" not in kw2
+    assert "extra_body" not in kw2   # 云 GLM-5.2 保留其推理配置,不注入本地开关
 
 
 def test_fetchy_pin_local_first(monkeypatch):
@@ -62,6 +67,8 @@ def test_fetchy_pin_local_first(monkeypatch):
     monkeypatch.setenv("OLLAMA_API_KEY", "ollama")
     monkeypatch.setenv("GLM_SUB_API_KEY", "test-sub")
     monkeypatch.setenv("XAR_GLM_WORKER_LOCAL_FIRST", "true")
+    # 钉死本地头默认值:生产 .env 已切 qwen3-14b-local(Phase 4),不钉则环境泄漏
+    monkeypatch.setenv("XAR_GLM_WORKER_LOCAL_MODEL", "glm4-local")
     get_settings.cache_clear()
     try:
         assert gw._fetchy_pin({}) == (gw.LOCAL_MODEL_ID, *gw.GLM_PIN)
@@ -79,6 +86,90 @@ def test_fetchy_pin_local_first(monkeypatch):
         assert gw._fetchy_pin({}) == gw.GLM_PIN
     finally:
         get_settings.cache_clear()
+
+
+def test_local_model_setting_overrides_head(monkeypatch):
+    """XAR_GLM_WORKER_LOCAL_MODEL 换本地头(Phase 4 换代/回滚 = 改 env,零代码);
+    未设置时默认仍是 glm4-local(行为不变)。"""
+    import dataclasses
+
+    from xar.config import get_settings
+
+    monkeypatch.setattr(llm, "_KEYS_SYNCED", True)
+    monkeypatch.setenv("OLLAMA_API_KEY", "ollama")
+    monkeypatch.setenv("GLM_SUB_API_KEY", "test-sub")
+    monkeypatch.setenv("XAR_GLM_WORKER_LOCAL_FIRST", "true")
+    # 空串 = 未配置语义(`or LOCAL_MODEL_ID` 回落),同时屏蔽生产 .env 的实际值
+    monkeypatch.setenv("XAR_GLM_WORKER_LOCAL_MODEL", "")
+    get_settings.cache_clear()
+    try:
+        # 未配置(空串)→ 默认 glm4-local 领链首
+        assert gw._fetchy_pin({})[0] == gw.LOCAL_MODEL_ID
+        # 换头:候选晋升 ACTIVE 后,setting 指谁谁领
+        active = dataclasses.replace(registry.get("qwen35-local"), status=registry.Status.ACTIVE)
+        monkeypatch.setitem(registry._BY_ID, "qwen35-local", active)
+        monkeypatch.setenv("XAR_GLM_WORKER_LOCAL_MODEL", "qwen35-local")
+        get_settings.cache_clear()
+        assert gw._fetchy_pin({}) == ("qwen35-local", *gw.GLM_PIN)
+    finally:
+        get_settings.cache_clear()
+
+
+def test_preview_candidate_never_heads_pin(monkeypatch):
+    """赛马期隔离:PREVIEW 候选即使被 setting 指名也不领本地头 —— model_usable 拒绝
+    → 安全降级回纯云钉扎链(绝不炸工人,绝不让未晋升模型接生产流量)。"""
+    from xar.config import get_settings
+
+    monkeypatch.setattr(llm, "_KEYS_SYNCED", True)
+    monkeypatch.setenv("OLLAMA_API_KEY", "ollama")
+    monkeypatch.setenv("GLM_SUB_API_KEY", "test-sub")
+    monkeypatch.setenv("XAR_GLM_WORKER_LOCAL_FIRST", "true")
+    monkeypatch.setenv("XAR_GLM_WORKER_LOCAL_MODEL", "qwen35-local")  # PREVIEW(赛马败者)
+    get_settings.cache_clear()
+    try:
+        assert gw._fetchy_pin({}) == gw.GLM_PIN
+        # 拼错的模型 id 同样安全降级
+        monkeypatch.setenv("XAR_GLM_WORKER_LOCAL_MODEL", "no-such-model")
+        get_settings.cache_clear()
+        assert gw._fetchy_pin({}) == gw.GLM_PIN
+    finally:
+        get_settings.cache_clear()
+
+
+def test_candidate_specs_registered():
+    """Phase 4 赛马候选与 glm4-local 同纪律:capabilities=() 仅钉扎、订阅计费 usd=0、
+    16k ctx。败者留 PREVIEW 隔离(待 soak 后清理);胜者 qwen3-14b-local 已晋升 ACTIVE
+    (2026-07-19 赛果:ok 0.825/F1 0.224,唯一 ok 率超云锚)。"""
+    for mid in ("qwen35-local", "qwen3-local", "glm4-0414-local", "qwen3-14b-local"):
+        spec = registry.get(mid)
+        assert spec is not None and spec.provider == "ollama", mid
+        assert spec.billing is registry.Billing.SUBSCRIPTION, mid
+        assert spec.capabilities == (), mid
+        want = registry.Status.ACTIVE if mid == "qwen3-14b-local" else registry.Status.PREVIEW
+        assert spec.status is want, mid
+        assert spec.context_window == 16_384 and spec.max_output == 4096, mid
+        assert not spec.supports_reasoning, mid
+        assert spec.price_in == 0.0 and spec.price_out == 0.0, mid
+
+
+def test_json_instruction_matches_complete_json(monkeypatch):
+    """评测保真守卫:bench 走 complete(json_instruction(...)) 必须与生产 complete_json
+    发出的指令逐字节一致 —— 两者共用 json_instruction,此测试防止未来改动只改一边。"""
+    from pydantic import BaseModel
+
+    class _Tiny(BaseModel):
+        v: int = 0
+
+    captured: dict = {}
+
+    def fake_complete(instruction, **kwargs):
+        captured["instruction"] = instruction
+        return '{"v": 1}'
+
+    monkeypatch.setattr(llm, "complete", fake_complete)
+    out = llm.complete_json("PROMPT-BODY", _Tiny, node="bench-guard")
+    assert out.v == 1
+    assert captured["instruction"] == llm.json_instruction("PROMPT-BODY", _Tiny)
 
 
 def test_is_quota_error_patterns():
@@ -135,6 +226,9 @@ def test_cadence_gate(state_db):
 
 def test_run_once_exhausted_probes_and_skips(state_db, monkeypatch):
     gw.save_state("quota", {"status": "exhausted", "exhaust_count": 1})
+    # 钉死纯云钉扎链:宿主真实 .env 的 XAR_GLM_WORKER_LOCAL_FIRST=true 会让本地头
+    # 领链首 → 订阅门(链首非 GLM 则放行)绕过 probe,本测试的额度状态机断言随环境漂移。
+    monkeypatch.setattr(gw, "_fetchy_pin", lambda cfg: gw.GLM_PIN)
     monkeypatch.setattr(gw, "_sub_ready", lambda: True)
     monkeypatch.setattr(gw, "probe", lambda: False)
     monkeypatch.setattr(gw, "_pull_fresh", lambda cfg=None: {"stub": True})

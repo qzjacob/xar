@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     ollama_api_key: str = Field(default="", validation_alias="OLLAMA_API_KEY")
     ollama_api_base: str = Field(default="", validation_alias="OLLAMA_API_BASE")
     glm_worker_local_first: bool = False   # on → glmworker 本地优先(需 OLLAMA_API_KEY + GLM 订阅 key 双在场)
+    glm_worker_local_model: str = "glm4-local"  # 本地头 registry id;换代/回滚 = 改 env 重建容器,零代码(Phase 4)
     llm_local_timeout_s: int = 180         # 本地候选 per-call 超时(防挂死;连接拒绝本就秒败→轮转)
     # Claude Max subscription via the Agent SDK (executor="agent_sdk"). Zero per-token bill —
     # runs on the Max plan's OAuth login. Host-only (needs the `claude` CLI + ~/.claude creds);

@@ -66,13 +66,21 @@ def test_worker_unusable_models_rejected(seeded_db, monkeypatch):
         gw.save_fetchy({"model": "deepseek-v4-pro"})     # provider key 缺位
 
 
-def test_pin_puts_selected_model_first(seeded_db):
+def test_pin_puts_selected_model_first(seeded_db, monkeypatch):
+    from xar.config import get_settings
     from xar.orchestration import glm_worker as gw
 
-    assert gw._fetchy_pin({"model": None}) == gw.GLM_PIN
-    assert gw._fetchy_pin({"model": gw.GLM_PIN[0]}) == gw.GLM_PIN
-    pin = gw._fetchy_pin({"model": "deepseek-v4-pro"})
-    assert pin[0] == "deepseek-v4-pro" and gw.GLM_PIN[0] in pin
+    # 钉死 local-first 关闭:本测试断言的是「无本地头时」的显式选型排序;宿主真实
+    # .env 的 XAR_GLM_WORKER_LOCAL_FIRST=true 否则会把 glm4-local 前插进默认链。
+    monkeypatch.setenv("XAR_GLM_WORKER_LOCAL_FIRST", "false")
+    get_settings.cache_clear()
+    try:
+        assert gw._fetchy_pin({"model": None}) == gw.GLM_PIN
+        assert gw._fetchy_pin({"model": gw.GLM_PIN[0]}) == gw.GLM_PIN
+        pin = gw._fetchy_pin({"model": "deepseek-v4-pro"})
+        assert pin[0] == "deepseek-v4-pro" and gw.GLM_PIN[0] in pin
+    finally:
+        get_settings.cache_clear()
 
 
 def test_disabled_run_once_heartbeats_only(seeded_db, monkeypatch):

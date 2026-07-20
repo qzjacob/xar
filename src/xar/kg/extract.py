@@ -93,16 +93,11 @@ def _grounded(evidence: str, text: str) -> bool:
     return sum(1 for u in units if u in hay) / len(units) >= 0.7
 
 
-def extract_from_document(doc_id: str, run_id: str | None = None, max_chars: int = 12000) -> dict:
-    rows = db.query("SELECT id, company_id, source, doc_type, title, text FROM documents WHERE id=%s",
-                    (doc_id,))
-    if not rows:
-        return {}
-    d = rows[0]
-    text = (d["text"] or "")[:max_chars]
-    if len(text) < 80:
-        return {}
-
+def build_extraction_prompt(d: dict, text: str) -> tuple[str, str]:
+    """(system, prompt) for the kg extraction call, from a documents row + truncated text.
+    Module-level so the bench harness (scripts/bench_local_llm.py) can issue byte-identical
+    prompts through llm.complete without the KG writes — keep extract_from_document and the
+    harness on this single source of truth."""
     focus = _focus_for(d["company_id"])
     kpi_hint = _kpi_hint(d["company_id"])
     kpi_line = (f"Operating-metric vocabulary for this company (extract into `metrics` "
@@ -126,7 +121,21 @@ def extract_from_document(doc_id: str, run_id: str | None = None, max_chars: int
         "metric needs a short verbatim evidence quote copied from the document.\n\n"
         "<DOCUMENT>\n" + text + "\n</DOCUMENT>"
     )
-    result = llm.complete_json(prompt, ExtractionResult, system=_system_for(focus), task="kg_extract",
+    return _system_for(focus), prompt
+
+
+def extract_from_document(doc_id: str, run_id: str | None = None, max_chars: int = 12000) -> dict:
+    rows = db.query("SELECT id, company_id, source, doc_type, title, text FROM documents WHERE id=%s",
+                    (doc_id,))
+    if not rows:
+        return {}
+    d = rows[0]
+    text = (d["text"] or "")[:max_chars]
+    if len(text) < 80:
+        return {}
+
+    system, prompt = build_extraction_prompt(d, text)
+    result = llm.complete_json(prompt, ExtractionResult, system=system, task="kg_extract",
                                node="kg_extract", run_id=run_id, max_tokens=4000)
 
     name_to_id: dict[str, str] = {}

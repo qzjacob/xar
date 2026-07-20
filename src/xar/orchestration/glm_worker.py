@@ -219,17 +219,23 @@ def save_fetchy(cfg: dict) -> dict:
 
 def _fetchy_pin(cfg: dict) -> tuple[str, ...]:
     """选中的模型放链首,GLM_PIN 其余保持为回退链;Fetchy 未显式选型时,本地优先开关
-    (glm_worker_local_first)再往前插 glm4-local。显式选型 = 操作员意图,压过本地优先。
+    (glm_worker_local_first)再往前插本地头(glm_worker_local_model,默认 glm4-local——
+    换代/回滚改 env 即可,零代码)。显式选型 = 操作员意图,压过本地优先。
     仅在云订阅 key 在位(_sub_ready)时前插 —— 本地头会让 run_once 的订阅门(链首非
-    GLM 则放行)失效,故零计量回退不变量必须在此保住:回退尾必须是订阅 GLM。"""
+    GLM 则放行)失效,故零计量回退不变量必须在此保住:回退尾必须是订阅 GLM。
+    配置的本地模型不可用(拼错/PREVIEW/无 key)= 安全降级回纯云钉扎链,绝不炸工人。"""
     m = cfg.get("model")
     if m and m != GLM_PIN[0]:
         return (m, *tuple(x for x in GLM_PIN if x != m))
     from ..config import get_settings
 
-    if (get_settings().glm_worker_local_first and _sub_ready()
-            and model_usable(LOCAL_MODEL_ID) is None):
-        return (LOCAL_MODEL_ID, *GLM_PIN)
+    s = get_settings()
+    if s.glm_worker_local_first and _sub_ready():
+        mid = s.glm_worker_local_model or LOCAL_MODEL_ID
+        reason = model_usable(mid)
+        if reason is None:
+            return (mid, *GLM_PIN)
+        log.warning("本地优先开启但 %s 不可用:%s —— 本周期回落纯云钉扎链", mid, reason)
     return GLM_PIN
 
 
