@@ -9,7 +9,7 @@ DOMAIN-EXPERT accounts per chain theme and pulls their + domain-keyword posts in
 ontology-integrated insights. Gated by TWITTERAPI_KEY (or X_BEARER_TOKEN)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 
@@ -74,6 +74,63 @@ def available() -> bool:
     return bool(_key())
 
 
+# ── 月度总限额(2026-07-20):计量外部 API 的硬顶,全部调用方(fetchy/daily/exploration)
+# 共用 _search 咽喉,故在此记账+闸门即封顶总账单。成本为**估算**(twitterapi.io 牌价
+# ~$0.15/1k tweets + 每请求最低计费,费率经 config 可调);账本 = api_spend 表按
+# (provider, YYYY-MM UTC) 累计。账本不可读 = fail-closed 视为耗尽(宁可少拉不可超支)。
+_BUDGET_PROVIDER = "twitterapi"
+_budget_warned: set[str] = set()   # 已告警的月份(进程内防刷屏;1h 节拍下否则每轮一条)
+
+
+def _month() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m")
+
+
+def spend_summary() -> dict:
+    """本月已计支出(估算)。DB 不可用时 usd=None —— budget_ok 按耗尽处理。"""
+    from ..storage import db
+
+    s = get_settings()
+    try:
+        rows = db.query("SELECT usd, requests, items FROM api_spend WHERE provider=%s AND month=%s",
+                        (_BUDGET_PROVIDER, _month()))
+        r = rows[0] if rows else {"usd": 0.0, "requests": 0, "items": 0}
+        return {"month": _month(), "usd": round(float(r["usd"]), 4),
+                "requests": int(r["requests"]), "items": int(r["items"]),
+                "cap_usd": s.x_monthly_budget_usd}
+    except Exception as e:  # noqa: BLE001
+        log.warning("x spend ledger unreadable: %s", e)
+        return {"month": _month(), "usd": None, "requests": 0, "items": 0,
+                "cap_usd": s.x_monthly_budget_usd}
+
+
+def budget_ok() -> bool:
+    """月度限额闸:cap<=0 视为禁用数据源;账本不可读 fail-closed。每月首次触顶告警一次。"""
+    s = spend_summary()
+    ok = s["cap_usd"] > 0 and s["usd"] is not None and s["usd"] < s["cap_usd"]
+    if not ok and s["month"] not in _budget_warned:
+        _budget_warned.add(s["month"])
+        log.warning("x monthly budget exhausted/unreadable (%s: $%s / $%.2f) — X pulls skipped until next month",
+                    s["month"], s["usd"], s["cap_usd"])
+    return ok
+
+
+def _record_spend(requests: int, items: int) -> None:
+    from ..storage import db
+
+    s = get_settings()
+    usd = items * s.x_usd_per_1k_tweets / 1000.0 + requests * s.x_usd_per_request
+    try:
+        db.execute(
+            "INSERT INTO api_spend(provider, month, usd, requests, items) VALUES (%s,%s,%s,%s,%s) "
+            "ON CONFLICT (provider, month) DO UPDATE SET usd = api_spend.usd + EXCLUDED.usd, "
+            "requests = api_spend.requests + EXCLUDED.requests, "
+            "items = api_spend.items + EXCLUDED.items, updated_at = now()",
+            (_BUDGET_PROVIDER, _month(), usd, requests, items))
+    except Exception as e:  # noqa: BLE001
+        log.warning("x spend record failed: %s", e)
+
+
 def _handles(theme: str) -> list[str]:
     override = [h.strip().lstrip("@") for h in get_settings().x_expert_handles.split(",") if h.strip()]
     return override or EXPERT_HANDLES.get(theme, [])
@@ -120,8 +177,11 @@ def _norm(tw: dict) -> dict:
 
 
 def _search(query: str, max_results: int = 30) -> list[dict]:
-    """Cursor-paginated search; returns normalized tweets. Never raises."""
+    """Cursor-paginated search; returns normalized tweets. Never raises.
+    月度限额闸:入口与逐页各查一次(fail-closed),每个 HTTP 请求按页记账。"""
     out: list[dict] = []
+    if not budget_ok():
+        return out
     try:
         if _use_tapi():
             cursor = ""
@@ -133,17 +193,22 @@ def _search(query: str, max_results: int = 30) -> list[dict]:
                 r.raise_for_status()
                 js = r.json()
                 tweets = js.get("tweets") or js.get("data") or []
+                _record_spend(1, len(tweets))
                 out += [_norm(t) for t in tweets]
                 cursor = js.get("next_cursor") or ""
                 if not js.get("has_next_page") or not cursor or not tweets:
                     break
-        else:  # official X API v2
+                if not budget_ok():   # 长分页途中触顶即止(已取页保留)
+                    break
+        else:  # official X API v2(非 twitterapi 计费,同闸同账,统一封顶)
             polite("api.twitter.com")
             r = httpx.get(_X_V2, headers={"Authorization": f"Bearer {_key()}"},
                           params={"query": query, "max_results": min(max_results, 100),
                                   "tweet.fields": "created_at,public_metrics,author_id"}, timeout=30)
             r.raise_for_status()
-            out += [_norm(t) for t in (r.json().get("data") or [])]
+            data = r.json().get("data") or []
+            _record_spend(1, len(data))
+            out += [_norm(t) for t in data]
     except Exception as e:  # noqa: BLE001
         log.warning("x search failed (%s): %s", query[:40], e)
     return out[:max_results]

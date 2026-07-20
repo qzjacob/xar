@@ -696,8 +696,11 @@ def fetchy() -> dict:
               for m in MODELS if gw.model_usable(m.id) is None]
     # 订阅制在前(工人常驻批量,订阅=零边际成本),同组内 preferred 在前
     models.sort(key=lambda m: (m["billing"] != "subscription", not m["preferred"], m["id"]))
+    from ..providers import twitter
+
     return {"config": gw.fetchy_config(), "defaults": gw.fetchy_defaults(),
             "sources": sources, "stages": stages, "models": models,
+            "xBudget": twitter.spend_summary(),   # X 源月度限额账本(估算;usd=None=账本不可读)
             "status": {"quota": st.get("quota"), "counters": st.get("counters"),
                        "backlog_docs": st.get("extraction_backlog_docs"),
                        "pin": st.get("pin")}}

@@ -174,6 +174,18 @@ CREATE TABLE IF NOT EXISTS route_overrides (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Metered external DATA-API spend ledger (est. USD), month-keyed — hard monthly caps.
+-- First user: providers/twitter.py (twitterapi.io, $20/mo cap, 2026-07-20).
+CREATE TABLE IF NOT EXISTS api_spend (
+    provider   TEXT NOT NULL,       -- 'twitterapi', ...
+    month      TEXT NOT NULL,       -- 'YYYY-MM' (UTC)
+    usd        DOUBLE PRECISION NOT NULL DEFAULT 0,   -- estimated (rate-card based)
+    requests   BIGINT NOT NULL DEFAULT 0,
+    items      BIGINT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (provider, month)
+);
+
 -- ===========================================================================
 -- STRUCTURED DATA LAYER
 -- Multi-provider (Finnhub / FMP / Polygon / Yahoo / Wind / EDGAR) numeric facts,

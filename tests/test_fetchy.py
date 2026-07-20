@@ -5,6 +5,8 @@ import pytest
 
 
 def test_defaults_everything_on(seeded_db):
+    """默认全开 —— 唯 twitter 例外:计量外部 API,默认关(2026-07-20 裁定),
+    需运营显式开启且受月度限额闸(providers/twitter.py)封顶。"""
     from xar.orchestration import glm_worker as gw
 
     cfg = gw.fetchy_defaults()
@@ -12,7 +14,9 @@ def test_defaults_everything_on(seeded_db):
     assert cfg["model"] == gw.GLM_PIN[0]
     assert set(cfg["sources"]) == set(gw.FETCHY_SOURCES)
     assert set(cfg["stages"]) == set(gw.FETCHY_STAGES)
-    assert all(cfg["sources"].values()) and all(cfg["stages"].values())
+    assert cfg["sources"]["twitter"] is False
+    assert all(v for k, v in cfg["sources"].items() if k != "twitter")
+    assert all(cfg["stages"].values())
 
 
 def test_save_roundtrip_and_unknown_keys_ignored(seeded_db, monkeypatch):

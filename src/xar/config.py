@@ -106,6 +106,11 @@ class Settings(BaseSettings):
     # uses a bearer token. Set either; TwitterAPI.io is preferred when present.
     twitterapi_key: str = Field(
         default="", validation_alias=AliasChoices("TWITTERAPI_TOKEN", "TWITTERAPI_KEY"))
+    # X 数据源月度总限额(2026-07-20 用户裁定 $20/月;计量外部 API,全调用方共顶,
+    # providers/twitter.py 咽喉记账+闸门;费率为 twitterapi.io 牌价估算,可按账单校准)
+    x_monthly_budget_usd: float = 20.0     # ≤0 = 数据源禁用
+    x_usd_per_1k_tweets: float = 0.15
+    x_usd_per_request: float = 0.0002
     x_bearer_token: str = Field(default="", validation_alias="X_BEARER_TOKEN")
     reddit_client_id: str = Field(default="", validation_alias="REDDIT_CLIENT_ID")
     reddit_client_secret: str = Field(default="", validation_alias="REDDIT_CLIENT_SECRET")

@@ -109,7 +109,7 @@ def _mark_ok(q: dict) -> dict:
 # ── Fetchy 管理面(Jarvy 前端 ↔ 共享 DB;工人每轮读取,app 容器写入)───────────
 # 控制面走 glm_worker_state(key="fetchy")—— 两个容器共享同一 Postgres,无需 RPC。
 FETCHY_SOURCES: dict[str, dict] = {   # cadence key → 标签/节拍(小时;None=按 config)
-    "twitter": {"label": "Twitter 专家声音", "hours": 1},
+    "twitter": {"label": "Twitter 专家声音(计量 API·默认关·月度限额)", "hours": 1},
     "wechat": {"label": "微信公众号", "hours": 1},
     "finnhub_news": {"label": "Finnhub 新闻", "hours": 4},
     "rss": {"label": "RSS 源", "hours": 2},
@@ -136,8 +136,12 @@ FETCHY_STAGES: dict[str, str] = {     # run_once 阶段 → 标签
 
 
 def fetchy_defaults() -> dict:
+    sources = dict.fromkeys(FETCHY_SOURCES, True)
+    # twitter = 计量外部 API(twitterapi.io):默认关,需运营在 Jarvy 显式开启;开启后仍受
+    # providers/twitter.py 的月度总限额闸(x_monthly_budget_usd,2026-07-20 裁定 $20/月)封顶。
+    sources["twitter"] = False
     return {"enabled": True, "model": GLM_PIN[0],
-            "sources": dict.fromkeys(FETCHY_SOURCES, True),
+            "sources": sources,
             "stages": dict.fromkeys(FETCHY_STAGES, True)}
 
 
