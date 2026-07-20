@@ -130,6 +130,27 @@ def ingest_wechat(
         print(f"[cyan]building KG…[/cyan] {kg_extract.build_kg()}")
 
 
+@app.command("ingest-wechat-discover")
+def ingest_wechat_discover(
+    promote: bool = typer.Option(True, help="run promotion funnel after discovery"),
+    dry_run_promote: bool = typer.Option(False, help="rank promotion candidates but don't subscribe"),
+) -> None:
+    """微信「全网发现」:本体种子搜索 → 抓正文 → 落 source='wechat'(进现有 triage 去噪),
+    再把高产号晋升为 we-mp-rss 订阅。需 XAR_WECHAT_DISCOVER_ENABLED=true + WECHAT_SEARCH_BASE_URL。"""
+    from .ingestion import wechat_discover
+
+    if not wechat_discover.available():
+        print("[yellow]发现未开启[/yellow] —— 设 XAR_WECHAT_DISCOVER_ENABLED=true 且 "
+              "WECHAT_SEARCH_BASE_URL 指向自托管搜索服务。")
+        raise typer.Exit(0)
+    ids = wechat_discover.discover()
+    print(f"[green]wechat discover:[/green] {len(ids)} articles ingested (source=wechat)")
+    if promote:
+        from .mining.wechat_promote import promote_candidates
+
+        print(json.dumps(promote_candidates(dry_run=dry_run_promote), indent=2, default=str, ensure_ascii=False))
+
+
 @app.command()
 def parse() -> None:
     """Parse + embed any unparsed documents."""

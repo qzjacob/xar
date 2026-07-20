@@ -28,13 +28,14 @@ from ..storage import runlog
 log = get_logger("xar.daily")
 
 
-def _run_source(src: str, ids: list[str], since) -> dict:
+def _run_source(src: str, ids: list[str], since, *, shard: int | None = None) -> dict:
     """Pull one source incrementally for the given company shard. Returns a small
     stats dict. Per-company failures are logged, not raised (a bad ticker must not
     sink the whole source); a source-wide failure propagates to the caller, which
-    records it as a failed `ingest_runs` row."""
+    records it as a failed `ingest_runs` row. `shard` gates global (non-company)
+    sub-tasks to run once — see the wechat discovery branch."""
     from .. import providers
-    from ..ingestion import cninfo, edgar, ingest_wechat, wechat
+    from ..ingestion import cninfo, edgar, ingest_wechat, wechat, wechat_discover
     from ..kg import signals
 
     pulled = 0
@@ -75,7 +76,17 @@ def _run_source(src: str, ids: list[str], since) -> dict:
         providers.reddit.pull_basket(ids)
     elif src == "wechat":
         if wechat.available():
-            pulled += len(ingest_wechat())
+            pulled += len(ingest_wechat())            # 订阅号轮询(现有)
+        # 全网发现是全局查询(不分 company),且外部搜索服务靠按天轮转限流 → 每日只跑一次
+        # (未分片或 shard 0),否则 N 个分片 N× 重复搜索/抓取,打爆反爬。脆弱环节隔离在
+        # try/except 内:发现/晋升失败不拖垮已成功的订阅轮询、不误标整轮 wechat 失败。
+        if shard in (None, 0) and wechat_discover.available():
+            try:
+                pulled += len(wechat_discover.discover())
+                from ..mining.wechat_promote import promote_candidates
+                promote_candidates()                  # 高产号晋升为订阅(每日上限内)
+            except Exception as e:  # noqa: BLE001
+                log.warning("wechat discover/promote failed (isolated, 订阅轮询不受影响): %s", e)
     elif src == "aifinmarket":
         for cid in ids:
             try:
@@ -181,7 +192,7 @@ def run_daily(sources: list[str] | None = None, *, since=None, full_universe: bo
                 cur = _cursor(src, since)
                 r = runlog.start(src, since_ts=cur)
                 try:
-                    sub = _run_source(src, ids, cur)
+                    sub = _run_source(src, ids, cur, shard=shard)
                     stats["sources"][src] = sub
                     runlog.finish(r, "ok", stats=sub)
                 except Exception as e:  # noqa: BLE001

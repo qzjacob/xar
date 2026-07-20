@@ -405,7 +405,7 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 **意图**：公众号是国内产业链最快的非结构化情报源，但信噪比极低。旧管线对**每篇**微信文章无差别发**两次满额 GLM 调用**（`build_kg` + `expert`），SNR 判断在昂贵调用**内部**、事后才丢弃——实测保留率 **3.75%**、约 **96% 的 GLM 订阅额度烧在噪音上**。本模块把「值不值得深抽」的判断**前移到深度抽取之前**，插入一层廉价、GLM 订阅钉扎的 **SNR triage 闸**，形成 **T0→T4 分层**：
 
 - **T0 目标化（`mining/targeting.py`，零 LLM）**：从**被信号/事件挑战的活跃论点**（`thesis_signals.challenged_companies`）反推挖掘目标——被挑战公司优先，每个 `MiningTarget` 带中文别名、主题/技术路线、论点 `watch_event_types`/`what_to_watch` 中文盯盘项与派生的中文猎词（别名 + 主题词 + 路线词，经 `cn_routing`）。供名册采集优先级 / triage 队列重排 / ops 可见性 / 未来搜索查询源。
-- **T1 策展采集（`mining/roster.py` + `wechat_accounts` 表）**：运营方在 we-mp-rss UI 订阅垂直号后登记 `feed_id → theme/segment/company_id/tier`；`glm_worker._wechat` 逐号拉取并带公司绑定（单号失败不沉整轮），**名册空则退回聚合 `/rss`**。**决策：策展名册而非关键词搜索**——公众号搜索不可靠且会触发账号限流/封禁，故 deliberately not built。
+- **T1 策展采集（`mining/roster.py` + `wechat_accounts` 表）**：运营方在 we-mp-rss UI 订阅垂直号后登记 `feed_id → theme/segment/company_id/tier`；`glm_worker._wechat` 逐号拉取并带公司绑定（单号失败不沉整轮），**名册空则退回聚合 `/rss`**。**原决策：策展名册而非关键词搜索**——公众号搜索不可靠且会触发账号限流/封禁，故当时 deliberately not built。**2026-07 修订**：以「全网发现混合漏斗」opt-in 补上关键词搜索这一路——把脆弱反爬隔离到**外部自托管搜索服务**、默认关、并用**晋升漏斗**把高产命中转成本表的耐久订阅，兼顾覆盖与可靠。见 §5.12。
 - **T2 抽取前 SNR 闸（`mining/triage.py`，`WechatTriage` schema）**：① **零 LLM 确定性预筛**——中文路由（theme/route）命中 / 别名命中 / 可解析到覆盖公司，**全不命中即打噪音地板分 `_NOISE_FLOOR=0.03` 并跳过 LLM**（免费滤掉盲目名册的闲聊，不耗额度）；② 幸存者 → **一次** `WECHAT_TRIAGE` 短 prompt 调用，注入命中主题/路线 + **已知 KG 摘要**（`graphrag.semantic`，供新颖度对照）+ 公司活跃论点 `watch_event_types`（支柱命中）；③ **可审计融合**：`0.35·priority + 0.25·credibility·(¬is_xiaozuowen) + 0.20·novelty + 0.20·specificity`，叠 **小作文地板**（`is_xiaozuowen ∧ credibility<0.4 → ≤0.15`）与 **novelty·specificity 救回**（`max(score, 0.55·novelty·specificity)`，补微信无阅读数、救回冷门号扎实一手信息）→ 写 `documents.triage_score/triaged_at/triage`；ingest 期 `company_id` 为空时按 triage 解析结果**回填**（`resolve` 阈值 0.62）。
 - **T3/T4 深度抽取（`kg/extract.build_kg` + `kg/expert.process`）= 原来的两次 GLM 调用**：现由**两条 NULL 安全 WHERE 守卫**（`mining.triage.wechat_pending_clause`：`d.source <> 'wechat' OR d.triage_score IS NULL OR d.triage_score >= wechat_deep_min`）门控——`triage_score >= 0.4` 才进队列，**未 triage（NULL）照旧全流、非微信短路完全不受影响**（加性、向后兼容；关 `wechat_miner_enabled` 即退回旧的无差别抽取）。
 
@@ -484,6 +484,18 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 - **前端跨模块闭环**:`web/lib/runs.ts`(fenny runJob 轮询范式移植)→ 公司页 `EarningsSection` 「跑 ET 裁决」按钮(schedule→轮询→onRefetch)+ 公司头「问 Chathy」(`/?q=…` 深链)+ `ChathyPage` 一次性消费 `?q=` 自动发问 + `ToolChip` 工具结果 company id → `/genny/company/{id}` deep-link。
 - **报告 DAG 补喂**:`agents/nodes.graph_retrieve` 增填 thesis/earnings/macro 三块(fail-soft),`_graph_brief` 渲三砖 → 报告吃到全体系分析而非早于它。`report` 能力使其可从 Chathy `start_report` 触发。
 - **测试**:`test_capabilities`(注册表/parity 锁)、`test_capability_runs`(schedule/execute/去重/stale/路由/shim)、`test_macro_view`(降级/压缩/dossier 行)、`test_chathy_capabilities`(新工具/refresh 只 schedule/8k)、`test_report_nodes`(三砖/fail-soft)。真机冒烟六步(通用 API 跑 ET → 公司页出现裁决 → Chathy 对话触发拿 run_id → dossier 宏观节 → 前端 deep-link)。
+
+### 5.12 微信「全网发现」混合漏斗（As-Built，2026-07-20，`ingestion/wechat_discover.py` + `wechat_search.py` + `mining/wechat_promote.py`）
+
+**意图**：§5.10 的抓取侧只轮询**手动订阅**的号（T1 名册），你没订阅的高价值号——尤其冷门但扎实的一手号——永远进不来。本模块补上「全网发现」：用**本体驱动搜索 + 逐篇正文抓取**近似全网覆盖，发现文档全部灌进**现有 T2 triage 去噪**（§5.10），零改动复用打分/门控/抽取全链路。微信是围墙花园、任意全网爬取不可能干净实现，故用**混合漏斗**逼近，并把最脆弱的反爬一环隔离在**外部自托管搜索服务**里、**默认关闭**、可随时降级回纯订阅。
+
+- **① 本体种子查询**（`wechat_discover._queries()`）：公司中文别名（`registry.COMPANIES`）+ `ontology/cn_routing` 的 8 主题 + 33 路线**中文词**——纯 ASCII 术语（800G 等）留给别名/主题携带以免搜索噪音；`_slice_for_today()` 按 **UTC 日序无状态轮转**取一片（`wechat_discover_queries_per_run=40`），每日 daily 跑一片，ceil(总数/每轮)天覆盖全集，避免一次性打爆反爬。
+- **② 全网搜索**（`wechat_search.search()`）：**后端无关薄客户端**——只调 `GET {WECHAT_SEARCH_BASE_URL}/api/search?q=&days=`，把多形态返回体**归一化**成 `{title,url,account,gh_id,date,snippet}`，只留 `mp.weixin.qq.com` 永久链接，失败 WARN 返回 `[]`（脆弱一环绝不炸调用方）。反爬留在外部服务（tmwgsicp/wechat-download-api 等，构建期 spike 选定）；换后端只改 `_endpoint()/_normalize()` 一处。
+- **③ 抓取+落库**：候选 URL 先查 `documents` **去重**（已抓过跳过，省成本）→ 复用 `news._fetch/_extract`（trafilatura）抓正文 → 短于 `wechat_discover_min_chars` 跳过（图片/视频号）→ `save(Doc(source='wechat', doc_type='mp_search', permission='grey', meta={via:'discover',account,gh_id,query}))`。**posture 不变**：存事实+引用 URL、不转载。因 `source='wechat'`，自动命中 §5.10 的 `wechat_pending_clause` 门控 → T2 triage → 深度抽取，**去噪链零改动**。
+- **④ 晋升漏斗**（`mining/wechat_promote.promote_candidates()`）：按 `gh_id` 聚合被发现号的 triage 产出（发现过多少篇、其中多少篇过 `deep_min`），够格号（`≥wechat_promote_min_articles` 且 `keep_rate≥wechat_promote_min_keep_rate`）在**每日上限** `wechat_promote_max_per_day` 内自动订阅（`subscribe_fn` 请 we-mp-rss 服务端订阅拿 `feed_id`）→ **`roster.register` 落 T1 策展名册**，此后由稳定轮询接管——**脆弱搜索命中 → 耐久订阅的自愈收敛**。阈值+每日上限+审计防垃圾号灌名册/防打爆会话限流。
+- **候选与名册分表**（关键）：策展名册 `wechat_accounts`（`feed_id` 键，§5.10 既有）是稳定轮询源；发现候选订阅前**无 feed_id**，故单列新表 **`wechat_discovered`**（`gh_id` 键）记 triage 产出统计。**勿混淆二者**。
+
+**默认关**：`XAR_WECHAT_DISCOVER_ENABLED=false` + 空 `WECHAT_SEARCH_BASE_URL` → 整体 no-op（延续 twitter 默认关纪律）。**接线**：`daily.py` wechat 段（发现是重活——多查询+多抓取，放每日拉取、不放常驻每轮）+ `promote_candidates`；CLI `xar ingest-wechat-discover [--dry-run-promote]`；`POST /api/ingest/wechat-discover`；Jarvy Fetchy 页 `wechatDiscover` 观测。**测试** `tests/test_wechat_discover.py`（查询/轮转/去重/短文跳过/落库口径/归一化/晋升门，11 项）。**部署** `hardware-solutions/apply-minis-wechat-search.sh`。**未来**（`WECHAT_DISCOVERY_PLAN.md`）：F1 付费 API 发现（newrank）/ F2 NRI 热度入 triage / F3 Sogou 直爬兜底。
 
 ## 6. 多 Agent 报告流水线
 

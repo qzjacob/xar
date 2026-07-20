@@ -205,6 +205,35 @@ def ingest_wechat(bg: BackgroundTasks) -> dict:
     return {"status": "started", "source": "wechat"}
 
 
+@app.post("/api/ingest/wechat-discover")
+def ingest_wechat_discover(bg: BackgroundTasks) -> dict:
+    """微信「全网发现」手动触发:种子搜索 → 抓正文 → source='wechat'(进现有 triage),
+    再跑晋升漏斗。需 XAR_WECHAT_DISCOVER_ENABLED=true + WECHAT_SEARCH_BASE_URL。"""
+    from ..ingestion import wechat_discover
+
+    if not wechat_discover.available():
+        return {"status": "skipped",
+                "reason": "wechat discovery disabled or WECHAT_SEARCH_BASE_URL not set"}
+
+    def _job() -> None:
+        from ..ingestion import wechat_discover
+        from ..kg import extract as kg_extract
+        from ..mining.wechat_promote import promote_candidates
+        from ..parsing import parse
+
+        try:
+            n = len(wechat_discover.discover())
+            parse.parse_pending()
+            kg_extract.build_kg()
+            promote_candidates()
+            log.info("wechat discover complete: %d articles", n)
+        except Exception as e:
+            log.warning("wechat discover failed: %s", e)
+
+    bg.add_task(_job)
+    return {"status": "started", "source": "wechat-discover"}
+
+
 class PullReq(BaseModel):
     company_ids: list[str] | None = None
     social: bool = True

@@ -180,6 +180,22 @@ class Settings(BaseSettings):
     werss_feed_map: str = Field(default="", validation_alias="WERSS_FEED_MAP")
     werss_max_items: int = Field(default=50, validation_alias="WERSS_MAX_ITEMS")
 
+    # --- WeChat 全网发现 (混合漏斗: 本体种子搜索 → 抓取 → 高产号晋升订阅) ------------
+    # 薄连接器消费一个自托管的搜索服务(we-mp-rss 内置搜索 / wechat-download-api 等),
+    # XAR 只调它的 HTTP 搜索接口。反爬留在外部服务里。默认关(新脆弱路径,显式 opt-in,
+    # 与 twitter 默认关同纪律);base url 为空 → 发现连接器 no-op。
+    wechat_search_base_url: str = Field(default="", validation_alias="WECHAT_SEARCH_BASE_URL")
+    wechat_search_api_token: str = Field(default="", validation_alias="WECHAT_SEARCH_API_TOKEN")
+    wechat_discover_enabled: bool = Field(default=False, validation_alias="XAR_WECHAT_DISCOVER_ENABLED")
+    wechat_discover_queries_per_run: int = 40   # 每轮跑的查询数(游标轮转,避免打爆反爬)
+    wechat_discover_max_articles: int = 200     # 每轮抓取正文的文章上限(成本闸)
+    wechat_discover_min_chars: int = 200        # 正文短于此 → 跳过(图片/视频号,triage 也会地板掉)
+    wechat_discover_lookback_days: int = 14     # 搜索只要近 N 天(高信噪、避免历史回填灌库)
+    # 晋升门:发现文档 triage 产出达标的号,自动加入 we-mp-rss 订阅做长期稳定轮询。
+    wechat_promote_min_articles: int = 3        # 该号至少发现过 N 篇(已 triage)才够格晋升
+    wechat_promote_min_keep_rate: float = 0.5   # 且 triage 保留率 >= 此值(高信噪号才晋升)
+    wechat_promote_max_per_day: int = 5         # 每日自动订阅上限(防打爆 we-mp-rss 会话限流)
+
     # --- Exploration module (frontier research): arXiv is public, no key ---
     arxiv_enabled: bool = True
     arxiv_max_results: int = 60

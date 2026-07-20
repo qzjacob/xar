@@ -678,6 +678,24 @@ def selftest() -> dict:
 
 
 # ── Fetchy:glmworker 管理面(Jarvy 前端)──────────────────────────────────────
+def _wechat_discover_summary() -> dict:
+    """微信「全网发现」漏斗观测:开关 + 已发现文档数 + 晋升漏斗统计(供 Jarvy)。"""
+    from ..config import get_settings
+    from ..ingestion import wechat_search
+    from ..mining.wechat_promote import promotion_stats
+
+    s = get_settings()
+    out = {"enabled": bool(s.wechat_discover_enabled),
+           "searchConfigured": wechat_search.available()}
+    try:
+        out["discoveredDocs"] = _count("documents",
+                                       "source='wechat' AND meta->>'via'='discover'")
+        out["funnel"] = promotion_stats()
+    except Exception as e:  # noqa: BLE001
+        out["error"] = str(e)[:160]
+    return out
+
+
 def fetchy() -> dict:
     """工人状态 + 生效配置 + 可选模型/数据源/阶段目录(供 Jarvy Fetchy 页渲染)。"""
     from ..models.registry import MODELS
@@ -701,6 +719,7 @@ def fetchy() -> dict:
     return {"config": gw.fetchy_config(), "defaults": gw.fetchy_defaults(),
             "sources": sources, "stages": stages, "models": models,
             "xBudget": twitter.spend_summary(),   # X 源月度限额账本(估算;usd=None=账本不可读)
+            "wechatDiscover": _wechat_discover_summary(),  # 微信全网发现漏斗(开关+发现数+晋升)
             "status": {"quota": st.get("quota"), "counters": st.get("counters"),
                        "backlog_docs": st.get("extraction_backlog_docs"),
                        "pin": st.get("pin")}}

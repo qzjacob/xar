@@ -538,6 +538,26 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS segment TEXT;
 CREATE INDEX IF NOT EXISTS idx_documents_theme_segment ON documents(theme, segment);
 
 -- ---------------------------------------------------------------------------
+-- 微信「全网发现」候选号状态 (mining/wechat_promote.py)。按 gh_id 聚合被发现号的 triage
+-- 产出;够格的号(≥min_articles 且 keep_rate≥min_keep_rate)晋升 → roster.register 进
+-- 上面的策展名册 wechat_accounts(拿到 feed_id 后由稳定轮询接管)。候选与名册分表:候选
+-- 用 gh_id 键(订阅前无 feed_id),名册用 feed_id 键。articles_* 每轮由 documents 聚合刷新。
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS wechat_discovered (
+    gh_id         TEXT PRIMARY KEY,                     -- 公众号唯一 id (gh_xxx / biz)
+    name          TEXT,                                 -- 公众号名(展示)
+    first_seen    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    articles_seen BIGINT NOT NULL DEFAULT 0,            -- 发现过且已 triage 的文章数
+    articles_kept BIGINT NOT NULL DEFAULT 0,            -- 其中 triage_score>=deep_min 的数
+    keep_rate     REAL,                                 -- kept/seen
+    promoted_at   TIMESTAMPTZ,                          -- 晋升(订阅)时刻 (NULL=未晋升)
+    feed_id       TEXT,                                 -- 晋升后 we-mp-rss 侧 feed id
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_wechat_discovered_pending
+    ON wechat_discovered(keep_rate DESC) WHERE promoted_at IS NULL;
+
+-- ---------------------------------------------------------------------------
 -- Chathy: persistent tool-calling chat sessions (ChatGPT-style). One session has an
 -- ordered message log; assistant rows may carry tool_calls, tool rows carry a result.
 -- ---------------------------------------------------------------------------
