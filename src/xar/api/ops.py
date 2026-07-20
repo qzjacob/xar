@@ -681,16 +681,19 @@ def selftest() -> dict:
 def _wechat_discover_summary() -> dict:
     """微信「全网发现」漏斗观测:开关 + 已发现文档数 + 晋升漏斗统计(供 Jarvy)。"""
     from ..config import get_settings
-    from ..ingestion import wechat_search, werss_api
+    from ..ingestion import wcda_api, wechat_search, werss_api
     from ..mining.wechat_promote import promotion_stats
 
     s = get_settings()
     out = {"enabled": bool(s.wechat_discover_enabled),
-           "articleSearchConfigured": wechat_search.available(),      # 文章级后端
-           "accountSearchConfigured": werss_api.available()}          # 账号级后端(we-mp-rss AK/SK)
+           "wcdaConfigured": wcda_api.available(),                    # 文章级(wechat-download-api,主用)
+           "articleSearchConfigured": wechat_search.available(),      # 文章级(通用 /api/search)
+           "accountSearchConfigured": werss_api.available()}          # 账号级(we-mp-rss AK/SK)
     try:
         out["discoveredDocs"] = _count("documents",
                                        "source='wechat' AND meta->>'via'='discover'")
+        out["wcdaDocs"] = _count("documents",
+                                 "source='wechat' AND meta->>'backend'='wcda'")
         out["funnel"] = promotion_stats()      # 发现候选/已订阅/够格待晋升
     except Exception as e:  # noqa: BLE001
         out["error"] = str(e)[:160]

@@ -201,6 +201,12 @@ class Settings(BaseSettings):
     werss_sk: str = Field(default="", validation_alias="WERSS_SK")
     wechat_account_prune_min_articles: int = 8   # 发现订阅的号累计 triage ≥N 篇才评估去留
     wechat_account_prune_max_keep_rate: float = 0.15  # keep_rate < 此值 → 停用(证明低信噪,止损)
+    # wechat-download-api(wcda)后端:curl_cffi 登录公众号平台,搜号→逐号取文→解析全文。
+    # 与 we-mp-rss 相比登录更稳(无 selector 抓取)。base 为空 → wcda 发现路径 no-op。
+    wcda_base_url: str = Field(default="", validation_alias="WCDA_BASE_URL")
+    wcda_accounts_per_query: int = 6      # 每个关键词取前 N 个公众号
+    wcda_accounts_per_run: int = 12       # 每轮最多处理 N 个新账号(界定抓取量)
+    wcda_articles_per_account: int = 6     # 每个号取最近 N 篇(逐篇解析全文,成本闸)
 
     # --- Exploration module (frontier research): arXiv is public, no key ---
     arxiv_enabled: bool = True

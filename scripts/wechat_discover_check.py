@@ -35,52 +35,47 @@ def main() -> None:
     print(f"  文章级后端就绪(WECHAT_SEARCH_BASE_URL) = {bool(s.wechat_search_base_url)}")
     print(f"  triage 深抽门槛 wechat_deep_min = {dm}  | 每日订阅上限 = {s.wechat_promote_max_per_day}")
 
-    # 2) 发现/订阅了哪些号 ---------------------------------------------------
-    _hr("2) 发现 → 订阅的公众号(wechat_discovered)")
+    # 2) 发现了哪些号 --------------------------------------------------------
+    _hr("2) 发现的公众号(wechat_discovered)")
     disc = db.query(
         "SELECT gh_id, name, feed_id, promoted_at, first_seen FROM wechat_discovered "
-        "ORDER BY promoted_at DESC NULLS LAST, first_seen DESC")
-    subscribed = [d for d in disc if d.get("feed_id") and d.get("promoted_at")]
-    print(f"  发现候选号总数 = {len(disc)}  |  已自动订阅 = {len(subscribed)}")
-    roster_n = db.query("SELECT count(*) n, count(*) FILTER (WHERE active) act FROM wechat_accounts")
-    print(f"  策展名册 wechat_accounts:总 {roster_n[0]['n']} / active {roster_n[0]['act']}")
-    for d in subscribed[:15]:
-        print(f"    · {d['name']}  [{d['feed_id']}]  订阅于 {str(d['promoted_at'])[:16]}")
-    if not subscribed:
-        print("  (还没有通过发现订阅的号 —— 若配置就绪,等下一次 daily(约 02:00 EDT)或手动 "
+        "ORDER BY first_seen DESC")
+    subscribed = [d for d in disc if d.get("feed_id") and d.get("promoted_at")]  # 账号级订阅模式
+    print(f"  发现的号总数 = {len(disc)}  |  其中订阅模式已订阅 = {len(subscribed)}"
+          f"  |  文章模式(wcda,直取不订阅) = {len(disc) - len(subscribed)}")
+    for d in disc[:15]:
+        tag = f"[订阅 {d['feed_id']}]" if d.get("feed_id") else "[wcda 直取]"
+        print(f"    · {d['name']}  {tag}  首见 {str(d['first_seen'])[:16]}")
+    if not disc:
+        print("  (还没发现任何号 —— 若配置就绪,等下一次 daily(约 02:00 EDT)或手动 "
               "`xar ingest-wechat-discover`)")
 
-    feeds = [d["feed_id"] for d in subscribed if d.get("feed_id")]
+    # 3) 发现文章的检索量 + triage 信噪质量(全后端)------------------------
+    _hr("3) 发现文章检索量 + triage 信噪质量")
+    agg = db.query(
+        "SELECT count(*) total, "
+        "count(*) FILTER (WHERE triaged_at IS NOT NULL) triaged, "
+        "count(*) FILTER (WHERE triage_score >= %s) kept, "
+        "count(*) FILTER (WHERE ingested_at > now() - make_interval(hours=>24)) last24, "
+        "count(*) FILTER (WHERE kg_extracted_at IS NOT NULL) extracted "
+        "FROM documents WHERE source='wechat' AND meta->>'via'='discover'", (dm,))
+    a = agg[0]
+    kr = (a["kept"] / a["triaged"]) if a["triaged"] else None
+    print(f"  发现文章:总 {a['total']}  |  近24h {a['last24']}  |  已 triage {a['triaged']}")
+    print(f"  高信噪(triage_score≥{dm})= {a['kept']}  →  keep_rate = "
+          + (f"{kr:.1%}" if kr is not None else "n/a(尚无 triage)"))
+    print(f"  已进 kg 抽取 = {a['extracted']}")
+    sample = db.query(
+        "SELECT title, meta->>'account' acct, round(triage_score::numeric,2) sc "
+        "FROM documents WHERE source='wechat' AND meta->>'via'='discover' "
+        "AND triage_score IS NOT NULL ORDER BY triage_score DESC LIMIT 10")
+    if sample:
+        print("  信噪最高样本(供人工眼检投研相关性):")
+        for r in sample:
+            print(f"    [{r['sc']}] {(r['title'] or '')[:46]}  ({r['acct']})")
 
-    # 3) 拉到多少文章 + 信噪质量 --------------------------------------------
-    _hr("3) 发现号的文章检索量 + triage 信噪质量")
-    if feeds:
-        agg = db.query(
-            "SELECT count(*) total, "
-            "count(*) FILTER (WHERE triaged_at IS NOT NULL) triaged, "
-            "count(*) FILTER (WHERE triage_score >= %s) kept, "
-            "count(*) FILTER (WHERE ingested_at > now() - make_interval(hours=>24)) last24, "
-            "count(*) FILTER (WHERE kg_extracted_at IS NOT NULL) extracted "
-            "FROM documents WHERE source='wechat' AND meta->>'feed_id' = ANY(%s)", (dm, feeds))
-        a = agg[0]
-        kr = (a["kept"] / a["triaged"]) if a["triaged"] else None
-        print(f"  发现号文章:总 {a['total']}  |  近24h {a['last24']}  |  已 triage {a['triaged']}")
-        print(f"  高信噪(triage_score≥{dm})= {a['kept']}  →  keep_rate = "
-              + (f"{kr:.1%}" if kr is not None else "n/a(尚无 triage)"))
-        print(f"  已进 kg 抽取 = {a['extracted']}")
-        sample = db.query(
-            "SELECT title, meta->>'feed_id' f, round(triage_score::numeric,2) sc "
-            "FROM documents WHERE source='wechat' AND meta->>'feed_id' = ANY(%s) "
-            "AND triage_score IS NOT NULL ORDER BY triage_score DESC LIMIT 8", (feeds,))
-        if sample:
-            print("  信噪最高样本(供人工眼检质量):")
-            for r in sample:
-                print(f"    [{r['sc']}] {(r['title'] or '')[:48]}  ({r['f']})")
-    else:
-        print("  (暂无发现号 → 无文章可评估)")
-
-    # 4) 质量基线对照 + 止损候选 --------------------------------------------
-    _hr("4) 质量基线对照 + 止损候选")
+    # 4) 质量基线对照 + 按号 keep_rate --------------------------------------
+    _hr("4) 质量基线对照 + 按号 keep_rate")
     try:
         from xar.mining import triage
         base = triage.stats()
@@ -88,21 +83,17 @@ def main() -> None:
               f"(triaged={base.get('triaged')}, avg={base.get('avg_score')})")
     except Exception as e:  # noqa: BLE001
         print("  基线读取失败:", e)
-    if feeds:
-        prune = db.query(
-            "SELECT w.name, w.feed_id, count(*) FILTER (WHERE d.triaged_at IS NOT NULL) seen, "
-            "count(*) FILTER (WHERE d.triage_score >= %s) kept "
-            "FROM wechat_discovered w JOIN documents d ON d.meta->>'feed_id' = w.feed_id "
-            "WHERE w.feed_id IS NOT NULL AND w.promoted_at IS NOT NULL "
-            "GROUP BY w.name, w.feed_id "
-            "HAVING count(*) FILTER (WHERE d.triaged_at IS NOT NULL) >= %s",
-            (dm, s.wechat_account_prune_min_articles))
-        bad = [p for p in prune if (p["kept"] / p["seen"] if p["seen"] else 0)
-               < s.wechat_account_prune_max_keep_rate]
-        print(f"  样本足(≥{s.wechat_account_prune_min_articles}篇)的发现号 = {len(prune)}  |  "
-              f"够格止损(keep_rate<{s.wechat_account_prune_max_keep_rate}) = {len(bad)}")
-        for p in bad[:8]:
-            print(f"    ✗ {p['name']} keep_rate={p['kept']}/{p['seen']}")
+    byacct = db.query(
+        "SELECT meta->>'account' acct, count(*) FILTER (WHERE triaged_at IS NOT NULL) seen, "
+        "count(*) FILTER (WHERE triage_score >= %s) kept "
+        "FROM documents WHERE source='wechat' AND meta->>'via'='discover' "
+        "AND coalesce(meta->>'account','') <> '' "
+        "GROUP BY meta->>'account' HAVING count(*) FILTER (WHERE triaged_at IS NOT NULL) > 0 "
+        "ORDER BY kept DESC, seen DESC LIMIT 12", (dm,))
+    if byacct:
+        print("  按号信噪(kept/seen):")
+        for r in byacct:
+            print(f"    {r['acct'][:22]:22}  {r['kept']}/{r['seen']}")
 
     # 5) 判定 ----------------------------------------------------------------
     _hr("5) 判定")

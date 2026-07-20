@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pytest
 
+from xar.ingestion import wcda_api as wc
 from xar.ingestion import wechat_discover as wd
 from xar.ingestion import wechat_search as ws
 from xar.ingestion import werss_api as wa
@@ -319,3 +320,116 @@ def test_prune_accounts_dry_run(monkeypatch):
     monkeypatch.setattr(wp.roster, "deactivate", lambda fid: pytest.fail("dry-run 不得停用"))
     out = wp.prune_accounts(dry_run=True)
     assert out["dry_run"] and out["pruned"] == 1
+
+
+# ── 文章级发现:wechat-download-api (wcda) ────────────────────────────────────
+class _WcdaS:
+    wcda_base_url = "http://wcda:5000"
+    http_user_agent = "x"
+
+
+def test_wcda_search_accounts_normalizes(monkeypatch):
+    monkeypatch.setattr(wc, "get_settings", lambda: _WcdaS())
+    monkeypatch.setattr(wc, "polite", lambda h: None)
+
+    class _R:
+        def raise_for_status(self): pass
+
+        def json(self):
+            return {"success": True, "data": {"list": [
+                {"fakeid": "F1", "nickname": "光通信女人", "alias": "nini"},
+                {"fakeid": "", "nickname": "空号"},           # 无 fakeid → 丢
+            ]}}
+
+    monkeypatch.setattr(wc.httpx, "get", lambda *a, **k: _R())
+    out = wc.search_accounts("光模块")
+    assert len(out) == 1 and out[0]["fakeid"] == "F1" and out[0]["name"] == "光通信女人"
+
+
+def test_wcda_list_articles_slices_to_limit(monkeypatch):
+    monkeypatch.setattr(wc, "get_settings", lambda: _WcdaS())
+    monkeypatch.setattr(wc, "polite", lambda h: None)
+
+    class _R:
+        def raise_for_status(self): pass
+
+        def json(self):
+            return {"success": True, "data": {"articles": [
+                {"title": f"t{i}", "link": f"https://mp.weixin.qq.com/s/{i}"} for i in range(10)]}}
+
+    monkeypatch.setattr(wc.httpx, "get", lambda *a, **k: _R())
+    out = wc.list_articles("F1", limit=3)      # 后端返回 10,代码截到 3
+    assert len(out) == 3 and out[0]["url"].startswith("https://mp.weixin.qq.com/")
+
+
+def test_wcda_parse_article_plain_and_html_fallback(monkeypatch):
+    monkeypatch.setattr(wc, "get_settings", lambda: _WcdaS())
+    monkeypatch.setattr(wc, "polite", lambda h: None)
+
+    class _R:
+        def raise_for_status(self): pass
+
+        def json(self):
+            return {"success": True, "data": {"title": "T", "plain_content": "正文内容",
+                                              "author": "号", "publish_time": 1784504293}}
+
+    monkeypatch.setattr(wc.httpx, "post", lambda *a, **k: _R())
+    p = wc.parse_article("https://mp.weixin.qq.com/s/X")
+    assert p["title"] == "T" and p["text"] == "正文内容" and p["author"] == "号"
+
+    class _R2(_R):
+        def json(self):
+            return {"success": True, "data": {"title": "T", "content": "<p>hello world</p>"}}
+
+    monkeypatch.setattr(wc.httpx, "post", lambda *a, **k: _R2())
+    assert "hello world" in wc.parse_article("https://mp.weixin.qq.com/s/Y")["text"]  # HTML 去标签兜底
+
+
+class _WcdaDiscoverS:
+    wechat_discover_enabled = True
+    wechat_discover_queries_per_run = 40
+    wechat_discover_max_articles = 200
+    wechat_discover_min_chars = 5
+    wcda_accounts_per_query = 6
+    wcda_accounts_per_run = 12
+    wcda_articles_per_account = 6
+
+
+def _wire_wcda_discover(monkeypatch):
+    monkeypatch.setattr(wd, "get_settings", lambda: _WcdaDiscoverS())
+    monkeypatch.setattr(wd.wcda_api, "available", lambda: True)
+    monkeypatch.setattr(wd, "_alias_index", lambda: [])
+    monkeypatch.setattr(wd, "_record_discovered_account", lambda *a: None)
+    monkeypatch.setattr(wd.wcda_api, "search_accounts",
+                        lambda q, **k: [{"fakeid": "F1", "name": "光通信女人", "alias": ""}])
+
+
+def test_discover_via_wcda_saves_wechat_docs(monkeypatch):
+    """搜号→取文→解析→落库 source='wechat' doc_type='mp_search' backend='wcda'。"""
+    _wire_wcda_discover(monkeypatch)
+    monkeypatch.setattr(wd, "_already_ingested", lambda urls: set())
+    monkeypatch.setattr(wd.wcda_api, "list_articles",
+                        lambda fid, **k: [{"url": "https://mp.weixin.qq.com/s/A",
+                                           "title": "旭创800G", "update_time": 1784504267}])
+    monkeypatch.setattr(wd.wcda_api, "parse_article",
+                        lambda url: {"title": "旭创800G放量", "text": "正文" * 50,
+                                     "author": "光通信女人", "publish_time": 1784504293})
+    saved: list = []
+    monkeypatch.setattr(wd, "save", lambda doc: saved.append(doc) or doc.id)
+    ids = wd.discover_via_wcda()
+    assert len(ids) == 1 and len(saved) == 1
+    doc = saved[0]
+    assert doc.source == "wechat" and doc.doc_type == "mp_search"
+    assert doc.meta["backend"] == "wcda" and doc.meta["gh_id"] == "F1" and doc.meta["via"] == "discover"
+    assert doc.url == "https://mp.weixin.qq.com/s/A" and doc.published_at is not None
+
+
+def test_discover_via_wcda_skips_seen_url(monkeypatch):
+    """URL 已在库 → 不解析(解析最贵)、不落库。"""
+    _wire_wcda_discover(monkeypatch)
+    monkeypatch.setattr(wd.wcda_api, "list_articles",
+                        lambda fid, **k: [{"url": "https://mp.weixin.qq.com/s/A", "title": "x"}])
+    monkeypatch.setattr(wd, "_already_ingested", lambda urls: set(urls))
+    monkeypatch.setattr(wd.wcda_api, "parse_article", lambda url: pytest.fail("已抓过不得解析"))
+    monkeypatch.setattr(wd, "save", lambda doc: pytest.fail("不得落库"))
+    assert wd.discover_via_wcda() == []

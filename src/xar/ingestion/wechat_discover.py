@@ -22,7 +22,7 @@ from ..config import get_settings
 from ..logging import get_logger
 from ..ontology import cn_routing
 from ..storage import db
-from . import news, wechat_search, werss_api
+from . import news, wcda_api, wechat_search, werss_api
 from .base import Doc, save
 from .registry import COMPANIES
 from .wechat import _alias_index, _link_company, _parse_date
@@ -214,3 +214,68 @@ def discover_accounts(limit: int | None = None) -> dict:
                 break
     log.info("wechat account discover: %d queries → %d 新订阅号", len(queries), len(subscribed))
     return {"queries": len(queries), "subscribed": len(subscribed), "accounts": subscribed}
+
+
+# ─── 文章级发现(Phase 1 后端 = wechat-download-api)──────────────────────────
+# 本体词 → wcda searchbiz 搜全网公众号 → 逐号取最近文章 → 逐篇解析全文 → save(source='wechat')
+# → 现有 triage。无需订阅(wcda 按 fakeid 直取),URL 去重避免重复解析(解析最贵)。
+
+
+def wcda_available() -> bool:
+    """wcda 文章级发现:发现已开启 且 wcda 后端已配置(WCDA_BASE_URL)。"""
+    return bool(get_settings().wechat_discover_enabled) and wcda_api.available()
+
+
+def discover_via_wcda(limit: int | None = None) -> list[str]:
+    """跑一轮 wcda 文章级发现。返回落库文档 id。默认关/无后端 → 空。"""
+    if not (get_settings().wechat_discover_enabled and wcda_api.available()):
+        return []
+    from datetime import datetime, timezone
+
+    s = get_settings()
+    max_articles = limit or s.wechat_discover_max_articles
+    queries = _slice_for_today(_queries(), s.wechat_discover_queries_per_run)
+    aliases = _alias_index()
+
+    # 1) 搜号 → 收集候选账号(按 fakeid 去重),记 wechat_discovered(不订阅,feed_id=None)
+    accounts: dict[str, dict] = {}
+    for q in queries:
+        for acct in wcda_api.search_accounts(q, limit=s.wcda_accounts_per_query):
+            accounts.setdefault(acct["fakeid"], acct)
+        if len(accounts) >= s.wcda_accounts_per_run:
+            break
+
+    ids: list[str] = []
+    for fakeid, acct in list(accounts.items())[:s.wcda_accounts_per_run]:
+        _record_discovered_account(fakeid, acct["name"], None)
+        arts = wcda_api.list_articles(fakeid, limit=s.wcda_articles_per_account)
+        seen = _already_ingested([a["url"] for a in arts])   # 已抓过的不再解析(解析最贵)
+        for a in arts:
+            if len(ids) >= max_articles:
+                break
+            if a["url"] in seen:
+                continue
+            parsed = wcda_api.parse_article(a["url"])
+            if not parsed or len(parsed["text"]) < s.wechat_discover_min_chars:
+                continue
+            title = parsed["title"] or a["title"]
+            body = f"{title}\n\n{parsed['text']}".strip()
+            pub = None
+            if parsed.get("publish_time"):
+                try:
+                    pub = datetime.fromtimestamp(int(parsed["publish_time"]), tz=timezone.utc)
+                except Exception:  # noqa: BLE001
+                    pub = None
+            doc = Doc(
+                company_id=_link_company(f"{title}\n{parsed['text']}", aliases, None),
+                source="wechat", doc_type="mp_search", title=title or "微信公众号文章",
+                text=body[:120_000], url=a["url"], published_at=pub, permission="grey",
+                license_tag="wechat-extracted-facts-self-use",
+                meta={"platform": "wechat_mp", "via": "discover", "backend": "wcda",
+                      "account": acct["name"], "gh_id": fakeid},
+            )
+            ids.append(save(doc))
+        if len(ids) >= max_articles:
+            break
+    log.info("wcda discover: %d 候选号 → %d 篇入库(source=wechat)", len(accounts), len(ids))
+    return ids
