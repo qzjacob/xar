@@ -19,7 +19,7 @@
 | 嵌入 | BGE-M3 / Qwen3（TEI/vLLM 服务） | **fastembed**（ONNX，CPU，默认 `bge-small-en-v1.5` 384d；可换 BGE-M3 1024d） |
 | 知识图谱 | Graphiti → Neo4j | **自建双时态 KG**（`kg_nodes/edges/events`，supersession + 事件级去重 + 确定性实体消解） |
 | 检索 | Graphiti + RAGFlow 混合 | **pgvector 稠密 + pg_trgm 词法，RRF(k=60) 融合 + GraphRAG 遍历** |
-| 多 Agent | LangGraph DAG | **自建可控 DAG**：规划→图谱检索→5 分析师→多空辩论→风险→主编→证据闸→人审中断（检查点入 `report_runs.state`） |
+| 多 Agent | LangGraph DAG | **自建可控 DAG**：规划→图谱检索→5 分析师→多空辩论→风险→主编→证据闸→人审中断（检查点入 `report_runs.state`）。**run 状态机硬化（2026-07-20 复评修复轮）**：`approve` 仅接受 `awaiting_approval`（published 幂等/running·failed 拒绝）；任何异常统一落 `failed` 不卡 `running`；变更类 `/api/*` 可选 `XAR_API_TOKEN` 护栏（默认关，见 CODE_REVIEW 附录 I） |
 | 模型网关 | LiteLLM → Claude | **LiteLLM + LLM 任务管理器**（code-as-truth 模型库 `models/registry.py` + 任务路由 `models/router.py` + `llm.py` 跨候选回退执行器）：按 `TaskClass`（11 类）路由到有序候选链，**计费感知**（token vs 订阅）+ 单次/单批美元预算上限 + 成本计费；bulk/search 任务（`kg_extract`/`expert`/`search_bulk`）订阅优先（GLM/Kimi 平价）、quality 任务（debate/editor/synth）强 token 跨厂回退；**glmworker 钉扎路径 2026-07-19 起本地优先**（minis RTX 3090 ollama `qwen3-14b-xar` 零成本，云 GLM 订阅自动回落）；运行时换代经 `route_overrides` 表（`POST /api/ops/llm/route`）。**默认 DeepSeek V4**：`XAR_MODEL_FAST=deepseek/deepseek-v4-flash` + `XAR_MODEL_STRONG=deepseek/deepseek-v4-pro` + `XAR_MODEL_BULK`，`XAR_MODEL_EFFORT=high`；`complete_json` 走 JSON-mode 保障结构化输出；一行 env 或注册表 `preferred=True` 即切任意 LiteLLM 模型（`claude-opus-4-8` / `claude-haiku-4-5` / GLM / Kimi）。详见 §6.1 |
 | 编排 | Dagster | **已部署**：`orchestration/daily.py run_daily` 每日增量链（CLI `xar daily`）+ Dagster 旁车（`orchestration/definitions.py`：`pull_shard` 分片 06:00 / `extract_all` 06:30，docker-compose 暴露 `:3001` UI/重试/run 历史） |
 | 评测/追踪 | Phoenix + Langfuse | 自建检索命中率 + 报告 rubric(LLM-judge)；`llm_usage` 表做成本追踪；Phoenix 可选(`.[eval]`) |
@@ -34,7 +34,7 @@
 4. **结构化→本体信号桥** —— 估计修正/内部人集群/预测市场异动蒸馏为 `kg_events` 催化剂。
 5. **微信公众号接入** —— 经 we-mp-rss 公开 feed 把公众号文章纳入非结构化→本体管线。
 6. **专家智能体另类数据加工平台**（`kg/expert.py`）—— 对 X / 公众号 / 资讯 / AIFINmarket 运行领域专家 LLM，按相关性+立场+信号质量过滤，仅保留高信噪比观点（带 entity/stance/quality），写入 `expert_insights` 表 + `kg_events(license=expert)`，是原始召回式抽取之上的信噪比放大层（实测 80 篇公众号→3 条买方级观点，keep-rate 3.75%；在 `/ops/altdata` 呈现）。
-7. **X(推特)专家信息源**（`providers/twitter.py`）—— 经 TwitterAPI.io `advanced_search`，按主题精选专家账号 + 领域关键词检索，落 `social_posts`+`documents(source=x)`，经专家加工进本体。
+7. **X(推特)专家信息源**（`providers/twitter.py`）—— 经 TwitterAPI.io `advanced_search`，按主题精选专家账号 + 领域关键词检索，落 `social_posts`+`documents(source=x)`，经专家加工进本体。**治理（2026-07-20）**：计量外部 API——Fetchy 源默认关（Jarvy 显式开启），且 fetchy/夜批/exploration 全调用方共用 `_search` 咽喉的 **$20/月总限额**（`api_spend` 月度账本，牌价估算逐页记账，触顶/账本不可读 fail-closed 跳拉取；`/api/ops/fetchy` 暴露 `xBudget`）。
 8. **AIFINmarket(万得终端)**（`providers/aifinmarket.py`）—— CN A 股专业源（**MCP-over-HTTP**）：A 股基本面(→`FinMetric`)+公告/资讯(→`documents`→本体)，gated；多市场行情仍由 Yahoo/Finnhub/FMP/Polygon 覆盖。
 9. **八大主题（947 公司 / 59 细分）** —— 在 `ingestion/registry.py` 中由 `THEMES`/`SEGMENTS` 驱动，`THEMES[*].kind` 判别 `"chain"`（5 条 AI 产业链，上下游 `tier` 轴）vs `"cycle"`（3 条消费周期，经济周期位置轴，见 §5.5）：chain = `ai_optical`（AI 光互连，4 段）、`ai_chip`（AI 算力芯片，9 段，含跨主题巨头）、`ai_software`（AI 软件普及，9 段，tier=企业 AI 采用浪潮，每段带中文 `thesisCn`）、`space_exploration`（太空探索，8 段，含**太空数据中心/在轨算力**子段）、`humanoid_robotics`（人形机器人，8 段）；cycle = `internet`（互联网，8 段）、`retail`（零售，7 段）、`restaurants`（餐饮服务，6 段）。全球域（US/CN/JP/KR/EU/TW/HK/SG/SE），仪表盘做 FX 归一；市值阈 >$2B（美股 Finnhub，其余 Yahoo+FX 核验）。公司 `themes` TEXT[] 可跨主题，逐主题细分存 `meta.segments`。**Universe 由 ~378 名精选核心扩展到 947 司**（`scripts/universe_build.py` 生成 `ingestion/universe.py`：Finnhub 各交易所符号集作存在性闸 → 逐主题×地域 LLM 枚举 → 确定性核验（存在性 + 去重 + 美股 ≥$2B 市值闸 + 消费非美周期黑名单 + 名↔ticker 同实体校验）→ append 进 `registry.COMPANIES`；地域约 US 356 / JP 223 / TW 143 / KR 134 / CN 77）。
 10. **主题感知的 KG 抽取**（`kg/extract.py` `_focus_for()`）—— 按锚点公司所属主题选取产业框架（光互连/芯片/软件/太空/人形），**修复了 prompt 曾硬编码为光模块的潜伏 bug**，使软件 filing 产出软件事实而非光学事实。
@@ -236,7 +236,7 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 | HK/A/US 多市场 | **Futu 富途/moomoo** | 快照估值(PE/PB/市值/EPS/股息率→`FinMetric`) + 资讯(→`documents`) + 主力资金流(→`alt.futu_main_capital_flow`) + 板块(→`futu_plates`，cn_routing 映主题) | **本地 OpenD 网关**(127.0.0.1:11111，SDK↔OpenD↔富途)；`enable_futu` gated，默认关(镜像 Wind)；详见 §5.11 |
 | CN 卖方投研 | **Gangtise 投研** | 财报/估值分位/**券商一致预期**(→`FinMetric`/`estimates`) + **投研文本**(一页通/投资逻辑/同业对比→`documents(grey)`→triage/KG→thesis) | **Open API**(AK/SK→loginV2 raw token；`open.gangtise.com`)；CN-only、`enable_gangtise` gated；净新增=卖方一致预期与叙事研究。数据端点用**裸 token**(带 `Bearer` 前缀即 0000001008)；防御资产负债表 companyType/currency 位错 |
 | 预测市场 | **Polymarket** | Gamma 公开 API：AI/算力/加速器相关市场的远期概率 | **公开无 Key**；最早的需求侧催化信号 |
-| 社媒情绪 / X 专家 | **X (Twitter)** | 经 TwitterAPI.io `advanced_search`：观察标的帖 + 前沿专家账号声音 + 轻量情绪 | 灰/自用；`TWITTERAPI_TOKEN` 或官方 `X_BEARER_TOKEN` |
+| 社媒情绪 / X 专家 | **X (Twitter)** | 经 TwitterAPI.io `advanced_search`：观察标的帖 + 前沿专家账号声音 + 轻量情绪 | 灰/自用；`TWITTERAPI_TOKEN` 或官方 `X_BEARER_TOKEN`；**默认关 + $20/月总限额**（`api_spend` 咽喉记账，fail-closed） |
 | 社媒情绪 | **Reddit** | 提及观察标的的帖子 + 轻量词典情绪打分 | 灰/自用；公开回退 |
 | 前沿预印本 | **arXiv** | 按领域类目近期预印本（标题+摘要+元数据） | **公开无 Key**（探索模块）；`source=arxiv` |
 | 前沿顶刊 | **Journals** | Quanta/Physics World 等公开 RSS 文章（标题+摘要） | **公开无 Key**（探索模块）；`source=journal` |
