@@ -1,0 +1,15 @@
+WD-2: 账号级发现后端(we-mp-rss search_Biz)—— 本体词搜公众号→自动订阅→现有轮询+triage→低信噪止损
+
+Phase 1 后端定型为复用已在跑的 we-mp-rss(无需新部署 + 扫码):文章级全网搜索无现成可靠后端,
+故走账号级发现 —— 本体种子词经 search_Biz 搜全网公众号,有界自动订阅(add_mp)→ roster 名册 →
+glm_worker 逐号轮询 → 现有 triage 去噪。低信噪发现号(triage keep_rate 过低且样本足)自动停用止损。
+
+- ingestion/werss_api.py: we-mp-rss 管理 API 客户端(AK/SK 非交互鉴权;search_accounts + subscribe)
+- wechat_discover.discover_accounts(): 搜号 → 去重 vs 名册 → 有界订阅(每日上限)→ roster.register
+- wechat_promote.prune_accounts(): 发现订阅号 keep_rate<阈值且样本足 → roster.deactivate 止损
+- ingestion/wechat.py: 订阅文章 meta 记 feed_id 溯源(账号去留评估据此按号聚合)
+- config: werss_ak/sk + wechat_account_prune_*;daily/cli/ops 接线(文章级/账号级各自 available 自门控)
+- 测试 19/19(+7 账号级:搜索归一化 / base64 订阅 / 去重+每日上限 / 止损门)
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01HqZSjKGLRPEVe124UTY9z3

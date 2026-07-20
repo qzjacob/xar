@@ -9,7 +9,17 @@ import pytest
 
 from xar.ingestion import wechat_discover as wd
 from xar.ingestion import wechat_search as ws
+from xar.ingestion import werss_api as wa
 from xar.mining import wechat_promote as wp
+
+
+class _WerssS:
+    """we-mp-rss API 测试用 settings 替身(AK/SK 已配)。"""
+    werss_base_url = "http://werss:8001"
+    werss_ak = "ak1"
+    werss_sk = "sk1"
+    werss_api_token = ""
+    http_user_agent = "x"
 
 _HIT = {"url": "https://mp.weixin.qq.com/s/AAA", "title": "旭创 800G 放量",
         "account": "格隆汇", "gh_id": "gh_1", "date": "2026-07-15"}
@@ -203,3 +213,107 @@ def test_promote_subscribe_failure_no_update(monkeypatch):
     monkeypatch.setattr(wp.db, "execute", lambda *a, **k: pytest.fail("失败订阅不得写库"))
     out = wp.promote_candidates(subscribe_fn=lambda gh, name: None)
     assert out["failed"] == 1 and out["promoted"] == 0
+
+
+# ── 账号级发现:we-mp-rss search_Biz → subscribe → roster → prune ─────────────
+def test_werss_search_accounts_normalizes(monkeypatch):
+    """搜索全网公众号:归一化 {fakeid,name,avatar,intro};无 fakeid/name 的丢弃。"""
+    monkeypatch.setattr(wa, "get_settings", lambda: _WerssS())
+    monkeypatch.setattr(wa, "polite", lambda h: None)
+
+    class _R:
+        content = b"x"
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"code": 0, "data": {"list": [
+                {"fakeid": "MzA1", "nickname": "格隆汇", "round_head_img": "http://a", "signature": "财经"},
+                {"fakeid": "", "nickname": "空号"},          # 无 fakeid → 丢
+            ], "total": 1}}
+
+    monkeypatch.setattr(wa.httpx, "get", lambda *a, **k: _R())
+    out = wa.search_accounts("光模块")
+    assert len(out) == 1
+    assert out[0]["fakeid"] == "MzA1" and out[0]["name"] == "格隆汇" and out[0]["avatar"] == "http://a"
+
+
+def test_werss_subscribe_base64_mp_id(monkeypatch):
+    """订阅:mp_id = base64(fakeid);返回 feed id;缺 fakeid 直接 None。"""
+    import base64
+
+    monkeypatch.setattr(wa, "get_settings", lambda: _WerssS())
+    monkeypatch.setattr(wa, "polite", lambda h: None)
+    cap: dict = {}
+
+    class _R:
+        content = b"{}"
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"data": {"id": "MP_WXS_123"}}
+
+    monkeypatch.setattr(wa.httpx, "post", lambda url, json=None, **k: cap.update(json=json) or _R())
+    fid = wa.subscribe({"fakeid": "123", "name": "号", "avatar": "", "intro": ""})
+    assert fid == "MP_WXS_123"
+    assert cap["json"]["mp_id"] == base64.b64encode(b"123").decode()
+    assert cap["json"]["mp_name"] == "号"
+    assert wa.subscribe({"fakeid": "", "name": "x"}) is None      # 缺 fakeid → None
+
+
+def _wire_account_discover(monkeypatch, accts, existing=None, cap=5):
+    monkeypatch.setattr(wd, "accounts_available", lambda: True)
+    monkeypatch.setattr(wd.werss_api, "search_accounts", lambda q, **k: [dict(a) for a in accts])
+    monkeypatch.setattr(wd, "_existing_feed_ids", lambda: set(existing or []))
+    monkeypatch.setattr(wd.werss_api, "subscribe", lambda a: f"MP_WXS_{a['fakeid']}")
+    monkeypatch.setattr(wd, "_record_discovered_account", lambda *a: None)
+    from xar.mining import roster
+    reg: list = []
+    monkeypatch.setattr(roster, "register", lambda fid, **k: reg.append(fid))
+    return reg
+
+
+def test_discover_accounts_dedups_and_subscribes(monkeypatch):
+    """多查询同一批号 → 去重;已订阅的号(existing)跳过;新号订阅 + roster.register。"""
+    accts = [{"fakeid": "AAA", "name": "A", "avatar": "", "intro": ""},
+             {"fakeid": "BBB", "name": "B", "avatar": "", "intro": ""}]
+    reg = _wire_account_discover(monkeypatch, accts, existing={"MP_WXS_AAA"})
+    r = wd.discover_accounts(limit=5)
+    assert r["subscribed"] == 1 and reg == ["MP_WXS_BBB"]   # AAA 已订阅 → 只订 BBB
+
+
+def test_discover_accounts_respects_cap(monkeypatch):
+    accts = [{"fakeid": f"F{i}", "name": str(i), "avatar": "", "intro": ""} for i in range(10)]
+    reg = _wire_account_discover(monkeypatch, accts)
+    r = wd.discover_accounts(limit=3)
+    assert r["subscribed"] == 3 and len(reg) == 3          # 每日上限 3
+
+
+def test_discover_accounts_noop_when_unavailable(monkeypatch):
+    monkeypatch.setattr(wd, "accounts_available", lambda: False)
+    monkeypatch.setattr(wd.werss_api, "search_accounts",
+                        lambda *a, **k: pytest.fail("未开启不得搜索"))
+    assert wd.discover_accounts().get("skipped")
+
+
+def test_prune_accounts_deactivates_low_keeprate(monkeypatch):
+    """发现订阅号:样本足(seen≥8)且 keep_rate<0.15 → 停用;样本不足或高信噪 → 留。"""
+    rows = [{"name": "X", "feed_id": "MP_WXS_X", "seen": 10, "kept": 0},    # 0.0 → prune
+            {"name": "Y", "feed_id": "MP_WXS_Y", "seen": 3, "kept": 0},     # 样本不足 → 留
+            {"name": "Z", "feed_id": "MP_WXS_Z", "seen": 10, "kept": 8}]    # 0.8 → 留
+    monkeypatch.setattr(wp.db, "query", lambda sql, params=None: rows)
+    deact: list = []
+    monkeypatch.setattr(wp.roster, "deactivate", lambda fid: deact.append(fid))
+    out = wp.prune_accounts()
+    assert out["pruned"] == 1 and deact == ["MP_WXS_X"]
+
+
+def test_prune_accounts_dry_run(monkeypatch):
+    rows = [{"name": "X", "feed_id": "MP_WXS_X", "seen": 10, "kept": 0}]
+    monkeypatch.setattr(wp.db, "query", lambda sql, params=None: rows)
+    monkeypatch.setattr(wp.roster, "deactivate", lambda fid: pytest.fail("dry-run 不得停用"))
+    out = wp.prune_accounts(dry_run=True)
+    assert out["dry_run"] and out["pruned"] == 1

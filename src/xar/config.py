@@ -195,6 +195,12 @@ class Settings(BaseSettings):
     wechat_promote_min_articles: int = 3        # 该号至少发现过 N 篇(已 triage)才够格晋升
     wechat_promote_min_keep_rate: float = 0.5   # 且 triage 保留率 >= 此值(高信噪号才晋升)
     wechat_promote_max_per_day: int = 5         # 每日自动订阅上限(防打爆 we-mp-rss 会话限流)
+    # 账号级发现(Phase 1 后端=we-mp-rss search_Biz):本体词搜公众号 → 自动订阅 → 现有轮询+triage。
+    # search/add_mp 端点需鉴权(feed 端点公开);we-mp-rss 支持 AK/SK 非交互凭据(Authorization: AK-SK ak:sk)。
+    werss_ak: str = Field(default="", validation_alias="WERSS_AK")   # we-mp-rss 访问密钥(search/订阅鉴权)
+    werss_sk: str = Field(default="", validation_alias="WERSS_SK")
+    wechat_account_prune_min_articles: int = 8   # 发现订阅的号累计 triage ≥N 篇才评估去留
+    wechat_account_prune_max_keep_rate: float = 0.15  # keep_rate < 此值 → 停用(证明低信噪,止损)
 
     # --- Exploration module (frontier research): arXiv is public, no key ---
     arxiv_enabled: bool = True

@@ -139,16 +139,24 @@ def ingest_wechat_discover(
     再把高产号晋升为 we-mp-rss 订阅。需 XAR_WECHAT_DISCOVER_ENABLED=true + WECHAT_SEARCH_BASE_URL。"""
     from .ingestion import wechat_discover
 
-    if not wechat_discover.available():
-        print("[yellow]发现未开启[/yellow] —— 设 XAR_WECHAT_DISCOVER_ENABLED=true 且 "
-              "WECHAT_SEARCH_BASE_URL 指向自托管搜索服务。")
+    if not wechat_discover.available() and not wechat_discover.accounts_available():
+        print("[yellow]发现未开启[/yellow] —— 设 XAR_WECHAT_DISCOVER_ENABLED=true,并二选一:\n"
+              "  文章级: WECHAT_SEARCH_BASE_URL 指向自托管文章搜索服务;\n"
+              "  账号级: WERSS_AK/WERSS_SK(we-mp-rss 后台生成)+ 已扫码登录。")
         raise typer.Exit(0)
-    ids = wechat_discover.discover()
-    print(f"[green]wechat discover:[/green] {len(ids)} articles ingested (source=wechat)")
+    if wechat_discover.available():                       # 文章级(有专用搜索服务时)
+        ids = wechat_discover.discover()
+        print(f"[green]wechat article discover:[/green] {len(ids)} articles ingested (source=wechat)")
+    if wechat_discover.accounts_available():              # 账号级(we-mp-rss search_Biz)
+        r = wechat_discover.discover_accounts()
+        print(f"[green]wechat account discover:[/green] {json.dumps(r, ensure_ascii=False, default=str)}")
     if promote:
-        from .mining.wechat_promote import promote_candidates
+        from .mining.wechat_promote import promote_candidates, prune_accounts
 
-        print(json.dumps(promote_candidates(dry_run=dry_run_promote), indent=2, default=str, ensure_ascii=False))
+        print("[cyan]promote:[/cyan] " + json.dumps(promote_candidates(dry_run=dry_run_promote),
+              default=str, ensure_ascii=False))
+        print("[cyan]prune:[/cyan] " + json.dumps(prune_accounts(dry_run=dry_run_promote),
+              default=str, ensure_ascii=False))
 
 
 @app.command()

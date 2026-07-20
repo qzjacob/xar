@@ -77,16 +77,20 @@ def _run_source(src: str, ids: list[str], since, *, shard: int | None = None) ->
     elif src == "wechat":
         if wechat.available():
             pulled += len(ingest_wechat())            # 订阅号轮询(现有)
-        # 全网发现是全局查询(不分 company),且外部搜索服务靠按天轮转限流 → 每日只跑一次
-        # (未分片或 shard 0),否则 N 个分片 N× 重复搜索/抓取,打爆反爬。脆弱环节隔离在
-        # try/except 内:发现/晋升失败不拖垮已成功的订阅轮询、不误标整轮 wechat 失败。
-        if shard in (None, 0) and wechat_discover.available():
+        # 全网发现是全局查询(不分 company),且外部搜索靠按天轮转限流 → 每日只跑一次(shard 0),
+        # 否则 N 个分片 N× 重复搜索,打爆反爬。脆弱环节 try/except 隔离:发现/晋升/止损失败
+        # 不拖垮已成功的订阅轮询、不误标整轮 wechat 失败。文章级/账号级各自 available() 自门控。
+        if shard in (None, 0):
             try:
-                pulled += len(wechat_discover.discover())
-                from ..mining.wechat_promote import promote_candidates
-                promote_candidates()                  # 高产号晋升为订阅(每日上限内)
+                if wechat_discover.available():            # 文章级(配 WECHAT_SEARCH_BASE_URL)
+                    pulled += len(wechat_discover.discover())
+                if wechat_discover.accounts_available():   # 账号级(配 we-mp-rss AK/SK)
+                    wechat_discover.discover_accounts()
+                from ..mining.wechat_promote import promote_candidates, prune_accounts
+                promote_candidates()                      # 文章级高产号晋升为订阅
+                prune_accounts()                          # 账号级低信噪号止损(停用)
             except Exception as e:  # noqa: BLE001
-                log.warning("wechat discover/promote failed (isolated, 订阅轮询不受影响): %s", e)
+                log.warning("wechat discover/promote/prune failed (isolated, 订阅轮询不受影响): %s", e)
     elif src == "aifinmarket":
         for cid in ids:
             try:

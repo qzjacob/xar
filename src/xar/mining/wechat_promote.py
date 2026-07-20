@@ -124,6 +124,38 @@ def promote_candidates(*, dry_run: bool = False, subscribe_fn=None) -> dict:
     return out
 
 
+def prune_accounts(*, dry_run: bool = False) -> dict:
+    """账号级发现的止损闸:发现自动订阅的号,若其文章累计 triage ≥prune_min 篇且 keep_rate
+    低于 prune_max,停用该 roster feed(证明低信噪,不再耗轮询/抽取额度)。只动**发现订阅**
+    的号(promoted_at NOT NULL),绝不碰运营方手工策展的名册。文章按 meta.feed_id 溯源聚合。"""
+    s = get_settings()
+    dm = float(s.wechat_deep_min)
+    rows = db.query(
+        "SELECT w.name, w.feed_id, "
+        "  count(*) FILTER (WHERE d.triaged_at IS NOT NULL) seen, "
+        "  count(*) FILTER (WHERE d.triage_score >= %s) kept "
+        "FROM wechat_discovered w JOIN documents d ON d.meta->>'feed_id' = w.feed_id "
+        "WHERE w.feed_id IS NOT NULL AND w.promoted_at IS NOT NULL "
+        "GROUP BY w.name, w.feed_id", (dm,))
+    pruned: list[dict] = []
+    for r in rows:
+        seen, kept = int(r["seen"]), int(r["kept"])
+        if seen < s.wechat_account_prune_min_articles:
+            continue
+        keep_rate = round(kept / seen, 3) if seen else 0.0
+        if keep_rate < s.wechat_account_prune_max_keep_rate:
+            pruned.append({"feed_id": r["feed_id"], "name": r["name"],
+                           "keep_rate": keep_rate, "seen": seen})
+    out = {"evaluated": len(rows), "pruned": len(pruned), "dry_run": dry_run, "accounts": pruned}
+    if dry_run:
+        return out
+    for p in pruned:
+        roster.deactivate(p["feed_id"])
+        log.info("prune: 停用低信噪发现号 %s(%s) keep_rate=%.2f seen=%d",
+                 p["name"], p["feed_id"], p["keep_rate"], p["seen"])
+    return out
+
+
 def promotion_stats() -> dict:
     """晋升漏斗总览(供 ops/Jarvy 观测)。"""
     s = get_settings()

@@ -22,7 +22,7 @@ from ..config import get_settings
 from ..logging import get_logger
 from ..ontology import cn_routing
 from ..storage import db
-from . import news, wechat_search
+from . import news, wechat_search, werss_api
 from .base import Doc, save
 from .registry import COMPANIES
 from .wechat import _alias_index, _link_company, _parse_date
@@ -151,3 +151,66 @@ def discover(limit: int | None = None) -> list[str]:
     log.info("wechat discover: %d queries → %d candidates → %d fresh → %d ingested",
              len(queries), len(candidates), len(fresh), len(ids))
     return ids
+
+
+# ─── 账号级发现(Phase 1 后端=we-mp-rss search_Biz)────────────────────────────
+# 本体词 → 搜全网公众号 → 去重 vs 名册 → 有界自动订阅 → roster.register → 现有逐号轮询 + triage。
+# 与文章级 discover() 并存:配了 WECHAT_SEARCH_BASE_URL 走文章级,配了 we-mp-rss AK/SK 走账号级。
+
+
+def accounts_available() -> bool:
+    """账号级发现:发现已开启 且 we-mp-rss 管理 API 可鉴权(AK/SK 或 token)。"""
+    return bool(get_settings().wechat_discover_enabled) and werss_api.available()
+
+
+def _existing_feed_ids() -> set[str]:
+    """已订阅(roster active)或已发现过的 feed_id —— 避免重复订阅。"""
+    from ..mining import roster
+
+    ids = {f["feed_id"] for f in roster.active_feeds()}
+    rows = db.query("SELECT feed_id FROM wechat_discovered WHERE feed_id IS NOT NULL")
+    ids |= {r["feed_id"] for r in rows if r.get("feed_id")}
+    return ids
+
+
+def _record_discovered_account(fakeid: str, name: str, feed_id: str) -> None:
+    db.execute(
+        "INSERT INTO wechat_discovered (gh_id, name, promoted_at, feed_id) "
+        "VALUES (%s,%s,now(),%s) ON CONFLICT (gh_id) DO UPDATE SET "
+        "name=EXCLUDED.name, promoted_at=now(), feed_id=EXCLUDED.feed_id, updated_at=now()",
+        (fakeid, name, feed_id))
+
+
+def discover_accounts(limit: int | None = None) -> dict:
+    """跑一轮账号级发现:本体词搜公众号 → 有界订阅新号。返回统计。默认关/无凭据 → skip。"""
+    if not accounts_available():
+        return {"skipped": "account discovery unavailable (未开启 或 we-mp-rss 无 AK/SK)"}
+    s = get_settings()
+    cap = limit or s.wechat_promote_max_per_day        # 每轮新订阅上限(防打爆会话限流)
+    existing = _existing_feed_ids()
+    queries = _slice_for_today(_queries(), s.wechat_discover_queries_per_run)
+    seen: set[str] = set()
+    subscribed: list[dict] = []
+    for q in queries:
+        if len(subscribed) >= cap:
+            break
+        for acct in werss_api.search_accounts(q, limit=10):
+            fakeid = acct["fakeid"]
+            feed_guess = f"MP_WXS_{fakeid}"
+            if fakeid in seen or feed_guess in existing:
+                continue
+            seen.add(fakeid)
+            feed_id = werss_api.subscribe(acct)        # 订阅(会话过期→None,跳过)
+            if not feed_id:
+                continue
+            from ..mining import roster
+
+            roster.register(feed_id, name=acct["name"], tier=2)   # 落策展名册 → 逐号轮询接管
+            _record_discovered_account(fakeid, acct["name"], feed_id)
+            existing.add(feed_id)
+            existing.add(feed_guess)
+            subscribed.append({"feed_id": feed_id, "name": acct["name"], "query": q})
+            if len(subscribed) >= cap:
+                break
+    log.info("wechat account discover: %d queries → %d 新订阅号", len(queries), len(subscribed))
+    return {"queries": len(queries), "subscribed": len(subscribed), "accounts": subscribed}

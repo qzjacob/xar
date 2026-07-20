@@ -164,7 +164,8 @@ def _items_from_xml(text: str) -> list[dict]:
 
 
 # --- ingestion -------------------------------------------------------------
-def _ingest_items(items: list[dict], *, feed_company: str | None, aliases, limit: int) -> list[str]:
+def _ingest_items(items: list[dict], *, feed_company: str | None, aliases, limit: int,
+                  feed_id: str | None = None) -> list[str]:
     s = get_settings()
     ids: list[str] = []
     for it in items[:limit]:
@@ -174,12 +175,16 @@ def _ingest_items(items: list[dict], *, feed_company: str | None, aliases, limit
             continue
         body = (f"{title}\n\n{text}").strip()
         company_id = _link_company(f"{title}\n{text}", aliases, feed_company)
+        # feed_id 溯源:让订阅文章可归因到来源公众号(账号级发现的去留评估据此聚合)
+        meta = {"platform": "wechat_mp", "werss": s.werss_base_url}
+        if feed_id:
+            meta["feed_id"] = feed_id
         doc = Doc(
             company_id=company_id, source="wechat", doc_type="mp_article",
             title=title or "微信公众号文章", text=body[:120_000], url=it.get("url") or None,
             published_at=_parse_date(it.get("date")), permission="grey",
             license_tag="wechat-extracted-facts-self-use",
-            meta={"platform": "wechat_mp", "werss": s.werss_base_url},
+            meta=meta,
         )
         ids.append(save(doc))
     return ids
@@ -200,7 +205,8 @@ def ingest_feed(feed_id: str, *, company_id: str | None = None, limit: int | Non
     if not items:
         r = _get(f"/feed/{feed_id}.rss")
         items = _items_from_xml(r.text) if r is not None else []
-    ids = _ingest_items(items, feed_company=company_id, aliases=aliases, limit=limit)
+    ids = _ingest_items(items, feed_company=company_id, aliases=aliases, limit=limit,
+                        feed_id=feed_id)
     log.info("wechat feed %s: %d articles", feed_id, len(ids))
     return ids
 
