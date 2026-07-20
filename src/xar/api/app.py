@@ -2,6 +2,7 @@
 seeds the company basket, and bootstraps the KG seed graph (all idempotent)."""
 from __future__ import annotations
 
+import hmac
 import os
 from pathlib import Path
 
@@ -27,6 +28,24 @@ def _spa_index() -> Path | None:
     return idx if idx.exists() else None
 
 app = FastAPI(title="XAR — Industry-Chain Investment Research", version="0.1.0")
+
+
+@app.middleware("http")
+async def _api_token_gate(request, call_next):
+    # 可选 API token(ARCH P1-5,复评修复轮落地;默认关=零行为变化):XAR_API_TOKEN 在位时,
+    # 变更类 /api/* 请求(POST/PUT/PATCH/DELETE)须携带同值 X-API-Token 头或 Bearer——
+    # 护住 /approve、各 */run、/exploration/refresh 等误触发即烧钱/绕人审的端点。
+    # 开启后 SPA/脚本调用方需带头;自用内网默认不开,硬边界仍是 SSH 隧道不暴露端口。
+    token = get_settings().api_token
+    if (token and request.method in ("POST", "PUT", "PATCH", "DELETE")
+            and request.url.path.startswith("/api/")):
+        got = request.headers.get("x-api-token") or ""
+        auth = request.headers.get("authorization") or ""
+        if not got and auth.lower().startswith("bearer "):
+            got = auth[7:]
+        if not hmac.compare_digest(got, token):
+            return JSONResponse({"error": "missing/invalid X-API-Token"}, status_code=401)
+    return await call_next(request)
 
 
 @app.on_event("startup")

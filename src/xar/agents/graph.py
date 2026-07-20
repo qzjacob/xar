@@ -54,6 +54,13 @@ def run_report(request: dict, *, auto_approve: bool = False) -> dict:
         rs.checkpoint(status="failed")
         log.warning("run %s failed: %s", rs.run_id, e)
         return {"run_id": rs.run_id, "status": "failed", "error": str(e)}
+    except Exception as e:  # noqa: BLE001
+        # 复评修复(CODE_REVIEW §3.7/ARCH P0-2 前置):此前仅 BudgetExceeded 被接住,
+        # 任何其它异常(网络/LLM/DB)会让 run 永久卡在 'running'——既误导 ops 面板,
+        # 也堵死同 scope 重跑。统一落 failed,错误入返回体与日志。
+        rs.checkpoint(status="failed")
+        log.exception("run %s failed (unhandled)", rs.run_id)
+        return {"run_id": rs.run_id, "status": "failed", "error": f"{type(e).__name__}: {e}"}
 
 
 def _store_report(rs: RunState, content: str, metrics: dict) -> None:
@@ -68,10 +75,18 @@ def approve(run_id: str) -> dict:
     rs = RunState.load(run_id)
     if not rs:
         return {"error": "run not found"}
-    rs.checkpoint(status="published")
     rows = db.query("SELECT content_md, metrics FROM reports WHERE run_id=%s ORDER BY id DESC LIMIT 1",
                     (run_id,))
     r = rows[0] if rows else {}
+    if rs.status == "published":   # 幂等:重复批准返回既有产物,不重写状态
+        return {"run_id": run_id, "status": "published",
+                "content_md": r.get("content_md", ""), "metrics": r.get("metrics", {})}
+    if rs.status != "awaiting_approval":
+        # 复评修复(CODE_REVIEW §3.1 局部):running/failed 的 run 不可被批准——
+        # 否则半成品或失败 run 可被直接盖成 published,人审闸名存实亡。
+        return {"error": f"run 状态为 {rs.status},仅 awaiting_approval 可批准",
+                "run_id": run_id, "status": rs.status}
+    rs.checkpoint(status="published")
     return {"run_id": run_id, "status": "published",
             "content_md": r.get("content_md", ""), "metrics": r.get("metrics", {})}
 

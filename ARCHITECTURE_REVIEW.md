@@ -248,7 +248,7 @@ Exploration 是第三个顶层模块（App.tsx:42-45 的 `/explore` 路由 + 独
 - **验收**：空库与已有库均能 `upgrade`；新增一个改列类型的测试 migration。
 - **工时**：1.5 天
 
-#### P1-5　CI lint 硬执行 + 可选 API token
+#### P1-5　CI lint 硬执行 + 可选 API token　✅ **2026-07-20 落地**（复评修复轮：ci.yml 去 `|| true`；`XAR_API_TOKEN` 中间件默认关，见 CODE_REVIEW 附录 I）
 - **做法**：`ci.yml` 去 `|| true`；新增可选 `XAR_API_TOKEN` 中间件（自用默认关，`/api/report/*/approve`、`/api/exploration/refresh`、`/api/ops/sources/*/run` 建议开）。
 - **验收**：lint 失败阻断 CI；设 token 后无 token 请求 401。
 - **工时**：0.5 天

@@ -896,3 +896,22 @@ GLM-5.2 起草的 `SEMANTIC_DB_PLAN.md` 提出**新建独立平行表 `semantic_
   - 既有 18 项 `_CORRECTIONS` 含异**域内事实性错误**（如 Canon=纳米压印≠EUV、多主题越界、别名串号），不可规则化，合理保留。
 
 验证：`ruff` 通过、`pytest` **43 passed**、route↔theme map 反向校验仅余 2 例可解释残留。
+
+
+---
+
+## 附录 I：复评后修复轮（2026-07-20，第三方逐条验证驱动）
+
+> 起因：对本文档与 ARCHITECTURE_REVIEW.md 的 46 条承重结论做了逐条对照代码的独立验证
+> （24+22 条，0 WRONG / 0 OVERSTATED / 0 幻觉引用；方法与全量裁定见会话记录）。
+> 验证确认 8 条属实但被搁置的发现仍可复现，按自用姿态择 4 项修复：
+
+| 条目 | 处置 | 证据 |
+|---|---|---|
+| §2.1 凭证泄露（key 仍在 .env.example） | **止血**：换回 stub。实测泄露 key 已失效（DeepSeek API 401），吊销紧迫性解除；git 历史清洗（filter-repo + 远端 force-push）降为低优先卫生项，**留用户裁量** | .env.example |
+| §3.1 局部：approve 不校验 run 状态 | **修复**：仅 awaiting_approval 可批准；published 幂等返回既有产物；running/failed 拒绝——人审闸不可被半成品绕过 | agents/graph.py::approve |
+| §3.7 邻项：非预算异常把 run 卡死 running | **修复**：run_report 增广义 except → 落 failed + 错误入返回体/日志 | agents/graph.py::run_report |
+| ARCH P1-5：可选 API token + ruff 硬执行 | **落地**：XAR_API_TOKEN 中间件（默认关=零行为变化，开启则变更类 /api/* 须带 X-API-Token/Bearer，hmac 常时比较）；ci.yml 去 `|| true`（ruff 现即全绿） | api/app.py::_api_token_gate、config.py、.github/workflows/ci.yml |
+
+维持 §8.2 姿态裁决不动：SecretStr/依赖 pin/Docker 加固/mypy·覆盖率门禁/DAG 改造等仍不采纳。
+专项测试 tests/test_review_fixes.py 3 项（approve 状态机 / 异常落 failed / token 闸六分支）。

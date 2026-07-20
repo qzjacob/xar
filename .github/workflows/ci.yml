@@ -25,6 +25,6 @@ jobs:
       - name: License-clean gate
         run: python scripts/check_licenses.py
       - name: Lint
-        run: ruff check src || true
+        run: ruff check src
       - name: Schema init + offline smoke test (no LLM key)
         run: pytest -q

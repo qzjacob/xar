@@ -106,6 +106,9 @@ class Settings(BaseSettings):
     # uses a bearer token. Set either; TwitterAPI.io is preferred when present.
     twitterapi_key: str = Field(
         default="", validation_alias=AliasChoices("TWITTERAPI_TOKEN", "TWITTERAPI_KEY"))
+    # 可选 API token(ARCH P1-5;默认空=中间件关,零行为变化)。在位时变更类 /api/*
+    # 请求须携带 X-API-Token 头(或 Bearer)——见 api/app.py:_api_token_gate。
+    api_token: str = Field(default="", validation_alias="XAR_API_TOKEN")
     # X 数据源月度总限额(2026-07-20 用户裁定 $20/月;计量外部 API,全调用方共顶,
     # providers/twitter.py 咽喉记账+闸门;费率为 twitterapi.io 牌价估算,可按账单校准)
     x_monthly_budget_usd: float = 20.0     # ≤0 = 数据源禁用
