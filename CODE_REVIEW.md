@@ -786,6 +786,8 @@ GLM-5.2 起草的 `SEMANTIC_DB_PLAN.md` 提出**新建独立平行表 `semantic_
 
 ## 附录 G：LLM 任务管理器 + 本体深度回填（扩展维度）+ 独立双审 / xhigh `/code-review` 处置（2026-06）
 
+> **2026-07-19 追记**：LLM 路由已再演进（+ollama 本地厂商，glmworker 抽取本地优先 `qwen3-14b-local`，云 GLM 回落）——见 `DESIGN.md §6.1`；本附录为历史快照。
+
 > 本附录记录分支 `feat/semantic-db-daily-ingest` 的两组变更：(1) 用 **LLM 任务管理器**（registry + router + fallback + billing-aware 预算 + 运行时 `route_overrides`）替换原审 §1.6 / §5.2 所述的"两级 fast/strong 路由"；(2) 把 569 家 universe 公司**回填到策展核心深度**（多主题 / 技术路线 / 别名 / 段位精修），并新增 8 条数据驱动的扩展技术路线（25→33）。落地状态：`pytest` 43 passed、`ruff check` 通过、docker 双服务（app `:8000` / Dagster `:3001`）运行中。**本附录修正原审 §1.6 / §5.2 对"两级路由"的描述——该机制已被任务路由取代。**
 
 ### G.1 LLM 任务管理器（取代两级路由）
