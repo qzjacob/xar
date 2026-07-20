@@ -62,7 +62,7 @@ def search_accounts(kw: str, *, limit: int = 10) -> list[dict]:
     if not available() or not kw.strip():
         return []
     base = s.werss_base_url.rstrip("/")
-    url = f"{base}{_API}/search/{quote(kw)}"
+    url = f"{base}{_API}/mps/search/{quote(kw)}"   # 搜索公众号在 /mps 路由下
     polite(_host(base))
     try:
         r = httpx.get(url, params={"limit": limit, "offset": 0},

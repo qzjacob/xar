@@ -233,8 +233,10 @@ def test_werss_search_accounts_normalizes(monkeypatch):
                 {"fakeid": "", "nickname": "空号"},          # 无 fakeid → 丢
             ], "total": 1}}
 
-    monkeypatch.setattr(wa.httpx, "get", lambda *a, **k: _R())
+    cap: dict = {}
+    monkeypatch.setattr(wa.httpx, "get", lambda url, **k: cap.update(url=url) or _R())
     out = wa.search_accounts("光模块")
+    assert "/api/v1/wx/mps/search/" in cap["url"]      # 搜索路由在 /mps 下(回归:曾漏 /mps)
     assert len(out) == 1
     assert out[0]["fakeid"] == "MzA1" and out[0]["name"] == "格隆汇" and out[0]["avatar"] == "http://a"
 
