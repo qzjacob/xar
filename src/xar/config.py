@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     glm_sub_api_base: str = Field(default="", validation_alias="GLM_SUB_API_BASE")
     moonshot_sub_api_key: str = Field(default="", validation_alias="MOONSHOT_SUB_API_KEY")
     moonshot_sub_api_base: str = Field(default="", validation_alias="MOONSHOT_SUB_API_BASE")
+    # --- 本地 LLM(minis ollama @ RTX 3090;hardware-solutions/minis-算力调度方案.md §9)---
+    # OLLAMA_API_KEY 是占位 key(ollama 不校验),但必须非空 —— key 在场性即"本地已配"开关,
+    # 复用 model_usable/complete 的既有 key 门。base 默认走 registry(host.docker.internal),
+    # 特殊拓扑用 OLLAMA_API_BASE 覆盖。glm_worker_local_first=true 时工人钉扎链前插 glm4-local
+    # (见 glm_worker._fetchy_pin);端点不可达(如 mlrun --exclusive 停机)由候选轮转自动回落云 GLM。
+    ollama_api_key: str = Field(default="", validation_alias="OLLAMA_API_KEY")
+    ollama_api_base: str = Field(default="", validation_alias="OLLAMA_API_BASE")
+    glm_worker_local_first: bool = False   # on → glmworker 本地优先(需 OLLAMA_API_KEY + GLM 订阅 key 双在场)
+    llm_local_timeout_s: int = 180         # 本地候选 per-call 超时(防挂死;连接拒绝本就秒败→轮转)
     # Claude Max subscription via the Agent SDK (executor="agent_sdk"). Zero per-token bill —
     # runs on the Max plan's OAuth login. Host-only (needs the `claude` CLI + ~/.claude creds);
     # agentsdk.available() gates it, so a docker container without them silently falls back to GLM.

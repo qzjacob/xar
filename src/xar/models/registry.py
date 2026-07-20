@@ -86,6 +86,13 @@ PROVIDERS: dict[str, Provider] = {
     "moonshot": Provider("moonshot", "openai/", "MOONSHOT_API_KEY",
                          api_base="https://api.moonshot.cn/v1",
                          sub_key_env="MOONSHOT_SUB_API_KEY"),
+    # minis 本地 ollama(RTX 3090)— OpenAI 兼容端点。host.docker.internal 在容器内由
+    # compose extra_hosts 提供、在宿主由 /etc/hosts 同名映射,两侧同一 URL;特殊拓扑用
+    # 设置 OLLAMA_API_BASE 覆盖(llm._SUB_BASE_ATTR)。key_env=sub_key_env 同名占位 key
+    # (ollama 不校验)→ used_sub=True:usd=0、永不被预算帽跳过,与 GLM 订阅同纪律。
+    "ollama": Provider("ollama", "openai/", "OLLAMA_API_KEY",
+                       api_base="http://host.docker.internal:11434/v1",
+                       sub_key_env="OLLAMA_API_KEY"),
 }
 
 
@@ -165,6 +172,19 @@ MODELS: list[ModelSpec] = [
               0.60, 2.20, context_window=200_000, supports_reasoning=True,
               released="2026-01",
               notes="GLM Coding Plan legacy model; fallback behind glm-5.2-sub"),
+    # 本地 GLM-4-9B @ minis RTX 3090 / ollama(算力调度方案 §9 Phase 3)。glmworker 的
+    # 本地优先头(XAR_GLM_WORKER_LOCAL_FIRST):本地零成本、co-located 零延迟;服务被
+    # mlrun --exclusive 独占停机时连接即拒,llm.complete 轮转回云 GLM(抢占协议的消费端)。
+    # litellm_model = ollama 侧派生模型 glm4-xar(FROM glm4:9b-chat-q4_K_M + num_ctx 16k,
+    # VRAM ~8.5G,守推理 ≤10G 规则);9B 无 reasoning、走短超时(llm_local_timeout_s)。
+    # capabilities=() = 不入任何默认路由链(price_in=0 会把它排进 CHEAP_BULK 链第二席,
+    # 让 9B 本地模型静默接住 dagster/批量任务的回退流量 —— 越权)。仅供 glmworker 钉扎
+    # (_fetchy_pin 前插)与 Fetchy 显式选用;pin 走 registry.get,不看 capabilities。
+    ModelSpec("glm4-local", "ollama", "openai/glm4-xar",
+              (), Billing.SUBSCRIPTION,
+              0.0, 0.0, context_window=16_384, max_output=4096,
+              released="2026-07",
+              notes="GLM-4-9B q4_K_M @ minis 3090 (ollama);本地零成本,宕机自动回落云 GLM;仅钉扎/显式选用"),
     # Kimi (Moonshot) — SUBSCRIPTION: bulk fallback + long-context
     ModelSpec("kimi-k2-sub", "moonshot", "openai/kimi-k2-0905-preview",
               (Capability.CHEAP_BULK, Capability.FAST, Capability.STRONG, Capability.LONG_CONTEXT),

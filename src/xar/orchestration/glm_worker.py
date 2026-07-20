@@ -35,6 +35,11 @@ log = get_logger("xar.glm_worker")
 # max_tokens 说明。没有 kimi/deepseek —— 那是夜批的回退;本工人"额度内白嫖到底,额度外分文不花"。
 GLM_PIN: tuple[str, ...] = ("glm-5.2-sub", "glm-4.6-sub")
 
+# 本地优先头(minis 3090/ollama,算力调度方案 §9):XAR_GLM_WORKER_LOCAL_FIRST=true 时
+# _fetchy_pin 把它前插到钉扎链首 —— 前插而非替换:本地零成本,端点不可达(含 mlrun
+# --exclusive 独占停机)由 llm.complete 的候选轮转自动回落云 GLM(抢占协议的消费端)。
+LOCAL_MODEL_ID = "glm4-local"
+
 # 精确额度识别:类型优先(litellm.RateLimitError),文案兜底。刻意不含 'exceed'/'429'
 # —— llm.BudgetExceeded("run kg-x exceeded $N")与 ContextWindowExceededError 不是额度耗尽。
 _QUOTA_MARKERS = ("余额不足", "无可用资源包", "rate limit", "ratelimit",
@@ -213,11 +218,19 @@ def save_fetchy(cfg: dict) -> dict:
 
 
 def _fetchy_pin(cfg: dict) -> tuple[str, ...]:
-    """选中的模型放链首,GLM_PIN 其余保持为回退链。"""
+    """选中的模型放链首,GLM_PIN 其余保持为回退链;Fetchy 未显式选型时,本地优先开关
+    (glm_worker_local_first)再往前插 glm4-local。显式选型 = 操作员意图,压过本地优先。
+    仅在云订阅 key 在位(_sub_ready)时前插 —— 本地头会让 run_once 的订阅门(链首非
+    GLM 则放行)失效,故零计量回退不变量必须在此保住:回退尾必须是订阅 GLM。"""
     m = cfg.get("model")
-    if not m or m == GLM_PIN[0]:
-        return GLM_PIN
-    return (m, *tuple(x for x in GLM_PIN if x != m))
+    if m and m != GLM_PIN[0]:
+        return (m, *tuple(x for x in GLM_PIN if x != m))
+    from ..config import get_settings
+
+    if (get_settings().glm_worker_local_first and _sub_ready()
+            and model_usable(LOCAL_MODEL_ID) is None):
+        return (LOCAL_MODEL_ID, *GLM_PIN)
+    return GLM_PIN
 
 
 # ── 工作阶段 ──────────────────────────────────────────────────────────────────

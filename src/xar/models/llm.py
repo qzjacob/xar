@@ -83,6 +83,7 @@ def _ensure_keys() -> None:
         "MOONSHOT_API_KEY": s.moonshot_api_key,
         "GLM_SUB_API_KEY": s.glm_sub_api_key,
         "MOONSHOT_SUB_API_KEY": s.moonshot_sub_api_key,
+        "OLLAMA_API_KEY": s.ollama_api_key,
     }.items():
         if val and not os.environ.get(var):
             os.environ[var] = val
@@ -194,7 +195,8 @@ def _retryable(e: Exception) -> bool:
     return bool(classes) and isinstance(e, classes)
 
 
-_SUB_BASE_ATTR = {"zhipu": "glm_sub_api_base", "moonshot": "moonshot_sub_api_base"}
+_SUB_BASE_ATTR = {"zhipu": "glm_sub_api_base", "moonshot": "moonshot_sub_api_base",
+                  "ollama": "ollama_api_base"}
 
 
 def _endpoint(spec, s) -> tuple[str | None, str | None, bool]:
@@ -224,6 +226,8 @@ def _build_kwargs(spec, messages, max_tokens, want_strong, json_mode, s, base, k
         kwargs["api_base"] = base
     if key_env and os.environ.get(key_env):
         kwargs["api_key"] = os.environ[key_env]
+    if spec.provider == "ollama":  # 本地端点:短超时防挂死(连接拒绝本就秒败→轮转云端)
+        kwargs["timeout"] = s.llm_local_timeout_s
     return kwargs
 
 
