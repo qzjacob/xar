@@ -105,10 +105,24 @@ def mine_new_queries(top: int = 6) -> int:
     return added
 
 
+def prune_query_pool() -> int:
+    """删已证明无用的 **mined** 查询(跑过 ≥2 次仍 0 命中,或 keep_rate<5%)→ 池不膨胀、长期稳定。
+    只删 mined(本体词/海外词/公司名永久保留作覆盖底座,bandit 靠低 UCB 自然少选它们)。"""
+    before = db.query("SELECT count(*) n FROM wechat_query_stats WHERE strategy='mined'")[0]["n"]
+    db.execute("DELETE FROM wechat_query_stats WHERE strategy='mined' AND runs >= 2 "
+               "AND (articles = 0 OR keep_rate < 0.05)")
+    after = db.query("SELECT count(*) n FROM wechat_query_stats WHERE strategy='mined'")[0]["n"]
+    pruned = int(before) - int(after)
+    if pruned:
+        log.info("wechat_evolve pruned %d dud mined queries (pool stays bounded)", pruned)
+    return pruned
+
+
 def select_queries(n: int = 40) -> list[str]:
-    """一轮进化选臂:先刷新反馈 + 挖新词,再 UCB 选 n 个(利用高 keep + 探索低 runs)。记 runs。"""
+    """一轮进化选臂:先刷新反馈 + 挖新词 + 剪枝(稳定),再 UCB 选 n 个(利用高 keep + 探索低 runs)。"""
     update_query_stats()
     mine_new_queries()
+    prune_query_pool()
     cands = _candidate_queries()
     stats = {r["query"]: r for r in db.query(
         "SELECT query, runs, articles, kept FROM wechat_query_stats")}

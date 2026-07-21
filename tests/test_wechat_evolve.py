@@ -12,6 +12,7 @@ def test_select_exploits_high_keep_and_explores_untested(monkeypatch):
     """UCB 选臂:高 keep_rate 被利用 + 未测查询被探索;每个 picked 记 runs。"""
     monkeypatch.setattr(we, "update_query_stats", lambda: 0)
     monkeypatch.setattr(we, "mine_new_queries", lambda: 0)
+    monkeypatch.setattr(we, "prune_query_pool", lambda: 0)
     pool = {f"eval{i}": "broad" for i in range(10)}
     pool.update({"光模块": "broad", "untested1": "broad", "untested2": "mined"})
     monkeypatch.setattr(we, "_candidate_queries", lambda: pool)
@@ -56,3 +57,19 @@ def test_mine_no_titles_is_noop(monkeypatch):
     monkeypatch.setattr(we, "get_settings", lambda: _S())
     monkeypatch.setattr(we.db, "query", lambda sql, params=None: [])
     assert we.mine_new_queries() == 0
+
+
+def test_prune_removes_dud_mined_queries(monkeypatch):
+    """剪枝:删跑过≥2次仍无用的 mined 查询 → 池有界、长期稳定。"""
+    counts = iter([{"n": 5}, {"n": 3}])          # before=5, after=3 → pruned 2
+    calls: list = []
+
+    def _q(sql, params=None):
+        if "count(*) n FROM wechat_query_stats WHERE strategy" in sql:
+            return [next(counts)]
+        return []
+
+    monkeypatch.setattr(we.db, "query", _q)
+    monkeypatch.setattr(we.db, "execute", lambda sql, params=None: calls.append(sql))
+    n = we.prune_query_pool()
+    assert n == 2 and any("DELETE" in c and "mined" in c for c in calls)
