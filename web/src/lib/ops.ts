@@ -23,8 +23,12 @@ async function get<T>(path: string): Promise<T> {
   if (!r.ok) throw new Error(`${path} -> ${r.status}`);
   return (await r.json()) as T;
 }
-async function post<T>(path: string): Promise<T> {
-  const r = await fetch(path, { method: "POST", headers: { Accept: "application/json" } });
+async function post<T>(path: string, body?: unknown): Promise<T> {
+  const r = await fetch(path, {
+    method: "POST",
+    headers: { Accept: "application/json", ...(body ? { "Content-Type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
   if (!r.ok) throw new Error(`${path} -> ${r.status}`);
   return (await r.json()) as T;
 }
@@ -47,6 +51,9 @@ export const ops = {
   testLlm: () => post<LlmTestResult>("/api/ops/llm/test"),
   fetchy: () => get<FetchyInfo>("/api/ops/fetchy"),
   setFetchy: (cfg: Partial<FetchyConfig>) => put<{ config: FetchyConfig }>("/api/ops/fetchy", cfg),
+  wechatReview: (gh_id: string, action: "approve" | "block" | "pending") =>
+    post<{ ok: boolean; gh_id: string; review_status: string }>(
+      "/api/ops/fetchy/wechat-review", { gh_id, action }),
   connectors: () => get<ConnectorsInfo>("/api/ops/connectors"),
   skills: () => get<SkillsInfo>("/api/ops/skills"),
   datalake: () => get<DataLakeInfo>("/api/ops/datalake"),

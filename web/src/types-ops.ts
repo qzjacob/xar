@@ -253,6 +253,40 @@ export interface FetchyModel {
   billing: string; // "subscription" | "token"
   preferred: boolean;
   notes: string;
+  status?: string; // active | preview
+  tier?: string; // fast | strong | reasoning | bulk | long_context | pinned-only
+  capabilities?: string[];
+  contextWindow?: number;
+  usable?: boolean; // 工人容器内可服务(key 在位 + litellm 执行器)
+  reason?: string; // 不可用原因
+}
+export interface WechatEvolveWinner {
+  query: string;
+  keep_rate: number | null;
+  kept: number;
+  articles: number;
+  strategy: string;
+}
+export interface WechatReviewItem {
+  gh_id: string;
+  name: string;
+  keep_rate: number | null;
+  articles_seen: number;
+  review_status: string;
+}
+export interface WechatDiscoverInfo {
+  enabled: boolean;
+  wcdaConfigured?: boolean;
+  articleSearchConfigured?: boolean;
+  accountSearchConfigured?: boolean;
+  hitlGate?: boolean;
+  discoveredDocs?: number;
+  wcdaDocs?: number;
+  evolve?: { summary: Record<string, unknown>; winners: WechatEvolveWinner[] };
+  review?: Record<string, number>; // {pending: n, approved: n, blocked: n}
+  reviewQueue?: WechatReviewItem[];
+  funnel?: Record<string, unknown>;
+  error?: string;
 }
 export interface FetchyInfo {
   config: FetchyConfig;
@@ -260,6 +294,9 @@ export interface FetchyInfo {
   sources: FetchySource[];
   stages: FetchyStage[];
   models: FetchyModel[];
+  modelCatalog?: FetchyModel[]; // 全供应商目录(claude/glm/kimi/deepseek/minimax/local/codex)
+  routing?: { dynamic: boolean; charsHigh: number; charsLow: number };
+  wechatDiscover?: WechatDiscoverInfo;
   status: {
     quota: { status?: string; reason?: string } | null;
     counters: { cycles?: number; docs_extracted?: number; last_cycle_at?: string };

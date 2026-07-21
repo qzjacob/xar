@@ -59,6 +59,15 @@ export function FetchyPage() {
     }
   }
 
+  async function reviewAccount(ghId: string, action: "approve" | "block" | "pending") {
+    try {
+      await ops.wechatReview(ghId, action);
+      await load(); // 审批即时生效,重取刷新队列/计数
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   if (!info || !cfg) {
     return (
       <OpsContainer>
@@ -70,6 +79,8 @@ export function FetchyPage() {
 
   const st = info.status;
   const quota = st.quota?.status ?? "unknown";
+  const catalog = info.modelCatalog ?? [];
+  const wd = info.wechatDiscover;
 
   return (
     <OpsContainer>
@@ -191,6 +202,102 @@ export function FetchyPage() {
           ))}
         </div>
       </div>
+
+      {/* ── 全模型目录(动态路由)── */}
+      <div className="mb-5 rounded-xl border border-line bg-surface p-4">
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-1">
+          <div className="text-sm font-semibold text-brand-900">
+            全模型目录
+            <span className="ml-1 text-2xs font-normal text-brand-500">
+              claude/glm/kimi/deepseek/minimax/local · 共 {catalog.length}
+            </span>
+          </div>
+          {info.routing && (
+            <span className="text-2xs text-brand-200">
+              动态路由 {info.routing.dynamic ? "开" : "关"} · 复杂度阈值 {info.routing.charsLow}/{info.routing.charsHigh} 字
+            </span>
+          )}
+        </div>
+        <p className="mb-2 text-2xs text-brand-200">
+          按复杂度×相关性动态选层:简单/批量→便宜/本地,复杂/高价值→强云(订阅优先,成本有界)。灰=缺 key 或 PREVIEW(不可用)。
+        </p>
+        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+          {catalog.map((m) => (
+            <div key={m.id} className={cn("rounded-lg border border-line bg-surface-2 px-2.5 py-1.5",
+              m.usable ? "" : "opacity-50")}>
+              <div className="flex items-center justify-between gap-1">
+                <span className="truncate text-xs font-medium text-brand-900">{m.id}{m.preferred ? " ★" : ""}</span>
+                <span className="shrink-0 text-2xs text-brand-200">{m.provider}</span>
+              </div>
+              <div className="mt-0.5 flex flex-wrap items-center gap-1 text-2xs text-brand-500">
+                <span className={cn("rounded px-1", m.billing === "subscription" ? "bg-pos/10 text-pos" : "bg-warn-100/10 text-warn-100")}>
+                  {m.billing === "subscription" ? "订阅" : "按量"}
+                </span>
+                {m.tier && <span className="rounded bg-accent/10 px-1 text-accent">{m.tier}</span>}
+                {m.status && m.status !== "active" && <span className="rounded bg-brand-200/10 px-1">{m.status}</span>}
+                {!m.usable && m.reason && <span className="truncate text-neg" title={m.reason}>· {m.reason}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── 微信全网发现(进化 + human-in-the-loop 门控)── */}
+      {wd && (
+        <div className="mb-5 rounded-xl border border-line bg-surface p-4">
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-1">
+            <div className="text-sm font-semibold text-brand-900">
+              微信全网发现
+              <span className="ml-1 text-2xs font-normal text-brand-500">
+                {wd.enabled ? (wd.wcdaConfigured ? "运行中" : "已开·后端未接") : "已关"}
+              </span>
+            </div>
+            <span className="text-2xs text-brand-200">
+              发现文档 {wd.discoveredDocs ?? 0} · 门控 {wd.hitlGate ? "严格(只抓批准)" : "轻量(拉黑差号)"}
+            </span>
+          </div>
+          {wd.evolve?.winners && wd.evolve.winners.length > 0 && (
+            <div className="mb-2">
+              <div className="mb-1 text-2xs uppercase tracking-wide text-brand-200">进化赛马 · 高命中率查询</div>
+              <div className="flex flex-wrap gap-1">
+                {wd.evolve.winners.slice(0, 8).map((w) => (
+                  <span key={w.query} className="rounded bg-pos/10 px-1.5 py-0.5 text-2xs text-pos">
+                    {w.query} {w.keep_rate != null ? `${Math.round(w.keep_rate * 100)}%` : ""}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="mb-1 flex items-center gap-2 text-2xs text-brand-200">
+            <span className="uppercase tracking-wide">审核队列</span>
+            <span>待审 {wd.review?.pending ?? 0} · 批准 {wd.review?.approved ?? 0} · 拉黑 {wd.review?.blocked ?? 0}</span>
+          </div>
+          <div className="max-h-64 space-y-1 overflow-y-auto">
+            {(wd.reviewQueue ?? []).map((a) => (
+              <div key={a.gh_id}
+                className="flex items-center justify-between gap-2 rounded-lg border border-line bg-surface-2 px-2.5 py-1.5">
+                <span className="min-w-0">
+                  <span className="block truncate text-xs font-medium text-brand-900">{a.name || a.gh_id}</span>
+                  <span className="text-2xs text-brand-200">
+                    {a.articles_seen > 0
+                      ? `${a.articles_seen} 篇 · keep ${a.keep_rate != null ? Math.round(a.keep_rate * 100) + "%" : "—"}`
+                      : "待抓取"}
+                  </span>
+                </span>
+                <span className="flex shrink-0 gap-1">
+                  <button type="button" onClick={() => void reviewAccount(a.gh_id, "approve")}
+                    className="rounded bg-pos/15 px-2 py-1 text-2xs font-medium text-pos hover:bg-pos/25">批准</button>
+                  <button type="button" onClick={() => void reviewAccount(a.gh_id, "block")}
+                    className="rounded bg-neg/15 px-2 py-1 text-2xs font-medium text-neg hover:bg-neg/25">拉黑</button>
+                </span>
+              </div>
+            ))}
+            {(wd.reviewQueue ?? []).length === 0 && (
+              <p className="text-2xs text-brand-200">审核队列为空(无 pending 号)。</p>
+            )}
+          </div>
+        </div>
+      )}
     </OpsContainer>
   );
 }
