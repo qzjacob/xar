@@ -134,9 +134,10 @@ def ingest_wechat(
 def ingest_wechat_discover(
     promote: bool = typer.Option(True, help="run promotion funnel after discovery"),
     dry_run_promote: bool = typer.Option(False, help="rank promotion candidates but don't subscribe"),
+    evolve: bool = typer.Option(True, help="use the UCB evolutionary query-selection (bandit race)"),
 ) -> None:
-    """微信「全网发现」:本体种子搜索 → 抓正文 → 落 source='wechat'(进现有 triage 去噪),
-    再把高产号晋升为 we-mp-rss 订阅。需 XAR_WECHAT_DISCOVER_ENABLED=true + WECHAT_SEARCH_BASE_URL。"""
+    """微信「全网发现」:进化引擎选查询词(UCB 赛马:利用高命中率 + 探索前沿覆盖)→ 搜号 →
+    抓正文 → 落 source='wechat'(进现有 triage 去噪)。需 XAR_WECHAT_DISCOVER_ENABLED=true + 后端。"""
     from .ingestion import wechat_discover
 
     if not (wechat_discover.wcda_available() or wechat_discover.available()
@@ -146,8 +147,17 @@ def ingest_wechat_discover(
               "  账号级: WERSS_AK/WERSS_SK(we-mp-rss)+ 已扫码登录。")
         raise typer.Exit(0)
     if wechat_discover.wcda_available():                  # 文章级(wechat-download-api,主用)
-        ids = wechat_discover.discover_via_wcda()
+        from .config import get_settings
+        qs = None
+        if evolve:                                       # 进化选臂(默认):UCB over 查询空间
+            from .mining import wechat_evolve
+            qs = wechat_evolve.select_queries(get_settings().wechat_discover_queries_per_run)
+        ids = wechat_discover.discover_via_wcda(queries=qs, strategy="evolve" if evolve else "broad")
         print(f"[green]wcda discover:[/green] {len(ids)} articles ingested (source=wechat)")
+        if evolve:
+            from .mining import wechat_evolve
+            print("[cyan]evolve:[/cyan] " + json.dumps(wechat_evolve.leaderboard(6)["summary"],
+                  ensure_ascii=False, default=str))
     if wechat_discover.available():                       # 文章级(通用 /api/search)
         ids = wechat_discover.discover()
         print(f"[green]article-search discover:[/green] {len(ids)} articles ingested")

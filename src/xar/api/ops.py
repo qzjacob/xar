@@ -695,6 +695,9 @@ def _wechat_discover_summary() -> dict:
         out["wcdaDocs"] = _count("documents",
                                  "source='wechat' AND meta->>'backend'='wcda'")
         out["funnel"] = promotion_stats()      # 发现候选/已订阅/够格待晋升
+        from ..mining import wechat_evolve
+        lb = wechat_evolve.leaderboard(8)      # 进化赛马:池概况 + 高/低命中率查询
+        out["evolve"] = {"summary": lb["summary"], "winners": lb["winners"][:8]}
     except Exception as e:  # noqa: BLE001
         out["error"] = str(e)[:160]
     return out

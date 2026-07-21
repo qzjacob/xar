@@ -296,11 +296,13 @@ def discover_via_wcda(limit: int | None = None, *, queries: list[str] | None = N
         queries = _slice_for_today(_precise_queries(), s.wechat_discover_queries_per_run)
     aliases = _alias_index()
 
-    # 1) 搜号 → 收集候选账号(按 fakeid 去重),记 wechat_discovered(不订阅,feed_id=None)
+    # 1) 搜号 → 收集候选账号(按 fakeid 去重),记发现它的 query(供进化引擎按查询算命中率)
     accounts: dict[str, dict] = {}
     for q in queries:
         for acct in wcda_api.search_accounts(q, limit=s.wcda_accounts_per_query):
-            accounts.setdefault(acct["fakeid"], acct)
+            if acct["fakeid"] not in accounts:
+                acct["_query"] = q
+                accounts[acct["fakeid"]] = acct
         if len(accounts) >= s.wcda_accounts_per_run:
             break
 
@@ -331,7 +333,8 @@ def discover_via_wcda(limit: int | None = None, *, queries: list[str] | None = N
                 text=body[:120_000], url=a["url"], published_at=pub, permission="grey",
                 license_tag="wechat-extracted-facts-self-use",
                 meta={"platform": "wechat_mp", "via": "discover", "backend": "wcda",
-                      "strategy": strategy, "account": acct["name"], "gh_id": fakeid},
+                      "strategy": strategy, "account": acct["name"], "gh_id": fakeid,
+                      "query": acct.get("_query", "")},   # 溯源到发现它的查询词(进化裁判)
             )
             ids.append(save(doc))
         if len(ids) >= max_articles:

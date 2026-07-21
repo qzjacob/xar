@@ -95,6 +95,22 @@ def main() -> None:
         for r in byacct:
             print(f"    {r['acct'][:22]:22}  {r['kept']}/{r['seen']}")
 
+    # 4b) 进化赛马榜(查询臂) --------------------------------------------------
+    _hr("4b) 查询进化赛马榜(每查询 keep_rate)")
+    try:
+        from xar.mining import wechat_evolve
+        lb = wechat_evolve.leaderboard(10)
+        print("  池概况:", lb["summary"])
+        print("  高命中率查询(利用):")
+        for w in lb["winners"][:8]:
+            print(f"    +[{w['keep_rate']}] {w['query'][:16]:16} ({w['kept']}/{w['articles']}) [{w['strategy']}]")
+        if lb["losers"]:
+            print("  低命中率查询(将被淘汰):")
+            for x in lb["losers"][:4]:
+                print(f"    -[{x['keep_rate']}] {x['query'][:16]:16} ({x['kept']}/{x['articles']})")
+    except Exception as e:  # noqa: BLE001
+        print("  (进化榜不可用:", str(e)[:80], ")")
+
     # 5) 判定 ----------------------------------------------------------------
     _hr("5) 判定")
     if not (s.wechat_discover_enabled and acct_ready):

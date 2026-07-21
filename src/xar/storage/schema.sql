@@ -558,6 +558,25 @@ CREATE INDEX IF NOT EXISTS idx_wechat_discovered_pending
     ON wechat_discovered(keep_rate DESC) WHERE promoted_at IS NULL;
 
 -- ---------------------------------------------------------------------------
+-- 发现查询的**持续赛马**记分板 (mining/wechat_evolve.py)。每个查询词是一个「臂」:
+-- runs=被选中次数(探索分母)、articles/kept 从 documents(meta.query)聚合、keep_rate=命中率。
+-- UCB 选臂:利用高 keep_rate(精度)+ 探索低 runs(覆盖前沿)。miner 从高信噪内容挖新词入池(拓覆盖)。
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS wechat_query_stats (
+    query      TEXT PRIMARY KEY,
+    strategy   TEXT,                                    -- broad | overseas | company | mined
+    runs       INT NOT NULL DEFAULT 0,                  -- 被选中跑的次数(探索计数)
+    accounts   INT NOT NULL DEFAULT 0,                  -- 发现的公众号数
+    articles   INT NOT NULL DEFAULT 0,                  -- 经它入库的文章数(已 triage)
+    kept       INT NOT NULL DEFAULT 0,                  -- 其中 triage_score>=deep_min 的数
+    keep_rate  REAL,                                    -- kept/articles(命中率,赛马核心指标)
+    last_run   TIMESTAMPTZ,
+    added_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_wechat_query_stats_perf
+    ON wechat_query_stats(keep_rate DESC NULLS LAST, runs);
+
+-- ---------------------------------------------------------------------------
 -- Chathy: persistent tool-calling chat sessions (ChatGPT-style). One session has an
 -- ordered message log; assistant rows may carry tool_calls, tool rows carry a result.
 -- ---------------------------------------------------------------------------
