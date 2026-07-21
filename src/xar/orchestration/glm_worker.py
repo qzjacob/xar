@@ -190,10 +190,19 @@ def model_usable(model_id: str) -> str | None:
     prov = reg.PROVIDERS.get(spec.provider)
     if prov is None:
         return f"{model_id} 无 provider 配置"
-    key_env = (prov.sub_key_env if spec.billing == reg.Billing.SUBSCRIPTION and prov.sub_key_env
-               else prov.key_env)
+    # 与 llm._endpoint 一致:订阅模型优先用 sub_key_env(若在场),否则回退主 key_env。
+    # 用户常把订阅/编程套餐 key 填在主 key_env(如 MINIMAX_API_KEY/KIMI_API_KEY)下,
+    # 只查 sub_key_env 会误报「未配置」——路由(_endpoint)本会回退,可用性判定须一致。
+    if (spec.billing == reg.Billing.SUBSCRIPTION and prov.sub_key_env
+            and os.environ.get(prov.sub_key_env)):
+        key_env = prov.sub_key_env
+    else:
+        key_env = prov.key_env
     if not os.environ.get(key_env or ""):
-        return f"{model_id} 的密钥({key_env})未配置"
+        hint = key_env
+        if spec.billing == reg.Billing.SUBSCRIPTION and prov.sub_key_env and prov.sub_key_env != key_env:
+            hint = f"{prov.key_env} 或 {prov.sub_key_env}"
+        return f"{model_id} 的密钥({hint})未配置"
     return None
 
 
