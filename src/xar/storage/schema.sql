@@ -556,6 +556,10 @@ CREATE TABLE IF NOT EXISTS wechat_discovered (
 );
 CREATE INDEX IF NOT EXISTS idx_wechat_discovered_pending
     ON wechat_discovered(keep_rate DESC) WHERE promoted_at IS NULL;
+-- human-in-the-loop 门控:运营方对发现号的审核态。pending=待审(默认)/approved=批准/blocked=拉黑。
+-- 严格门控(wechat_hitl_gate)开时只抓 approved;任何模式都不抓 blocked。ALTER 幂等,向后兼容。
+ALTER TABLE wechat_discovered ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'pending';
+CREATE INDEX IF NOT EXISTS idx_wechat_discovered_review ON wechat_discovered(review_status);
 
 -- ---------------------------------------------------------------------------
 -- 发现查询的**持续赛马**记分板 (mining/wechat_evolve.py)。每个查询词是一个「臂」:

@@ -315,9 +315,18 @@ def discover_via_wcda(limit: int | None = None, *, queries: list[str] | None = N
         if len(accounts) >= s.wcda_accounts_per_run:
             break
 
+    # human-in-the-loop 门控:加载审核态。blocked 永不抓;严格门控(wechat_hitl_gate)只抓 approved,
+    # 新号(pending)只记入审核队列不抓,等运营方批准。
+    reviewed = {r["gh_id"]: r["review_status"] for r in
+                db.query("SELECT gh_id, review_status FROM wechat_discovered")}
+    strict = bool(s.wechat_hitl_gate)
+
     ids: list[str] = []
     for fakeid, acct in list(accounts.items())[:s.wcda_accounts_per_run]:
-        _record_discovered_account(fakeid, acct["name"], None)
+        _record_discovered_account(fakeid, acct["name"], None)   # 记录(供审核队列,含 pending 新号)
+        rv = reviewed.get(fakeid, "pending")
+        if rv == "blocked" or (strict and rv != "approved"):
+            continue                                             # 门控:不抓(严格模式下等人工批准)
         arts = wcda_api.list_articles(fakeid, limit=s.wcda_articles_per_account)
         seen = _already_ingested([a["url"] for a in arts])   # 已抓过的不再解析(解析最贵)
         for a in arts:

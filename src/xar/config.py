@@ -209,6 +209,9 @@ class Settings(BaseSettings):
     werss_sk: str = Field(default="", validation_alias="WERSS_SK")
     wechat_account_prune_min_articles: int = 8   # 发现订阅的号累计 triage ≥N 篇才评估去留
     wechat_account_prune_max_keep_rate: float = 0.15  # keep_rate < 此值 → 停用(证明低信噪,止损)
+    # human-in-the-loop 门控:关(默认,轻量)=抓全部非 blocked 号,运营方事后拉黑差号;
+    # 开(严格)=只抓 approved 号,新号(pending)进审核队列待批准。blocked 号任何模式都不抓。
+    wechat_hitl_gate: bool = Field(default=False, validation_alias="XAR_WECHAT_HITL_GATE")
     # wechat-download-api(wcda)后端:curl_cffi 登录公众号平台,搜号→逐号取文→解析全文。
     # 与 we-mp-rss 相比登录更稳(无 selector 抓取)。base 为空 → wcda 发现路径 no-op。
     wcda_base_url: str = Field(default="", validation_alias="WCDA_BASE_URL")

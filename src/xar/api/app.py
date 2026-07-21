@@ -460,6 +460,15 @@ def ops_set_fetchy(body: dict) -> dict:
         raise HTTPException(status_code=400, detail=str(e)) from None
 
 
+@app.post("/api/ops/fetchy/wechat-review")
+def ops_wechat_review(body: dict) -> dict:
+    """human-in-the-loop:审核微信发现号 {gh_id, action: approve|block|pending}。DB 落态,
+    下一轮发现据此门控(blocked 永不抓;严格门控只抓 approved)。运行时生效,无需重启。"""
+    from . import ops
+
+    return ops.set_wechat_review(str(body.get("gh_id", "")), str(body.get("action", "")))
+
+
 @app.get("/api/ops/llm")
 def ops_llm() -> dict:
     from . import ops

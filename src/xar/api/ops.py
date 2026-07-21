@@ -698,9 +698,31 @@ def _wechat_discover_summary() -> dict:
         from ..mining import wechat_evolve
         lb = wechat_evolve.leaderboard(8)      # 进化赛马:池概况 + 高/低命中率查询
         out["evolve"] = {"summary": lb["summary"], "winners": lb["winners"][:8]}
+        # human-in-the-loop 门控态 + 审核队列
+        from ..storage import db
+        out["hitlGate"] = bool(s.wechat_hitl_gate)   # 严格门控(只抓 approved)开关
+        out["review"] = {r["review_status"]: r["n"] for r in db.query(
+            "SELECT review_status, count(*) n FROM wechat_discovered GROUP BY review_status")}
+        out["reviewQueue"] = [dict(r) for r in db.query(   # 待审号(供人工批准/拉黑)
+            "SELECT gh_id, name, keep_rate, articles_seen, review_status FROM wechat_discovered "
+            "WHERE review_status='pending' ORDER BY keep_rate DESC NULLS LAST, articles_seen DESC "
+            "LIMIT 30")]
     except Exception as e:  # noqa: BLE001
         out["error"] = str(e)[:160]
     return out
+
+
+def set_wechat_review(gh_id: str, action: str) -> dict:
+    """human-in-the-loop:审核一个发现号。action ∈ approve|block|pending。DB 落态,运行时生效
+    (下一轮发现据 review_status 门控:blocked 永不抓;严格门控只抓 approved)。"""
+    from ..storage import db
+
+    mapped = {"approve": "approved", "block": "blocked", "pending": "pending"}.get(action)
+    if not mapped:
+        return {"ok": False, "detail": f"action must be approve|block|pending, got {action!r}"}
+    db.execute("UPDATE wechat_discovered SET review_status=%s, updated_at=now() WHERE gh_id=%s",
+               (mapped, gh_id))
+    return {"ok": True, "gh_id": gh_id, "review_status": mapped}
 
 
 def fetchy() -> dict:
@@ -714,19 +736,40 @@ def fetchy() -> dict:
                 "last": cadence.get(k)}
                for k, v in gw.FETCHY_SOURCES.items()]
     stages = [{"key": k, "label": v} for k, v in gw.FETCHY_STAGES.items()]
-    # 目录只列工人容器内**实际可服务**的模型(ACTIVE + litellm 执行器 + provider key 在位)
-    # —— host-only 执行器(agent_sdk/codex_cli)或缺 key 的模型选了也是静默空转,不给选。
-    models = [{"id": m.id, "provider": m.provider, "billing": m.billing.value,
-               "preferred": m.preferred, "notes": m.notes[:80]}
-              for m in MODELS if gw.model_usable(m.id) is None]
-    # 订阅制在前(工人常驻批量,订阅=零边际成本),同组内 preferred 在前
-    models.sort(key=lambda m: (m["billing"] != "subscription", not m["preferred"], m["id"]))
+    # 全模型目录(供 Fetchy 管理面综合模型列表):每模型带 provider/层级/能力/可用性/上下文。
+    from ..config import get_settings
+    from ..models.registry import Status as _MStatus
+
+    def _tier(m) -> str:
+        caps = {c.value for c in m.capabilities}
+        for t in ("reasoning", "strong", "cheap_bulk", "fast", "long_context"):
+            if t in caps:
+                return "bulk" if t == "cheap_bulk" else t
+        return "pinned-only"           # capabilities=() 的本地钉扎模型
+
+    def _row(m) -> dict:
+        why = gw.model_usable(m.id)    # None=可用;否则不可用原因(缺 key / host-only 执行器 / PREVIEW)
+        return {"id": m.id, "provider": m.provider, "billing": m.billing.value,
+                "preferred": m.preferred, "status": m.status.value, "tier": _tier(m),
+                "capabilities": [c.value for c in m.capabilities], "contextWindow": m.context_window,
+                "usable": why is None, "reason": why or "", "notes": m.notes[:110]}
+
+    catalog = [_row(m) for m in MODELS if m.status != _MStatus.DEPRECATED]
+    catalog.sort(key=lambda m: (not m["usable"], m["billing"] != "subscription",
+                                m["provider"], not m["preferred"], m["id"]))
+    # 工人钉扎选择器只给**可用**模型(订阅在前、preferred 在前);host-only/缺 key 的选了空转。
+    models = sorted([r for r in catalog if r["usable"]],
+                    key=lambda m: (m["billing"] != "subscription", not m["preferred"], m["id"]))
+    s = get_settings()
+    routing = {"dynamic": bool(s.dynamic_routing_enabled),           # 动态路由(复杂度×相关性选层)
+               "charsHigh": s.dynamic_routing_chars_high, "charsLow": s.dynamic_routing_chars_low}
     from ..providers import twitter
 
     return {"config": gw.fetchy_config(), "defaults": gw.fetchy_defaults(),
             "sources": sources, "stages": stages, "models": models,
+            "modelCatalog": catalog, "routing": routing,      # 综合模型列表 + 动态路由态
             "xBudget": twitter.spend_summary(),   # X 源月度限额账本(估算;usd=None=账本不可读)
-            "wechatDiscover": _wechat_discover_summary(),  # 微信全网发现漏斗(开关+发现数+晋升)
+            "wechatDiscover": _wechat_discover_summary(),  # 微信全网发现漏斗(开关+发现数+晋升+进化)
             "status": {"quota": st.get("quota"), "counters": st.get("counters"),
                        "backlog_docs": st.get("extraction_backlog_docs"),
                        "pin": st.get("pin")}}

@@ -393,6 +393,7 @@ class _WcdaDiscoverS:
     wcda_accounts_per_query = 6
     wcda_accounts_per_run = 12
     wcda_articles_per_account = 6
+    wechat_hitl_gate = False           # human-in-the-loop 门控(默认关=轻量:抓全部非 blocked)
 
 
 def _wire_wcda_discover(monkeypatch):
@@ -400,6 +401,7 @@ def _wire_wcda_discover(monkeypatch):
     monkeypatch.setattr(wd.wcda_api, "available", lambda: True)
     monkeypatch.setattr(wd, "_alias_index", lambda: [])
     monkeypatch.setattr(wd, "_record_discovered_account", lambda *a: None)
+    monkeypatch.setattr(wd.db, "query", lambda *a, **k: [])   # 审核态查询 → 空(全 pending)
     monkeypatch.setattr(wd.wcda_api, "search_accounts",
                         lambda q, **k: [{"fakeid": "F1", "name": "光通信女人", "alias": ""}])
 
@@ -459,6 +461,7 @@ def test_discover_via_wcda_uses_explicit_queries_and_strategy_tag(monkeypatch):
     monkeypatch.setattr(wd, "_alias_index", lambda: [])
     monkeypatch.setattr(wd, "_record_discovered_account", lambda *a: None)
     monkeypatch.setattr(wd, "_already_ingested", lambda urls: set())
+    monkeypatch.setattr(wd.db, "query", lambda *a, **k: [])   # 审核态查询 → 空(全 pending)
     used: list = []
     monkeypatch.setattr(wd.wcda_api, "search_accounts",
                         lambda q, **k: used.append(q) or [{"fakeid": "F1", "name": "x", "alias": ""}])
@@ -471,3 +474,28 @@ def test_discover_via_wcda_uses_explicit_queries_and_strategy_tag(monkeypatch):
     wd.discover_via_wcda(queries=["英伟达", "美光"], strategy="overseas_race")
     assert used[:2] == ["英伟达", "美光"]                    # 用了显式 queries(非默认 broad)
     assert saved and saved[0].meta["strategy"] == "overseas_race"
+
+
+def test_discover_via_wcda_hitl_blocks_blocked_account(monkeypatch):
+    """human-in-the-loop:blocked 号任何模式都不抓。"""
+    _wire_wcda_discover(monkeypatch)
+    monkeypatch.setattr(wd.db, "query", lambda *a, **k: [{"gh_id": "F1", "review_status": "blocked"}])
+    monkeypatch.setattr(wd.wcda_api, "list_articles", lambda fid, **k: pytest.fail("blocked 号不得取文"))
+    assert wd.discover_via_wcda() == []
+
+
+def test_discover_via_wcda_strict_gate_skips_unapproved(monkeypatch):
+    """严格门控(wechat_hitl_gate=True):新号(pending)只记录不抓,等人工批准。"""
+    class _Strict(_WcdaDiscoverS):
+        wechat_hitl_gate = True
+
+    monkeypatch.setattr(wd, "get_settings", lambda: _Strict())
+    monkeypatch.setattr(wd.wcda_api, "available", lambda: True)
+    monkeypatch.setattr(wd, "_alias_index", lambda: [])
+    monkeypatch.setattr(wd, "_record_discovered_account", lambda *a: None)
+    monkeypatch.setattr(wd.db, "query", lambda *a, **k: [])         # F1 不在库 → pending
+    monkeypatch.setattr(wd.wcda_api, "search_accounts",
+                        lambda q, **k: [{"fakeid": "F1", "name": "x", "alias": ""}])
+    monkeypatch.setattr(wd.wcda_api, "list_articles",
+                        lambda fid, **k: pytest.fail("严格模式 pending 号不得取文"))
+    assert wd.discover_via_wcda() == []
