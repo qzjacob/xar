@@ -86,6 +86,10 @@ PROVIDERS: dict[str, Provider] = {
     "moonshot": Provider("moonshot", "openai/", "MOONSHOT_API_KEY",
                          api_base="https://api.moonshot.cn/v1",
                          sub_key_env="MOONSHOT_SUB_API_KEY"),
+    # MiniMax(海外国际版 api.minimaxi.com,OpenAI 兼容)。强推理 + 超长上下文的 TOKEN 提供方。
+    "minimax": Provider("minimax", "openai/", "MINIMAX_API_KEY",
+                        api_base="https://api.minimaxi.com/v1",
+                        sub_key_env="MINIMAX_SUB_API_KEY"),
     # minis 本地 ollama(RTX 3090)— OpenAI 兼容端点。host.docker.internal 在容器内由
     # compose extra_hosts 提供、在宿主由 /etc/hosts 同名映射,两侧同一 URL;特殊拓扑用
     # 设置 OLLAMA_API_BASE 覆盖(llm._SUB_BASE_ATTR)。key_env=sub_key_env 同名占位 key
@@ -216,6 +220,19 @@ MODELS: list[ModelSpec] = [
               (Capability.CHEAP_BULK, Capability.FAST, Capability.STRONG, Capability.LONG_CONTEXT),
               Billing.SUBSCRIPTION, 0.60, 2.50, context_window=256_000, released="2026-01",
               notes="Kimi subscription; bulk fallback + long-context"),
+    # Kimi 思考版(推理层)—— 复杂/高价值任务的订阅制强模型(与 GLM-5.2 同池,跨供应商冗余)。
+    ModelSpec("kimi-k2-thinking-sub", "moonshot", "openai/kimi-k2-thinking",
+              (Capability.STRONG, Capability.REASONING, Capability.LONG_CONTEXT),
+              Billing.SUBSCRIPTION, 0.60, 2.50, context_window=256_000,
+              supports_reasoning=True, released="2026-01",
+              notes="Kimi 思考版(订阅);强推理跨供应商冗余,复杂任务动态升级目标之一"),
+    # MiniMax — TOKEN: 强推理 + 超长上下文(1M)。模型 id 随代际更新(见上文 GLM/Kimi 同注);
+    # 需 MINIMAX_API_KEY。默认 status=PREVIEW —— 配好 key + 校准模型 id 后晋升 ACTIVE 入路由链。
+    ModelSpec("minimax-m1", "minimax", "openai/MiniMax-M1",
+              (Capability.STRONG, Capability.REASONING, Capability.LONG_CONTEXT),
+              Billing.TOKEN, 0.40, 2.20, context_window=1_000_000, max_output=40_960,
+              supports_reasoning=True, status=Status.PREVIEW, released="2026-01",
+              notes="MiniMax-M1 强推理 + 1M 长上下文(token);需 MINIMAX_API_KEY + 校准模型 id 后晋升 ACTIVE"),
 ]
 
 _BY_ID = {m.id: m for m in MODELS}
