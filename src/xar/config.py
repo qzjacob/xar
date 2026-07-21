@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     model_fast: str = "deepseek/deepseek-v4-flash"
     model_strong: str = "deepseek/deepseek-v4-pro"
     model_bulk: str = ""  # bulk/search default; blank => router uses registry subscription preferred (GLM/Kimi)
+    # 动态路由:按输入复杂度(prompt 规模)× 内容相关性(价值)在能力层间升降模型。开=智能选层
+    # (简单/大批量→便宜/本地、复杂/高价值→强云),关=退回静态 per-task 路由(向后兼容)。
+    dynamic_routing_enabled: bool = Field(default=True, validation_alias="XAR_DYNAMIC_ROUTING")
+    dynamic_routing_chars_high: int = 16_000   # prompt 超此字符 → 判为复杂(升层)
+    dynamic_routing_chars_low: int = 1_200     # prompt 短于此 → 判为简单(强任务可降层省成本)
     model_effort: str = "high"
     llm_max_usd_per_run: float = 5.0  # hard budget cap per report run
     llm_max_usd_per_batch: float = 20.0  # cap for batch jobs (build_kg/expert/synthesize)

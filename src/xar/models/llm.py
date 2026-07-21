@@ -251,12 +251,17 @@ def complete(
     run_id: str | None = None,
     max_tokens: int = 4000,
     json_mode: bool = False,
+    complexity: str | None = None,
+    relevance: str | None = None,
 ) -> str:
-    """Plain-text completion, task-routed with cross-provider fallback."""
+    """Plain-text completion, task-routed with cross-provider fallback. `complexity`
+    ("low"/"medium"/"high") and `relevance` ("high") drive dynamic layer selection; when
+    unset, complexity is auto-derived from prompt size (router.route)."""
     _ensure_keys()
     s = get_settings()
     tc = router.as_task(task, tier)
-    chain = _apply_pin(router.resolve(tc))
+    chain = _apply_pin(router.route(tc, complexity=complexity, relevance=relevance,
+                                    input_chars=len(prompt or "") + len(system or "")))
     if not chain:
         raise RuntimeError(f"no model candidates for task {tc.value}")
     want_strong = router.POLICIES[tc].capability in (Capability.STRONG, Capability.REASONING)
@@ -449,17 +454,19 @@ def complete_json(
     node: str = "?",
     run_id: str | None = None,
     max_tokens: int = 6000,
+    complexity: str | None = None,
+    relevance: str | None = None,
 ) -> T:
     """Structured output: prompt for JSON matching `schema`, parse + validate, retry once.
     Provider-agnostic; a hard provider failure rotates providers (see complete), and the
-    empty schema is only the final safety net."""
+    empty schema is only the final safety net. `complexity`/`relevance` → dynamic routing."""
     instruction = json_instruction(prompt, schema)
     last_err = None
     for attempt in range(2):
         raw = complete(
             instruction if attempt == 0 else instruction + "\n\nYour previous reply was not valid JSON. Return only the JSON object.",
             system=system, tier=tier, task=task, node=node, run_id=run_id, max_tokens=max_tokens,
-            json_mode=True,
+            json_mode=True, complexity=complexity, relevance=relevance,
         )
         obj = _extract_json(raw)
         if obj is not None:

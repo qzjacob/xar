@@ -135,16 +135,55 @@ def _synth(litellm_id: str, capability: Capability) -> ModelSpec:
                      price_in=price[0], price_out=price[1], supports_reasoning=("deepseek" in full))
 
 
-def resolve(task: TaskClass) -> list[ModelSpec]:
-    """The ordered fallback chain for a task. Override > env > registry preferred,
-    then billing-aware registry candidates, then explicit policy fallbacks."""
-    p = POLICIES[task]
+def _resolve_policy(task: TaskClass, p: RoutePolicy) -> list[ModelSpec]:
+    """Build the ordered chain for a (task, policy). Override > env > registry candidates
+    > explicit fallbacks. `p` may be the static POLICIES[task] or a dynamically-adjusted one."""
     chain: list[ModelSpec | None] = []
     chain.append(registry.override_for(task.value, p.capability.value))   # ops runtime switch
     chain.append(_env_spec(p.capability))                                 # env override
     chain += registry.candidates_for(p.capability, billing_pref=p.prefer_billing)  # registry
     chain += [registry.get(m) for m in p.fallback]                        # explicit tail
     return _dedup(chain)
+
+
+def _complexity_from_chars(n: int | None) -> str | None:
+    """Derive complexity from prompt size when the caller gives no explicit hint."""
+    if not n:
+        return None
+    from ..config import get_settings
+    s = get_settings()
+    if n >= s.dynamic_routing_chars_high:
+        return "high"
+    if n <= s.dynamic_routing_chars_low:
+        return "low"
+    return "medium"
+
+
+def route(task: TaskClass, *, complexity: str | None = None, relevance: str | None = None,
+          input_chars: int | None = None) -> list[ModelSpec]:
+    """动态回退链:按 **complexity**(显式 or 从 `input_chars` 推)× **relevance**(内容价值)
+    在能力层间升降,再解析。守既有安全线:bulk 升级仍走 SUBSCRIPTION 优先(GLM-5.2/kimi-thinking),
+    绝不越到无界 token 池。complexity/relevance 均无信号 → 退化为静态 per-task 路由(向后兼容)。"""
+    from ..config import get_settings
+
+    p = POLICIES[task]
+    cap = p.capability
+    if get_settings().dynamic_routing_enabled:
+        comp = complexity or _complexity_from_chars(input_chars)
+        if p.capability == Capability.CHEAP_BULK and (comp == "high" or relevance == "high"):
+            cap = Capability.STRONG          # 复杂/高价值 bulk → 升强层(订阅优先,成本仍有界)
+        elif p.capability == Capability.STRONG and comp == "low" and relevance != "high":
+            cap = Capability.FAST            # 简单强任务 → 降快层(省成本)
+        if cap != p.capability:
+            log.info("dynamic route %s: %s → %s (complexity=%s relevance=%s)",
+                     task.value, p.capability.value, cap.value, comp, relevance)
+    adjusted = RoutePolicy(cap, p.prefer_billing, p.volume, p.fallback)
+    return _resolve_policy(task, adjusted)
+
+
+def resolve(task: TaskClass) -> list[ModelSpec]:
+    """Static per-task fallback chain (no complexity/relevance signals). Back-compat entry."""
+    return route(task)
 
 
 def _dedup(specs: list[ModelSpec | None]) -> list[ModelSpec]:
