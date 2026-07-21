@@ -226,9 +226,14 @@ def discover_accounts(limit: int | None = None) -> dict:
 #   博通→博通集成、英伟达→NVIDIA 营销号)/ 消费泛词 ~0%。据此收敛查询集:只留 tech 主题
 #   (剔除 internet/retail/restaurants 泛词)+ 技术路线词 + 海外资产主题词;剔除公司名与消费泛词。
 _TECH_THEMES = ("ai_optical", "ai_chip", "ai_software", "space_exploration", "humanoid_robotics")
-_OVERSEAS_ASSET_TERMS = ("美股AI", "美股科技", "纳斯达克", "AI存储", "存储芯片", "存储涨价",
-                         "英伟达产业链", "海外算力", "北美算力", "超大规模数据中心", "算力集群",
-                         "云计算龙头", "大厂capex")
+_OVERSEAS_ASSET_TERMS = ("美股AI", "美股科技", "美股财报", "纳斯达克", "英伟达产业链",
+                         "海外算力", "北美算力", "超大规模数据中心", "算力集群", "算力租赁",
+                         "云计算龙头", "大厂capex", "AI服务器", "液冷服务器", "推理芯片",
+                         # 存储(用户点名的海外热门资产)
+                         "AI存储", "存储芯片", "存储涨价", "闪存", "固态硬盘", "存储模组",
+                         "长江存储", "长鑫存储",
+                         # 光(用户点名)
+                         "光通信设备", "相干光通信")
 
 
 def _precise_queries() -> list[str]:
