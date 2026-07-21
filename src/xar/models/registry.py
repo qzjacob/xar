@@ -83,8 +83,9 @@ PROVIDERS: dict[str, Provider] = {
     "zhipu": Provider("zhipu", "openai/", "GLM_API_KEY",
                       api_base="https://open.bigmodel.cn/api/paas/v4",
                       sub_key_env="GLM_SUB_API_KEY"),
-    "moonshot": Provider("moonshot", "openai/", "MOONSHOT_API_KEY",
-                         api_base="https://api.moonshot.cn/v1",
+    # Kimi Code(coding plan)—— api.kimi.com/coding **OpenAI 兼容**(实测可用),key 在 KIMI_API_KEY。
+    "moonshot": Provider("moonshot", "openai/", "KIMI_API_KEY",
+                         api_base="https://api.kimi.com/coding/v1",
                          sub_key_env="MOONSHOT_SUB_API_KEY"),
     # MiniMax Coding Plan —— **Anthropic 兼容**端点(api.minimax.io/anthropic,实测可用),
     # 故 spec litellm_model 用 anthropic/ 前缀;key(MINIMAX_API_KEY)走 x-api-key(litellm 默认)。
@@ -216,16 +217,14 @@ MODELS: list[ModelSpec] = [
               released="2026-07",
               notes="Qwen3-14B 非思考 q4_K_M @ minis 3090;赛马胜者(2026-07-19:ok 0.825/F1 0.224 "
                     "= 基线 2.6x,唯一 ok 率超云锚;VRAM 实测 11.17G,红线记 11.2G 用户裁定)"),
-    # Kimi K3 Coding Plan(Moonshot)—— **Anthropic 兼容** api.moonshot.ai/anthropic,模型 kimi-k3[1m]。
-    # status=PREVIEW:2026-07 实测**当前 KIMI_API_KEY 被拒(401 Invalid Authentication)**——连文档精确
-    # 配置(Bearer + kimi-k3[1m])裸测都 401,判定 key 失效。待用户换有效 coding key 后:key 放
-    # MOONSHOT_SUB_API_KEY + MOONSHOT_SUB_API_BASE=https://api.moonshot.ai/anthropic + 确认 Bearer 鉴权
-    # (litellm anthropic 默认 x-api-key,Kimi 需 Bearer),再晋升 ACTIVE。
-    ModelSpec("kimi-k3-sub", "moonshot", "anthropic/kimi-k3[1m]",
-              (Capability.CHEAP_BULK, Capability.FAST, Capability.STRONG, Capability.LONG_CONTEXT),
-              Billing.SUBSCRIPTION, 0.0, 0.0, context_window=1_000_000, max_output=16384,
-              status=Status.PREVIEW, released="2026-07",
-              notes="Kimi K3 coding plan(Anthropic 兼容);**待有效 key**——当前 key 401 被拒,详见代码注释"),
+    # Kimi K3 Coding Plan —— api.kimi.com/coding **OpenAI 兼容**(实测 model=k3 可用,需 Moderato+ 会员);
+    # key 在 KIMI_API_KEY。**k3 是思考模型**(实测有 reasoning_content)→ 归 STRONG/REASONING 层(充足
+    # max_tokens 的复杂/高价值任务),**不入 CHEAP_BULK**(triage 小 token 会被思考耗尽→空;与 qwen3.5 同因)。
+    ModelSpec("kimi-k3-sub", "moonshot", "openai/k3",
+              (Capability.STRONG, Capability.REASONING, Capability.LONG_CONTEXT),
+              Billing.SUBSCRIPTION, 0.0, 0.0, context_window=256_000, max_output=16384,
+              supports_reasoning=True, released="2026-07",
+              notes="Kimi K3 coding plan(OpenAI 兼容,model=k3,思考模型);零边际;复杂/高价值任务动态升级目标"),
     # MiniMax-M3 Coding Plan — SUBSCRIPTION(Anthropic 兼容,api.minimax.io/anthropic 实测可用)。
     # litellm_model=anthropic/MiniMax-M3;key 在 MINIMAX_API_KEY(x-api-key)。price 0/0 = coding 计划零边际。
     ModelSpec("minimax-m3-sub", "minimax", "anthropic/MiniMax-M3",
