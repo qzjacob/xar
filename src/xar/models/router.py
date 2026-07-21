@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import NamedTuple
 
 from ..logging import get_logger
 from . import registry
@@ -159,11 +160,20 @@ def _complexity_from_chars(n: int | None) -> str | None:
     return "medium"
 
 
-def route(task: TaskClass, *, complexity: str | None = None, relevance: str | None = None,
-          input_chars: int | None = None) -> list[ModelSpec]:
-    """动态回退链:按 **complexity**(显式 or 从 `input_chars` 推)× **relevance**(内容价值)
-    在能力层间升降,再解析。守既有安全线:bulk 升级仍走 SUBSCRIPTION 优先(GLM-5.2/kimi-thinking),
-    绝不越到无界 token 池。complexity/relevance 均无信号 → 退化为静态 per-task 路由(向后兼容)。"""
+class RoutePlan(NamedTuple):
+    """动态路由决策:被选中的(可能已升/降的)能力层 + 解析出的回退链。返回 `capability`
+    使调用方能据实际所选层设定 reasoning_effort/want_strong,而非重查静态策略(修 J.1.3)。"""
+    capability: Capability
+    chain: list[ModelSpec]
+
+
+def route_plan(task: TaskClass, *, complexity: str | None = None, relevance: str | None = None,
+               input_chars: int | None = None) -> RoutePlan:
+    """动态路由:按 **complexity**(显式 or 从 `input_chars` 推)× **relevance**(内容价值)在能力层间
+    升降,返回**调整后能力** + 回退链。守既有安全线:bulk 升级仍走 SUBSCRIPTION 优先(GLM-5.2/kimi/
+    minimax-thinking),绝不越到无界 token 池。complexity/relevance 均无信号 → 退化为静态 per-task 路由。
+    注:能力升层后 `_resolve_policy` 的 override 查表用**调整后**能力键(如 cheap_bulk→strong),故某
+    task 的 cheap_bulk 级 route override 在升层场景不参与——task 级 override 不受影响。"""
     from ..config import get_settings
 
     p = POLICIES[task]
@@ -178,7 +188,14 @@ def route(task: TaskClass, *, complexity: str | None = None, relevance: str | No
             log.info("dynamic route %s: %s → %s (complexity=%s relevance=%s)",
                      task.value, p.capability.value, cap.value, comp, relevance)
     adjusted = RoutePolicy(cap, p.prefer_billing, p.volume, p.fallback)
-    return _resolve_policy(task, adjusted)
+    return RoutePlan(cap, _resolve_policy(task, adjusted))
+
+
+def route(task: TaskClass, *, complexity: str | None = None, relevance: str | None = None,
+          input_chars: int | None = None) -> list[ModelSpec]:
+    """动态回退链(仅链,向后兼容)。需要调整后能力的调用方用 route_plan()。"""
+    return route_plan(task, complexity=complexity, relevance=relevance,
+                      input_chars=input_chars).chain
 
 
 def resolve(task: TaskClass) -> list[ModelSpec]:

@@ -9,11 +9,11 @@ from xar.orchestration import glm_worker as gw
 
 def test_pinned_restricts_chain_to_registry_specs():
     with llm.pinned(["glm-5.2-sub", "glm-4.6-sub"]):
-        chain = llm._apply_pin([registry.get("kimi-k2-sub")])
+        chain = llm._apply_pin([registry.get("kimi-k3-sub")])
         assert [m.id for m in chain] == ["glm-5.2-sub", "glm-4.6-sub"]
     # 出上下文后恢复原链
-    chain = llm._apply_pin([registry.get("kimi-k2-sub")])
-    assert [m.id for m in chain] == ["kimi-k2-sub"]
+    chain = llm._apply_pin([registry.get("kimi-k3-sub")])
+    assert [m.id for m in chain] == ["kimi-k3-sub"]
 
 
 def test_pinned_unknown_ids_dropped():
@@ -73,8 +73,8 @@ def test_fetchy_pin_local_first(monkeypatch):
     try:
         assert gw._fetchy_pin({}) == (gw.LOCAL_MODEL_ID, *gw.GLM_PIN)
         # Fetchy 显式选型 = 操作员意图,本地头让位
-        explicit = gw._fetchy_pin({"model": "kimi-k2-sub"})
-        assert explicit[0] == "kimi-k2-sub" and gw.LOCAL_MODEL_ID not in explicit
+        explicit = gw._fetchy_pin({"model": "kimi-k3-sub"})
+        assert explicit[0] == "kimi-k3-sub" and gw.LOCAL_MODEL_ID not in explicit
         # 云订阅 key 缺位(设空压过 .env)→ 不前插
         monkeypatch.setenv("GLM_SUB_API_KEY", "")
         get_settings.cache_clear()

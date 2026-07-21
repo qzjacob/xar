@@ -75,14 +75,19 @@ def _ensure_keys() -> None:
     if _KEYS_SYNCED:
         return
     s = get_settings()
+    # 镜像 Settings(.env)→os.environ,变量名必须与 registry Provider 的 key_env/sub_key_env 一致
+    # (否则 host 侧 _endpoint/model_usable 读不到 → 静默「未配置」跳过候选)。moonshot provider 的
+    # key_env 已在 P6 改为 KIMI_API_KEY;minimax 的主/副 key 此前完全缺镜像。
     for var, val in {
         "ANTHROPIC_API_KEY": s.anthropic_api_key,
         "OPENAI_API_KEY": s.openai_api_key,
         "DEEPSEEK_API_KEY": s.deepseek_api_key,
         "GLM_API_KEY": s.glm_api_key,
-        "MOONSHOT_API_KEY": s.moonshot_api_key,
+        "KIMI_API_KEY": s.moonshot_api_key,          # moonshot provider key_env(P6);_endpoint 读此名
+        "MINIMAX_API_KEY": s.minimax_api_key,         # minimax provider key_env
         "GLM_SUB_API_KEY": s.glm_sub_api_key,
         "MOONSHOT_SUB_API_KEY": s.moonshot_sub_api_key,
+        "MINIMAX_SUB_API_KEY": s.minimax_sub_api_key,  # minimax provider sub_key_env
         "OLLAMA_API_KEY": s.ollama_api_key,
     }.items():
         if val and not os.environ.get(var):
@@ -260,11 +265,14 @@ def complete(
     _ensure_keys()
     s = get_settings()
     tc = router.as_task(task, tier)
-    chain = _apply_pin(router.route(tc, complexity=complexity, relevance=relevance,
-                                    input_chars=len(prompt or "") + len(system or "")))
+    plan = router.route_plan(tc, complexity=complexity, relevance=relevance,
+                             input_chars=len(prompt or "") + len(system or ""))
+    chain = _apply_pin(plan.chain)
     if not chain:
         raise RuntimeError(f"no model candidates for task {tc.value}")
-    want_strong = router.POLICIES[tc].capability in (Capability.STRONG, Capability.REASONING)
+    # want_strong 取**调整后**能力(route_plan),与实际所选层一致:升 bulk→STRONG 时给足推理力度、
+    # 降 STRONG→FAST 时不白烧(修 J.1.3:此前取静态 POLICIES[tc].capability,动态升/降层后错配)。
+    want_strong = plan.capability in (Capability.STRONG, Capability.REASONING)
     messages = ([{"role": "system", "content": system}] if system else []) + \
                [{"role": "user", "content": prompt}]
     cap = _budget_cap(run_id, s)

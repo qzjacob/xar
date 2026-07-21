@@ -720,8 +720,11 @@ def set_wechat_review(gh_id: str, action: str) -> dict:
     mapped = {"approve": "approved", "block": "blocked", "pending": "pending"}.get(action)
     if not mapped:
         return {"ok": False, "detail": f"action must be approve|block|pending, got {action!r}"}
-    db.execute("UPDATE wechat_discovered SET review_status=%s, updated_at=now() WHERE gh_id=%s",
-               (mapped, gh_id))
+    # RETURNING 检出 0 行(gh_id 不存在):否则 UPDATE 0 行也返回 ok,Fetchy 界面显示「成功」实无操作(J.3)。
+    rows = db.query("UPDATE wechat_discovered SET review_status=%s, updated_at=now() "
+                    "WHERE gh_id=%s RETURNING gh_id", (mapped, gh_id))
+    if not rows:
+        return {"ok": False, "detail": f"未找到发现号 gh_id={gh_id!r}", "gh_id": gh_id}
     return {"ok": True, "gh_id": gh_id, "review_status": mapped}
 
 

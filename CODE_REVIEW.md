@@ -915,3 +915,63 @@ GLM-5.2 起草的 `SEMANTIC_DB_PLAN.md` 提出**新建独立平行表 `semantic_
 
 维持 §8.2 姿态裁决不动：SecretStr/依赖 pin/Docker 加固/mypy·覆盖率门禁/DAG 改造等仍不采纳。
 专项测试 tests/test_review_fixes.py 3 项（approve 状态机 / 异常落 failed / token 闸六分支）。
+
+---
+
+## 附录 J：MODELS-P1~P7 / FETCHY-P3/P4 提交审核（2026-07-20）
+
+> 评审范围：当日 7 个提交（模型目录 + 动态路由 + HITL 门控 + fetch 链路），全量读改动文件上下文，实跑 `pytest` 与前端 `tsc`。
+> 总体：HITL 门控、动态路由、模型目录方向设计干净；但有 3 个确认 bug（2 个已致测试失败）与 1 个自相矛盾的设计问题。
+
+### J.1 Bug
+
+**J.1.1 提交了 failing 测试：`kimi-k2-sub` 被删但引用未清 [高]**
+
+MODELS-P6 删除 `kimi-k2-sub` spec，引用未同步清理。实跑 `pytest tests/test_glm_worker.py`：2 failed / 20 passed：
+- `test_pinned_restricts_chain_to_registry_specs`（`tests/test_glm_worker.py:16`）— `registry.get("kimi-k2-sub")` 返回 `None` → AttributeError。
+- `test_glm52_leads_subscription_chains`（`tests/test_glm_worker.py:28`）— `minimax-m3-sub`（price 0/0）在 CHEAP_BULK 链中排到 glm-4.6-sub 之前，断言链序已变。
+- `tests/test_pipeline.py:483-484` 同样引用 `kimi-k2-sub`，`set_route` 因 `registry.get() is None` 返回 `ok=False`（需 DB，集成测试必挂）。
+
+**J.1.2 `_ensure_keys` 未同步新 key：host 环境 kimi/minimax 永远「未配置」 [中 / 环境相关]**
+
+registry 将 moonshot 的 key_env 改为 `KIMI_API_KEY`、新增 `MINIMAX_API_KEY`/`MINIMAX_SUB_API_KEY`，但 `llm.py:78-87` 同步清单未跟进：MINIMAX 两个 key 完全缺失；`s.moonshot_api_key`（AliasChoices 已接受 `KIMI_API_KEY`）仍镜像到无人读取的 `MOONSHOT_API_KEY`。docker 部署靠 `env_file: .env` 注入不受影响；host 侧运行（CLI、测试、host worker）正是 `_ensure_keys` 存在的意义——此时 `model_usable` 报「未配置」、`complete()` 跳过候选。P7 使 `model_usable` 与 `_endpoint` 一致，但两者一致地读不到 host key。修复：同步清单补 `KIMI_API_KEY: s.moonshot_api_key`、`MINIMAX_API_KEY`、`MINIMAX_SUB_API_KEY`。
+
+**J.1.3 `want_strong` 用静态策略计算，动态路由升/降层后思考力度错配 [中]**
+
+`llm.py:267` `want_strong = router.POLICIES[tc].capability in (...)` 取**未调整的** capability。后果：bulk 任务升 STRONG 后，链首为思考模型却拿 `reasoning_effort="low"`（升层意义被抵消）；强任务降 FAST 后快模型反拿 `effort=high`（白烧延迟/token）。`route()` 内部已知调整后 cap，应随链返回而非在 `complete()` 重查静态策略。
+
+### J.2 设计矛盾
+
+**J.2.1 `minimax-m3-sub` 同时 `supports_reasoning=True` + `CHEAP_BULK` + price 0/0 [高]**
+
+违反 `registry.py:221-222` 对 kimi-k3-sub 写下的纪律（思考模型不入 CHEAP_BULK：triage 小 token 预算会被思考耗尽 → 空 completion，qwen3.5 赛马实测同因）；亦触发 `registry.py:186-188` 记录的 price=0 模型「静默接住批量回退流量」越权风险。实测已成**所有** bulk 链（KG_EXTRACT/EXPERT/SEARCH_BULK/THESIS/WECHAT_TRIAGE/THESIS_LINK）第二候选（J.1.1 测试失败即此效应）。GLM-5.2 配额窗口耗尽时，全部批量/triage 流量静默轮转至 anthropic 兼容端点的思考模型，`reasoning_effort="low"` 能否被该端点翻译未验证（`drop_params=True` 静默丢弃）。处置：去掉 CHEAP_BULK/FAST 能力，或在 notes 写明 M3 豁免 K3 禁用理由（需实测支撑）。
+
+### J.3 次要
+
+- `set_wechat_review`（`ops.py:715`）对不存在 `gh_id` 返回 `ok:True`（UPDATE 0 行），UI 显示成功实无操作；建议查 rowcount 或先 SELECT。
+- 动态升层后 `override_for(task.value, p.capability.value)` 用**调整后** capability：能力级 route override 在升级场景被静默绕过（task 级不受影响）；若有意应在 `route()` docstring 写明。
+- kimi-k3/minimax-m3 只配主 key 时 `used_sub=False`，`llm_usage.billing` 记 "token" 实为订阅套餐（price 0/0 无预算影响，仅审计标签失真）。
+
+### J.4 做得对的
+
+- `schema.sql` `ALTER ... IF NOT EXISTS` 幂等向后兼容；HITL 门控「blocked 永不抓 / 严格模式只抓 approved」语义清晰且有两条针对性测试；动态路由 4 条测试覆盖升/降/无信号退化；`_record_discovered_account` 的 ON CONFLICT 不覆盖 `review_status`；前端 `tsc` 通过。
+
+**优先级建议**：先修 J.1.1（测试红）与 J.2.1（批量流量静默落点），再 J.1.2/J.1.3，次要项随下一轮提交带过。
+
+### J.5 独立复核与处置（2026-07-21，第三方逐条实证）
+
+对附录 J 逐条**独立实证复核**（源码 + 实跑 `pytest` + 端到端 LLM 探测，非转述）。裁定：**J.1.1/J.1.2/J.1.3 三 bug 成立·全修；J.2.1 设计矛盾成立·按实测据裁定为「对称归强层」；J.3 三项各裁定**。验证：`ruff` 通过；`pytest tests/test_glm_worker.py tests/test_capabilities.py tests/test_dynamic_routing.py` **27 passed**（J.1.1 的 2 红转绿）；host 侧 kimi/minimax key 镜像 + `model_usable` USABLE 实证。
+
+| 条目 | 独立裁定 | 处置 |
+|---|---|---|
+| **J.1.1** 提交 failing 测试（kimi-k2-sub 死引用） | **成立**。实跑 2 failed：`registry.get("kimi-k2-sub")`=None → AttributeError；`minimax-m3-sub`(price0) 插到 glm-4.6 前致链序断言变。死引用共 7 处（test_glm_worker ×5、test_pipeline ×2） | **已修**：死引用 `kimi-k2-sub`→现役 `kimi-k3-sub`；`test_glm52_leads_subscription_chains` 经 J.2.1 修复后**自然复绿**（minimax 出 bulk 链 → chain[:2]=[glm-5.2,glm-4.6]），断言未被削弱 |
+| **J.1.2** `_ensure_keys` 未镜像 KIMI/MINIMAX key | **成立**。`llm.py` 清单缺 `KIMI_API_KEY`（P6 后 moonshot 的 key_env）、`MINIMAX_API_KEY`、`MINIMAX_SUB_API_KEY`；host 侧 `s.moonshot_api_key` 镜像到无人读的 `MOONSHOT_API_KEY` | **已修**：清单补三 key（`KIMI_API_KEY:s.moonshot_api_key`、`MINIMAX_API_KEY:s.minimax_api_key`、`MINIMAX_SUB_API_KEY:s.minimax_sub_api_key`），死镜像 `MOONSHOT_API_KEY` 移除。实证：全新进程不手动注入 → `_ensure_keys()` 后两 key 在场、`model_usable(kimi/minimax)`=USABLE |
+| **J.1.3** `want_strong` 取静态策略、动态升降层后错配 | **成立**。`complete()` 取 `POLICIES[tc].capability`(未调整)，升 bulk→STRONG 后仍 `reasoning_effort="low"`、降 STRONG→FAST 后仍 effort=high | **已修**：router 新增 `route_plan()→RoutePlan(capability, chain)` 返回**调整后能力**；`complete()` 据 `plan.capability` 定 want_strong（`complete_json` 经 `complete` 委派同得修；`complete_stream` 用静态 `resolve` 无此矛盾，不动）。实证：KG_EXTRACT complexity=high→cap=strong/want_strong=True；DEBATE complexity=low→cap=fast/want_strong=False |
+| **J.2.1** minimax-m3-sub 思考模型入 CHEAP_BULK+price0 | **成立（设计矛盾），按实测据裁定** | **已修·对称归强层**：去 CHEAP_BULK/FAST → `(STRONG, REASONING, LONG_CONTEXT)`，与 kimi-k3-sub 对称。**实测据**：minimax 在 bulk 尺寸(mt=800/1200) `reasoning_len=0`、输出干净 JSON、`finish=stop` —— 故豁免 k3 的「空 completion」禁因（不同于 k3 的 reasoning_len=180 空补）；但仍**不做夜间 triage 静默默认**：price=0 思考模型排 bulk 第二席会在 GLM 额度耗尽时无声接住全部批量流量（越权 + 无成本信号）。改由**动态升层**（复杂/高价值 bulk→STRONG）与**强任务跨供应商回退**触达 —— 把 1M 强推理留在其所长的高价值端，cheap triage 仍由 GLM-5.2 默认。实证：bulk 链复为 [glm-5.2, glm-4.6, deepseek-v4-flash]，minimax 仍在 STRONG 候选内 |
+| **J.3-①** `set_wechat_review` 对不存在 gh_id 返回 ok | **成立** | **已修**：改 `UPDATE...RETURNING gh_id` + 查 0 行 → `ok:False, detail:未找到发现号`（`db.execute` 无 rowcount，故走 `db.query`+RETURNING，经 pool CM 提交） |
+| **J.3-②** 升层后 override 用调整后 capability | **成立（设计取舍）** | **已注**：`route_plan()` docstring 写明 —— 能力升层后 override 查表用调整后能力键，某 task 的 cheap_bulk 级 route override 在升层场景不参与（task 级 override 不受影响）。自用姿态下按预期，不改行为 |
+| **J.3-③** 主 key 时 used_sub=False → billing 标 "token" | **不予采纳（cosmetic）** | minimax/kimi 编程套餐 price=0/0 → 无论标签 usd 恒 0、对预算上限无影响（与 G.3 P0 计价保护正交：那是给 glm-5.2 这类**有**计量价的订阅模型防漏）；仅审计标签在「主 key 命中」时显 token。自用·无预算影响下不动，避免触碰 G.3 的 effective-billing 逻辑 |
+
+**附注（非附录 J 项，记录）**：全量 `pytest`（773 项）有 **7 项 DB-态失败**（test_earnings_outcomes ×4 / test_evidence_link::test_link_idempotent_cursor / test_macro_bridge::test_link_routes_and_mount_coexist / test_pipeline::test_end_to_end），经 `git stash` 本轮改动在**净 HEAD 上复现同样 7 红** —— 系共享生产库测试残留（FK 违例 / 游标态，如 test_end_to_end 先删 `documents` 后删引用它的 `kg_edges` 的隔离序 bug），**与本轮模型层改动无关**，属既有测试卫生问题，不在附录 J 范围。
+
+> 第三方裁定：附录 J 的 **3 bug（J.1.1/1.2/1.3）全修 + J.2.1 设计矛盾按实测对称归强层解决 + J.3 两项修/注、一项 cosmetic 不采纳**；model 层改动 `ruff` 通过、目标测试 27 passed、host 侧 key 镜像与动态路由力度实证一致。7 项 DB-态失败为既有测试残留、净 HEAD 同复现，与本轮无关。

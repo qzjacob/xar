@@ -480,8 +480,8 @@ def test_route_override_persists_and_reroutes():
         # capture the un-overridden chain head BEFORE setting the override (no hardcoding:
         # the registry's preferred subscription model can change — that broke this test once)
         _default_head = router.resolve(TaskClass.KG_EXTRACT)[0].id
-        assert ops.set_route("cheap_bulk", "kimi-k2-sub")["ok"] is True
-        assert router.resolve(TaskClass.KG_EXTRACT)[0].id == "kimi-k2-sub"
+        assert ops.set_route("cheap_bulk", "kimi-k3-sub")["ok"] is True
+        assert router.resolve(TaskClass.KG_EXTRACT)[0].id == "kimi-k3-sub"
         assert ops.set_route("cheap_bulk", "")["cleared"] is True
         assert router.resolve(TaskClass.KG_EXTRACT)[0].id == _default_head
         assert ops.set_route("cheap_bulk", "nonexistent")["ok"] is False

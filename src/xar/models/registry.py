@@ -227,12 +227,18 @@ MODELS: list[ModelSpec] = [
               notes="Kimi K3 coding plan(OpenAI 兼容,model=k3,思考模型);零边际;复杂/高价值任务动态升级目标"),
     # MiniMax-M3 Coding Plan — SUBSCRIPTION(Anthropic 兼容,api.minimax.io/anthropic 实测可用)。
     # litellm_model=anthropic/MiniMax-M3;key 在 MINIMAX_API_KEY(x-api-key)。price 0/0 = coding 计划零边际。
+    # **与 kimi-k3 同为思考型订阅编程套餐 → 同归 STRONG/REASONING/LONG_CONTEXT,不入 CHEAP_BULK/FAST**:
+    # 实测 bulk 尺寸(mt=800/1200)reasoning_len=0、输出干净 JSON、finish=stop(不同于 k3 小 token 被思考
+    # 耗尽→空),故豁免 registry:220 记的 k3 空补禁因;但仍不做夜间 triage 的**静默默认候选**——price=0
+    # 思考模型若排进 bulk 链第二席会在 GLM 额度耗尽时无声接住全部批量流量(registry:186 越权同理),且
+    # 无成本信号提示回退发生。改由**动态升层**(复杂/高价值 bulk→STRONG,route())与**强任务跨供应商回退**
+    # 触达——把 1M 强推理留给高价值端(其所长),cheap triage 仍由 GLM-5.2 默认。
     ModelSpec("minimax-m3-sub", "minimax", "anthropic/MiniMax-M3",
-              (Capability.CHEAP_BULK, Capability.FAST, Capability.STRONG,
-               Capability.REASONING, Capability.LONG_CONTEXT),
+              (Capability.STRONG, Capability.REASONING, Capability.LONG_CONTEXT),
               Billing.SUBSCRIPTION, 0.0, 0.0, context_window=1_000_000, max_output=40_960,
               supports_reasoning=True, released="2026-07",
-              notes="MiniMax-M3 coding plan(Anthropic 兼容 api.minimax.io/anthropic);强推理+1M;跨供应商冗余"),
+              notes="MiniMax-M3 coding plan(Anthropic 兼容 api.minimax.io/anthropic);强推理+1M;"
+                    "与 kimi-k3 对称归强/推理层(实测 bulk 尺寸不空补,但不做 triage 静默默认);高价值/复杂任务动态升级目标"),
 ]
 
 _BY_ID = {m.id: m for m in MODELS}
