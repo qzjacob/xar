@@ -86,9 +86,10 @@ PROVIDERS: dict[str, Provider] = {
     "moonshot": Provider("moonshot", "openai/", "MOONSHOT_API_KEY",
                          api_base="https://api.moonshot.cn/v1",
                          sub_key_env="MOONSHOT_SUB_API_KEY"),
-    # MiniMax(海外国际版 api.minimaxi.com,OpenAI 兼容)。强推理 + 超长上下文的 TOKEN 提供方。
-    "minimax": Provider("minimax", "openai/", "MINIMAX_API_KEY",
-                        api_base="https://api.minimaxi.com/v1",
+    # MiniMax Coding Plan —— **Anthropic 兼容**端点(api.minimax.io/anthropic,实测可用),
+    # 故 spec litellm_model 用 anthropic/ 前缀;key(MINIMAX_API_KEY)走 x-api-key(litellm 默认)。
+    "minimax": Provider("minimax", "anthropic/", "MINIMAX_API_KEY",
+                        api_base="https://api.minimax.io/anthropic",
                         sub_key_env="MINIMAX_SUB_API_KEY"),
     # minis 本地 ollama(RTX 3090)— OpenAI 兼容端点。host.docker.internal 在容器内由
     # compose extra_hosts 提供、在宿主由 /etc/hosts 同名映射,两侧同一 URL;特殊拓扑用
@@ -215,24 +216,24 @@ MODELS: list[ModelSpec] = [
               released="2026-07",
               notes="Qwen3-14B 非思考 q4_K_M @ minis 3090;赛马胜者(2026-07-19:ok 0.825/F1 0.224 "
                     "= 基线 2.6x,唯一 ok 率超云锚;VRAM 实测 11.17G,红线记 11.2G 用户裁定)"),
-    # Kimi (Moonshot) — SUBSCRIPTION: bulk fallback + long-context
-    ModelSpec("kimi-k2-sub", "moonshot", "openai/kimi-k2-0905-preview",
+    # Kimi K3 Coding Plan(Moonshot)—— **Anthropic 兼容** api.moonshot.ai/anthropic,模型 kimi-k3[1m]。
+    # status=PREVIEW:2026-07 实测**当前 KIMI_API_KEY 被拒(401 Invalid Authentication)**——连文档精确
+    # 配置(Bearer + kimi-k3[1m])裸测都 401,判定 key 失效。待用户换有效 coding key 后:key 放
+    # MOONSHOT_SUB_API_KEY + MOONSHOT_SUB_API_BASE=https://api.moonshot.ai/anthropic + 确认 Bearer 鉴权
+    # (litellm anthropic 默认 x-api-key,Kimi 需 Bearer),再晋升 ACTIVE。
+    ModelSpec("kimi-k3-sub", "moonshot", "anthropic/kimi-k3[1m]",
               (Capability.CHEAP_BULK, Capability.FAST, Capability.STRONG, Capability.LONG_CONTEXT),
-              Billing.SUBSCRIPTION, 0.60, 2.50, context_window=256_000, released="2026-01",
-              notes="Kimi subscription; bulk fallback + long-context"),
-    # Kimi 思考版(推理层)—— 复杂/高价值任务的订阅制强模型(与 GLM-5.2 同池,跨供应商冗余)。
-    ModelSpec("kimi-k2-thinking-sub", "moonshot", "openai/kimi-k2-thinking",
-              (Capability.STRONG, Capability.REASONING, Capability.LONG_CONTEXT),
-              Billing.SUBSCRIPTION, 0.60, 2.50, context_window=256_000,
-              supports_reasoning=True, released="2026-01",
-              notes="Kimi 思考版(订阅);强推理跨供应商冗余,复杂任务动态升级目标之一"),
-    # MiniMax — TOKEN: 强推理 + 超长上下文(1M)。模型 id 随代际更新(见上文 GLM/Kimi 同注);
-    # 需 MINIMAX_API_KEY。默认 status=PREVIEW —— 配好 key + 校准模型 id 后晋升 ACTIVE 入路由链。
-    ModelSpec("minimax-m1", "minimax", "openai/MiniMax-M1",
-              (Capability.STRONG, Capability.REASONING, Capability.LONG_CONTEXT),
-              Billing.TOKEN, 0.40, 2.20, context_window=1_000_000, max_output=40_960,
-              supports_reasoning=True, status=Status.PREVIEW, released="2026-01",
-              notes="MiniMax-M1 强推理 + 1M 长上下文(token);需 MINIMAX_API_KEY + 校准模型 id 后晋升 ACTIVE"),
+              Billing.SUBSCRIPTION, 0.0, 0.0, context_window=1_000_000, max_output=16384,
+              status=Status.PREVIEW, released="2026-07",
+              notes="Kimi K3 coding plan(Anthropic 兼容);**待有效 key**——当前 key 401 被拒,详见代码注释"),
+    # MiniMax-M3 Coding Plan — SUBSCRIPTION(Anthropic 兼容,api.minimax.io/anthropic 实测可用)。
+    # litellm_model=anthropic/MiniMax-M3;key 在 MINIMAX_API_KEY(x-api-key)。price 0/0 = coding 计划零边际。
+    ModelSpec("minimax-m3-sub", "minimax", "anthropic/MiniMax-M3",
+              (Capability.CHEAP_BULK, Capability.FAST, Capability.STRONG,
+               Capability.REASONING, Capability.LONG_CONTEXT),
+              Billing.SUBSCRIPTION, 0.0, 0.0, context_window=1_000_000, max_output=40_960,
+              supports_reasoning=True, released="2026-07",
+              notes="MiniMax-M3 coding plan(Anthropic 兼容 api.minimax.io/anthropic);强推理+1M;跨供应商冗余"),
 ]
 
 _BY_ID = {m.id: m for m in MODELS}

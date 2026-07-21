@@ -39,9 +39,10 @@ class Settings(BaseSettings):
     glm_sub_api_base: str = Field(default="", validation_alias="GLM_SUB_API_BASE")
     moonshot_sub_api_key: str = Field(default="", validation_alias="MOONSHOT_SUB_API_KEY")
     moonshot_sub_api_base: str = Field(default="", validation_alias="MOONSHOT_SUB_API_BASE")
-    # MiniMax(OpenAI 兼容,token 计费):强推理 + 1M 长上下文。空 key => 该 provider 跳过。
+    # MiniMax:token key(chat API)+ coding-plan 订阅(sub key + coding 端点,与 GLM z.ai 同型)。
     minimax_api_key: str = Field(default="", validation_alias=AliasChoices("MINIMAX_API_KEY", "MINIMAXI_API_KEY"))
     minimax_sub_api_key: str = Field(default="", validation_alias="MINIMAX_SUB_API_KEY")
+    minimax_sub_api_base: str = Field(default="", validation_alias="MINIMAX_SUB_API_BASE")
     # --- 本地 LLM(minis ollama @ RTX 3090;hardware-solutions/minis-算力调度方案.md §9)---
     # OLLAMA_API_KEY 是占位 key(ollama 不校验),但必须非空 —— key 在场性即"本地已配"开关,
     # 复用 model_usable/complete 的既有 key 门。base 默认走 registry(host.docker.internal),

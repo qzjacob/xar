@@ -196,7 +196,7 @@ def _retryable(e: Exception) -> bool:
 
 
 _SUB_BASE_ATTR = {"zhipu": "glm_sub_api_base", "moonshot": "moonshot_sub_api_base",
-                  "ollama": "ollama_api_base"}
+                  "minimax": "minimax_sub_api_base", "ollama": "ollama_api_base"}
 
 
 def _endpoint(spec, s) -> tuple[str | None, str | None, bool]:
