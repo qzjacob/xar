@@ -238,20 +238,48 @@ def _precise_queries() -> list[str]:
     return out
 
 
+def _overseas_queries() -> list[str]:
+    """美股/海外热门资产聚焦查询:注册表 region=US 公司的中文名 + 海外资产主题词。
+    立意:比宽泛行业词命中面更窄、更投研 —— 搜到的是**跨境投研号**(分析英伟达/美光/HBM/
+    AI 存储等海外热门资产),股吧喊单/本地营销噪音更少,信噪比可能更好。与 broad 方案赛马验证。"""
+    seen: set[str] = set()
+    out: list[str] = []
+
+    def _add(t: str) -> None:
+        t = (t or "").strip()
+        if t and t not in seen:
+            seen.add(t)
+            out.append(t)
+
+    for c in COMPANIES:                       # US 公司中文名(英伟达/台积电/美光…,多数无歧义)
+        if c.get("region") == "US":
+            for a in c.get("aliases", []):
+                if _has_cjk(a) and len(a) >= 2:
+                    _add(a)
+    for t in ("美股", "美股AI", "美股科技", "纳斯达克", "AI存储", "HBM", "高带宽内存",
+              "存储芯片", "英伟达产业链", "海外算力", "北美算力", "超大规模数据中心", "出海"):
+        _add(t)                               # 海外资产主题词(用户点名 AI 存储/光模块 等)
+    return out
+
+
 def wcda_available() -> bool:
     """wcda 文章级发现:发现已开启 且 wcda 后端已配置(WCDA_BASE_URL)。"""
     return bool(get_settings().wechat_discover_enabled) and wcda_api.available()
 
 
-def discover_via_wcda(limit: int | None = None) -> list[str]:
-    """跑一轮 wcda 文章级发现。返回落库文档 id。默认关/无后端 → 空。"""
+def discover_via_wcda(limit: int | None = None, *, queries: list[str] | None = None,
+                      strategy: str = "broad") -> list[str]:
+    """跑一轮 wcda 文章级发现。返回落库文档 id。默认关/无后端 → 空。
+    queries 显式传入则用之(赛马用),否则默认 broad(_precise_queries 轮转切片);
+    strategy 打进 meta.strategy 供赛马按策略对比 keep_rate。"""
     if not (get_settings().wechat_discover_enabled and wcda_api.available()):
         return []
     from datetime import datetime, timezone
 
     s = get_settings()
     max_articles = limit or s.wechat_discover_max_articles
-    queries = _slice_for_today(_precise_queries(), s.wechat_discover_queries_per_run)
+    if queries is None:
+        queries = _slice_for_today(_precise_queries(), s.wechat_discover_queries_per_run)
     aliases = _alias_index()
 
     # 1) 搜号 → 收集候选账号(按 fakeid 去重),记 wechat_discovered(不订阅,feed_id=None)
@@ -289,10 +317,10 @@ def discover_via_wcda(limit: int | None = None) -> list[str]:
                 text=body[:120_000], url=a["url"], published_at=pub, permission="grey",
                 license_tag="wechat-extracted-facts-self-use",
                 meta={"platform": "wechat_mp", "via": "discover", "backend": "wcda",
-                      "account": acct["name"], "gh_id": fakeid},
+                      "strategy": strategy, "account": acct["name"], "gh_id": fakeid},
             )
             ids.append(save(doc))
         if len(ids) >= max_articles:
             break
-    log.info("wcda discover: %d 候选号 → %d 篇入库(source=wechat)", len(accounts), len(ids))
+    log.info("wcda discover [%s]: %d 候选号 → %d 篇入库(source=wechat)", strategy, len(accounts), len(ids))
     return ids

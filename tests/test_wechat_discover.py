@@ -442,3 +442,32 @@ def test_precise_queries_excludes_ambiguous_company_aliases():
     assert "华通" not in q and "旭创" not in q and "联华" not in q  # 歧义短别名不在
     assert all(wd._has_cjk(x) for x in q)                        # 全 CJK
     assert q == list(dict.fromkeys(q))                          # 去重保序
+
+
+def test_overseas_queries_are_us_focused():
+    """海外策略查询 = US 公司中文名 + 海外资产主题词;去重。"""
+    q = wd._overseas_queries()
+    assert "英伟达" in q and "美光" in q and "台积电" in q     # US 公司中文名
+    assert "AI存储" in q and "HBM" in q and "美股AI" in q     # 海外资产主题词
+    assert len(q) >= 20 and q == list(dict.fromkeys(q))
+
+
+def test_discover_via_wcda_uses_explicit_queries_and_strategy_tag(monkeypatch):
+    """赛马:显式 queries 被采用,strategy 打进 meta.strategy。"""
+    monkeypatch.setattr(wd, "get_settings", lambda: _WcdaDiscoverS())
+    monkeypatch.setattr(wd.wcda_api, "available", lambda: True)
+    monkeypatch.setattr(wd, "_alias_index", lambda: [])
+    monkeypatch.setattr(wd, "_record_discovered_account", lambda *a: None)
+    monkeypatch.setattr(wd, "_already_ingested", lambda urls: set())
+    used: list = []
+    monkeypatch.setattr(wd.wcda_api, "search_accounts",
+                        lambda q, **k: used.append(q) or [{"fakeid": "F1", "name": "x", "alias": ""}])
+    monkeypatch.setattr(wd.wcda_api, "list_articles",
+                        lambda fid, **k: [{"url": "https://mp.weixin.qq.com/s/Z", "title": "t"}])
+    monkeypatch.setattr(wd.wcda_api, "parse_article",
+                        lambda url: {"title": "t", "text": "正" * 50, "author": "x", "publish_time": 1})
+    saved: list = []
+    monkeypatch.setattr(wd, "save", lambda doc: saved.append(doc) or doc.id)
+    wd.discover_via_wcda(queries=["英伟达", "美光"], strategy="overseas_race")
+    assert used[:2] == ["英伟达", "美光"]                    # 用了显式 queries(非默认 broad)
+    assert saved and saved[0].meta["strategy"] == "overseas_race"
