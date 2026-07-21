@@ -55,3 +55,35 @@ return str(data.get("feed_id") or data.get("id") or gh_id)
 
 - **问题**：`discover()`/`promote_candidates()` 抛错（如迁移前缺 `wechat_discovered` 表）会向上传播，把整行 `wechat` ingest_runs 标记为失败，尽管上方订阅轮询已成功。调用方会把它与其他 source 隔离，影响仅是运行状态误导。
 - **建议**：在 discover+promote 块外包 try/except，与模块 docstring 声明的「脆弱环节不拖垮整轮」意图一致。
+
+---
+
+## WD-11 提交审核（`8ec544c`，2026-07-20）
+
+> 评审范围：单提交 `8ec544c`（纯数据变更，`_OVERSEAS_ASSET_TERMS` 13 → 25 词）。
+> 测试状态：30/30 通过。**未发现 bug。**
+
+### 已核对一致项
+
+- overseas queries 20→32 与提交信息一致：25 主题词 + 7 标志性名称（`wechat_discover.py:279`）。
+- precise queries +11（而非 +12）属**正确行为**："存储芯片"、"算力租赁"已存在于 `cn_routing.py:20,23` 主题词表，被 `_precise_queries` 的 `seen` 去重吞掉（`wechat_discover.py:246-250`），无重复 query 发出。
+
+### 1. 注释与实际集合构成不符 [低 / 文档漂移]
+
+- **文件**：`src/xar/ingestion/wechat_discover.py:234`
+- **问题**：本次新增两个公司名（"长江存储"、"长鑫存储"），与上方注释块（`wechat_discover.py:224-227`）声明的"剔除公司名"（33% 保留率）直接矛盾。判断为有意为之——当时记录的失败模式是**海外**公司名与同名中文账号碰撞，不适用于国内供应链公司——但注释现已错误描述集合构成。
+- **建议**：更新注释（如注明国内供应链公司名豁免剔除规则），避免下一轮赛马驱动的裁剪基于过时理由将其删除。
+
+---
+
+## 复核与修复结论 — WD-11 审核(2026-07-21)
+
+意见 #1(注释文档漂移)复核为**合理**并已修复;无代码/行为变更,测试 32/32。
+
+| # | 意见 | 复核 | 修复 |
+|---|---|---|---|
+| 1 | 注释「剔除公司名」与新增国内公司名(长江存储/长鑫存储)矛盾 | ✅ 确实(低,纯文档) | 更新三处注释(`wechat_discover.py` 赛马实证块 / `_precise_queries` docstring / `_OVERSEAS_ASSET_TERMS` 内联),明确**剔除规则限定「歧义/海外」公司名**(博通→博通集成),国内无歧义龙头名(长江存储/长鑫存储=YMTC/CXMT)例外保留 |
+
+**补充核实(reviewer 的裁剪担忧)**:`prune_query_pool()` 只删 `strategy='mined'` 查询;长江存储/长鑫存储在 `_OVERSEAS_ASSET_TERMS`(strategy=overseas/broad,本体词),**永不被剪枝**,仅由 UCB 按 keep_rate 决定选取频率。故「被裁剪删除」的实际风险不存在;修复消除的是人读注释的困惑。
+
+**自查补充(reviewer 未覆盖 WD-9/WD-10 进化引擎)**:复核 `mining/wechat_evolve.py` 的 UCB 顺序(update→mine→prune→select→bump,反馈来自上轮已 triage 文档)、冷启动(evaluated 不足时全探索填满 n)、剪枝谓词(runs≥2 且 articles=0 或 keep_rate<5%,NULL 安全)——**均正确,无 correctness bug**。测试 test_wechat_evolve 覆盖利用/探索/反馈聚合/挖词/剪枝。
