@@ -221,27 +221,45 @@ def discover_accounts(limit: int | None = None) -> dict:
 # → 现有 triage。无需订阅(wcda 按 fakeid 直取),URL 去重避免重复解析(解析最贵)。
 
 
+# 赛马实证(2026-07-21,scripts/wechat_discover_race.py):高信噪查询 = **具体资产/技术词**。
+#   broad-tech 70% keep / overseas-主题词 53% / overseas-公司名 33%(公司名撞中国同名号:
+#   博通→博通集成、英伟达→NVIDIA 营销号)/ 消费泛词 ~0%。据此收敛查询集:只留 tech 主题
+#   (剔除 internet/retail/restaurants 泛词)+ 技术路线词 + 海外资产主题词;剔除公司名与消费泛词。
+_TECH_THEMES = ("ai_optical", "ai_chip", "ai_software", "space_exploration", "humanoid_robotics")
+_OVERSEAS_ASSET_TERMS = ("美股AI", "美股科技", "纳斯达克", "AI存储", "存储芯片", "存储涨价",
+                         "英伟达产业链", "海外算力", "北美算力", "超大规模数据中心", "算力集群",
+                         "云计算龙头", "大厂capex")
+
+
 def _precise_queries() -> list[str]:
-    """账号搜索用**高精度**查询:主题 + 路线中文词(去重保序)。
-    刻意**不含公司短别名** —— searchbiz 匹配的是账号名,"华通"/"联华" 这类 2 字别名会命中
-    华通巴士/联华超市等无关号(实测今日切片 9 篇全被 triage 判噪)。主题/路线词(光模块/
-    人形机器人/CPO/800G…)歧义小,能稳定命中垂直投研号(实测光模块→光通信女人等)。"""
+    """默认发现查询(赛马收敛版):tech 主题(剔消费泛词)+ 技术路线词 + 海外资产主题词。
+    实证:具体技术/资产词(光模块/HBM/AI存储/美股AI)稳命中垂直投研号(keep 53–70%);已剔除
+    消费泛词(游戏/客单价/门店,~0 keep)与公司名(英伟达→营销号、博通→博通集成,33%)。"""
     seen: set[str] = set()
     out: list[str] = []
-    for table in (cn_routing.CN_THEME_TERMS, cn_routing.CN_ROUTE_TERMS):
-        for terms in table.values():
-            for t in terms:
-                t = (t or "").strip()
-                if t and _has_cjk(t) and t not in seen:   # 纯 ASCII 术语(800G)留给主题词携带
-                    seen.add(t)
-                    out.append(t)
+
+    def _add(t: str) -> None:
+        t = (t or "").strip()
+        if t and _has_cjk(t) and t not in seen:   # 纯 ASCII 术语(800G/HBM)由中文主题词携带
+            seen.add(t)
+            out.append(t)
+
+    for theme in _TECH_THEMES:                    # tech 主题词(不含 internet/retail/restaurants)
+        for t in cn_routing.CN_THEME_TERMS.get(theme, ()):
+            _add(t)
+    for terms in cn_routing.CN_ROUTE_TERMS.values():   # 全部技术路线词(最具体)
+        for t in terms:
+            _add(t)
+    for t in _OVERSEAS_ASSET_TERMS:               # 海外资产主题词(赛马胜出)
+        _add(t)
     return out
 
 
 def _overseas_queries() -> list[str]:
-    """美股/海外热门资产聚焦查询:注册表 region=US 公司的中文名 + 海外资产主题词。
-    立意:比宽泛行业词命中面更窄、更投研 —— 搜到的是**跨境投研号**(分析英伟达/美光/HBM/
-    AI 存储等海外热门资产),股吧喊单/本地营销噪音更少,信噪比可能更好。与 broad 方案赛马验证。"""
+    """美股/海外资产聚焦策略(赛马胜出的收敛版):海外资产主题词 + 少数 iconic 无歧义 US 名。
+    实证:主题词(美股AI/AI存储/英伟达产业链)命中跨境投研号(美股AI投研速递/AI存储数据报,
+    53% keep,「三星预测存储荒到2028」「十万卡AI超集群」);US 公司名多撞中国同名号(33%),
+    故只留最硬的几个(英伟达/台积电/美光/阿斯麦)。"""
     seen: set[str] = set()
     out: list[str] = []
 
@@ -251,14 +269,10 @@ def _overseas_queries() -> list[str]:
             seen.add(t)
             out.append(t)
 
-    for c in COMPANIES:                       # US 公司中文名(英伟达/台积电/美光…,多数无歧义)
-        if c.get("region") == "US":
-            for a in c.get("aliases", []):
-                if _has_cjk(a) and len(a) >= 2:
-                    _add(a)
-    for t in ("美股", "美股AI", "美股科技", "纳斯达克", "AI存储", "HBM", "高带宽内存",
-              "存储芯片", "英伟达产业链", "海外算力", "北美算力", "超大规模数据中心", "出海"):
-        _add(t)                               # 海外资产主题词(用户点名 AI 存储/光模块 等)
+    for t in _OVERSEAS_ASSET_TERMS:               # 海外资产主题词(赛马胜出的核心)
+        _add(t)
+    for t in ("英伟达", "台积电", "美光", "阿斯麦", "美股", "HBM", "高带宽内存"):
+        _add(t)                                   # 少数 iconic 无歧义标的/资产词
     return out
 
 
