@@ -240,9 +240,11 @@ def build_kg(limit: int | None = None, run_id: str | None = None) -> dict:
     # pending = 未盖戳(kg_extracted_at):每次尝试后盖戳(含零产出与毒文档),
     # 取代旧的 kg_edges/kg_events 反连接 —— 零产出文档不再被永久重抽。
     from ..mining.triage import wechat_pending_clause
+    from ..pipeline_priority import priority_order_sql
+    # 优先流(如 aifinmarket 另类研报摘要)排在存量之前;其余保持既有 source 优先级。
     sql = f"""SELECT d.id FROM documents d
               WHERE d.permission <> 'red' AND d.kg_extracted_at IS NULL{wechat_pending_clause()}
-              ORDER BY {order}, d.published_at DESC NULLS LAST"""
+              ORDER BY {priority_order_sql('d.source')} DESC, {order}, d.published_at DESC NULLS LAST"""
     if limit:
         sql += f" LIMIT {int(limit)}"
     totals = {"docs": 0, "nodes": 0, "edges": 0, "events": 0, "causal_edges": 0, "metrics": 0}

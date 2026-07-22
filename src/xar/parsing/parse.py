@@ -98,9 +98,11 @@ def parse_document(doc_id: str) -> int:
 
 
 def parse_pending(limit: int | None = None) -> int:
-    """Parse all documents that have no chunks yet."""
+    """Parse all documents that have no chunks yet (priority streams first)."""
+    from ..pipeline_priority import priority_order_sql
     sql = ("SELECT d.id FROM documents d LEFT JOIN chunks c ON c.doc_id=d.id "
-           "WHERE c.id IS NULL GROUP BY d.id")
+           "WHERE c.id IS NULL GROUP BY d.id "
+           f"ORDER BY bool_or({priority_order_sql('d.source')}) DESC")
     if limit:
         sql += f" LIMIT {int(limit)}"
     total = 0

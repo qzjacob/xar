@@ -154,10 +154,12 @@ def process(sources: tuple[str, ...] = ALT_SOURCES, limit: int | None = None,
     """Run the expert pass over not-yet-processed alt-data documents."""
     run_id = run_id or llm.new_batch_run_id("expert")  # so the batch budget cap applies
     from ..mining.triage import wechat_pending_clause
+    from ..pipeline_priority import priority_order_sql
+    # 优先流(如 aifinmarket 另类研报摘要)先抽,其余按最新优先。
     sql = ("SELECT d.id FROM documents d WHERE d.source = ANY(%s) AND d.text IS NOT NULL "
            "AND NOT EXISTS (SELECT 1 FROM expert_insights e WHERE e.doc_id=d.id)"
            + wechat_pending_clause() +
-           " ORDER BY d.ingested_at DESC")
+           f" ORDER BY {priority_order_sql('d.source')} DESC, d.ingested_at DESC")
     if limit:
         sql += f" LIMIT {int(limit)}"
     docs = db.query(sql, (list(sources),))
