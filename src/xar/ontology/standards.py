@@ -157,6 +157,12 @@ class FinMetric(str, Enum):
 # need it (providers, ops console).
 FIN_METRICS = list(dict.fromkeys([m.value for m in FinMetric] + metric_packs.ALL_METRIC_KEYS))
 
+# ONT P1-1 不变量:FinMetric 每个 key 必须在 metric_packs.SPEC_BY_KEY 中登记——否则富途快照落库的
+# 该 key 不进公司 KPI 谱、is_higher_better 回落 True 默认可能标错方向(pb_ratio 曾因此漏)。import 时
+# 守卫,杜绝两套 GAAP 词表再漂移(standards 已 import metric_packs,此处二者均就绪,无循环依赖)。
+_missing_fin = {m.value for m in FinMetric} - set(metric_packs.SPEC_BY_KEY)
+assert not _missing_fin, f"FinMetric 未登记进 metric_packs.SPEC_BY_KEY: {sorted(_missing_fin)}"
+
 # A metric is a "margin/ratio/multiple" (unitless) vs a currency amount — drives units.
 # Superset: the legacy explicit GAAP set ∪ every ratio/pct/x pack metric.
 RATIO_METRICS = {

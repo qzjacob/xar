@@ -127,11 +127,15 @@ def mine_new_queries(top: int = 6) -> int:
     added += _insert_mined(_cjk_grams(sub, pool, top), "sub_mined", pool)
 
     try:                                    # KG 实体:图谱把正文里的具体标的/技术抽成了节点名
+        # 有界:只看**近 300 篇** kept 微信文档的边(而非全 KG),整体 LIMIT 500 —— 避免
+        # 随文档/边数增长每轮全表扫(WD-13 复评#5:原 `OR` 阻索引、无 LIMIT、无时间窗)。
         ents = [r["name"] for r in db.query(
             "SELECT DISTINCT n.name FROM kg_nodes n "
-            "JOIN kg_edges e ON e.src_id = n.id OR e.dst_id = n.id "
-            "JOIN documents d ON d.id = e.source_doc_id "
-            "WHERE d.source='wechat' AND d.triage_score >= %s AND n.name IS NOT NULL", (dm,))]
+            "JOIN kg_edges e ON n.id IN (e.src_id, e.dst_id) "
+            "WHERE e.source_doc_id IN ("
+            "  SELECT id FROM documents WHERE source='wechat' AND triage_score >= %s "
+            "  ORDER BY triaged_at DESC NULLS LAST LIMIT 300) "
+            "AND n.name IS NOT NULL LIMIT 500", (dm,))]
         kg_terms = [e for e in ents if _has_cjk(e) and 2 <= len(e) <= 8 and e not in pool][:top]
         added += _insert_mined(kg_terms, "kg_mined", pool)
     except Exception as e:  # noqa: BLE001 — KG 挖词是尽力而为,不得拖垮赛马主流程

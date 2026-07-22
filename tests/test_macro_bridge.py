@@ -84,7 +84,7 @@ def test_link_routes_and_mount_coexist(slx_seeded):
         assert len(body["themes"]) == 8
         mounted = client.get("/api/andy/registry/anchors")
         assert mounted.status_code == 200
-        assert mounted.json()["count"] == 10
+        assert mounted.json()["count"] == 12   # A1–A8 + 4 META(theory_anchors.yml,K.1.1 同步)
         theme = client.get("/api/andy/link/theme/ai_chip?as_of=2026-06-30")
         assert theme.status_code == 200
         keys = {m["metric_key"] for m in theme.json()["metrics"]}

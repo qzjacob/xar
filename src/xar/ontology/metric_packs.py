@@ -63,6 +63,11 @@ CORE_PACK = [
     _s("free_cash_flow", "Free Cash Flow", "USD", True, (STAR,)),
     _s("pe_ratio", "P/E", "x", False, (STAR,)),
     _s("ps_ratio", "P/S", "x", False, (STAR,)),
+    # ONT P1-1:补齐 FinMetric 已声明、富途快照已落库、但 CORE_PACK 漏掉的两个「幽灵指标」——
+    # 否则不入 SPEC_BY_KEY → 不进公司 KPI 谱 / 论点无法引用,且 is_higher_better 回落 True 默认
+    # 把「PB 越低越好」方向标反。pb_ratio 越低越好(False);dividend_yield 越高越好(True)。
+    _s("pb_ratio", "P/B", "x", False, (STAR,)),
+    _s("dividend_yield", "Dividend Yield", "ratio", True, (STAR,)),
     _s("roe", "ROE", "ratio", True, (STAR,)),
     _s("roic", "ROIC", "ratio", True, (STAR,)),
     _s("current_ratio", "Current Ratio", "x", True, (STAR,)),
@@ -326,7 +331,14 @@ def spec(metric: str) -> MetricSpec | None:
 
 def is_higher_better(metric: str) -> bool:
     s = SPEC_BY_KEY.get(metric)
-    return True if s is None else s.higher_is_better
+    if s is None:
+        # ONT P1-2:未注册指标静默回落 True 会把方向语义标错(如某未注册的越低越好指标)。
+        # 保留 bool 返回(不改消费方),但 warn 出来——未来新数据源写未注册 key 时可见,而非静默编错。
+        import logging
+        logging.getLogger("xar.ontology.metric_packs").warning(
+            "is_higher_better: 未注册指标 %r → 默认 True(方向语义或错;应注册进 SPEC_BY_KEY)", metric)
+        return True
+    return s.higher_is_better
 
 
 def is_ratio(metric: str) -> bool:

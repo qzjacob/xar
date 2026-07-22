@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass, field
 
 from .thesis import PILLAR_KINDS
@@ -178,8 +179,11 @@ def _options_ticker(c: dict) -> str | None:
     return None
 
 
+@functools.lru_cache(maxsize=1)
 def bindings() -> dict[str, AltBinding]:
-    """全宇宙绑定 = 派生(TW 码/Wiki 词条/期权代码)⊕ 策展(alt_bindings.CURATED)。"""
+    """全宇宙绑定 = 派生(TW 码/Wiki 词条/期权代码)⊕ 策展(alt_bindings.CURATED)。
+    ONT P2#4:全宇宙 947 家每次重建 + import providers;`binding_for` 在夜批按公司循环调用时是 O(n²)。
+    lru_cache 缓存(AltBinding frozen 不可变、COMPANIES/CURATED 运行期不变 → 安全)。"""
     from ..ingestion.registry import COMPANIES
 
     try:

@@ -958,6 +958,162 @@ registry 将 moonshot 的 key_env 改为 `KIMI_API_KEY`、新增 `MINIMAX_API_KE
 
 **优先级建议**：先修 J.1.1（测试红）与 J.2.1（批量流量静默落点），再 J.1.2/J.1.3，次要项随下一轮提交带过。
 
+---
+
+## 附录 K：Ontology / 数据 / LLM 调用链全流程审核（2026-07-20）
+
+> 审核方式：走读核心路径（models/、kg/、ontology/、retrieval/、storage/、mining/、orchestration/、agents/、chathy/、backtest/、schema.sql），并在干净数据库上实测验证每个可疑点。
+
+### K.1 P1 — 已验证缺陷
+
+**K.1.1 HEAD 测试漂移红灯 [高]**
+
+干净库实测：`tests/test_macro_bridge.py:87` 断言 anchors `count==10`，但 `src/slx/registry/theory_anchors.yml` 已是 12 条（A1–A8 + 4 条 META，由 2a42637 加入），测试与 `README.md:14` 的「10 条理论锚（A1–A8 + 2 META）」均未同步。这是本项目最该防住的一类回归——code-as-truth 词表改了，镜像断言没改。
+
+**K.1.2 `kg_edges/kg_events.source_doc_id` FK 裸 RESTRICT → 数据室删除必然 500 [高]**
+
+`schema.sql:91,113` 的 FK 默认 RESTRICT，`api/dataroom.py:102` 直接 `DELETE FROM documents`。任何走过 `build_kg` 的文档（产生了边/事件）都无法删除——包括数据室里已抽取的上传研报。这也是 `test_pipeline.py::test_end_to_end` 重复运行时 FKViolation 的根因（自清理 `DELETE FROM documents` 撞残留边）。建议：`ON DELETE SET NULL`（保事实、弃文档级溯源）或删除前显式清理派生行；两者取一，别留 RESTRICT 裸奔。
+
+### K.2 P2 — 热路径性能/行为
+
+**K.2.1 trigram 索引从未被用上（检索热路径全表扫）**
+
+- `retrieval/vector.py:65-70`：词法臂 `ORDER BY similarity(c.text, %s) DESC` 没有 `c.text % query` 过滤条件，`idx_chunks_trgm`（`schema.sql:62`）是死索引；chunks 表增长后这是 Chathy 每次检索的最贵查询。
+- `kg/resolve.py:60-64`：模糊消解对 `kg_nodes` 全表算 similarity 取 TOP1，`kg_nodes.name` 上连 trgm 索引都没有；抽取每篇文档每个未命中别名都付一次全表扫。
+- 修复方向一致：加 `WHERE similarity(...) > 阈值` 或 `%` 操作符让 GIN 索引生效。
+
+**K.2.2 Chathy 预算归属错误 [中]**
+
+`chathy/agent.py:56` `run_id = f"chat:{session_id}"`：`llm._budget_cap` 按 run_id 累计，会话级 run_id 意味着 $5 上限在会话**整个生命周期**累计。长会话超限后所有 token 候选被永久跳过，静默降级到订阅池——与「per-run 上限」语义不符且用户无感知。应改为 per-turn run_id（如 `chat:{sid}:{turn}`）。
+
+**K.2.3 抽取半成品不可恢复（事务粒度）**
+
+`extract_from_document` 每条边/事件经 `db.execute` 各自提交；中途异常时 `build_kg`（`extract.py:255-261`）捕获后**仍盖 `kg_extracted_at` 戳**，该文档带着部分边永久退出队列——无事件、无重抽机会。第一性原理：「盖戳 = 处理完成」必须原子。建议抽取写入包进 `db.tx`，成功才盖戳；毒文档单独记失败原因而非同戳混排。
+
+### K.3 P3 — 工程卫生
+
+- **K.3.1** `bootstrap_seed` 每次 app 启动 + 每次 `build_kg` 全量重放：947 节点 upsert + 别名注册 + ~2000 条 `add_edge` 先 SELECT 后 INSERT，数千次独立往返（各自提交），且 competes_in/uses_techroute 先 DELETE 再逐条 INSERT（`store.py:183-191`），中间窗口图谱缺边。建议单事务 + `executemany`/批量。
+- **K.3.2** 测试隔离脆弱：`test_evidence_link`、`test_earnings_outcomes`、`test_pipeline` 在复用库上因残留行失败（干净库全过）——fixture 应自清业务表。
+- **K.3.3** 死代码：`extract.py:179` `company_node = d["company_id"]` 立即被 181 行覆盖。
+
+### K.4 架构层评估（第一性原理）
+
+**做对了的**（正确抽象，保持）：
+- 有效计费记账（`llm.py:174-179`：订阅 spec 回落计量 key 时记真实成本）——成本可观测性的关键洞；
+- 钉扎链无回退纪律 + `_sub_ready` 宁停不烧（`glm_worker.py:62`）——订阅制成本承诺的机制保证而非口头约定；
+- evidence grounding（`extract.py:73`）+ 证据闸绑定发布（`graph.py:44`）+ 人审状态机——信任链完整；
+- 双时态 + `GREATEST(as_of, observed_at)` 回测进场（`catalyst_returns.py:100`）——无前视，方法论诚实且限制明写；
+- 词表/路由/本体全部 code-as-truth 且测试镜像不变式（除 K.1.1 漂移处）。
+
+**结构性建议**：
+
+1. **DB 层缺 unit-of-work 抽象**。`db.execute` 逐句 autocommit 是所有部分写入问题的根（K.2.3、K.3.1）。`db.tx` 已存在但写入热路径几乎不用。建议：多步写一律 tx 优先，execute 仅用于单句。
+2. **向量索引选型**：IVFFlat `lists=100` 建一次永不维护（`db.py:56-65`），语料增长后召回率衰减无人察觉。pgvector 的 HNSW 无训练数据前置要求、召回更稳——当初「先攒 64 行再建 IVFFlat」的约束用 HNSW 直接消失，建议切换。
+3. **schema.sql 无版本化**，靠 additive ALTER + DO 块数据迁移（`schema.sql:669-681`）每次启动重放。目前自愈合设计可接受，但 DO 块内做数据 DELETE 是味道；加一张 `schema_migrations` 表成本极低。
+4. **embedding 换维度是运维地雷**：`{EMBED_DIM}` 只在建表时替换，已有库改 `XAR_EMBED_DIM` 后新向量插入维度不匹配。`xar reembed` 应有前置校验（读 `vector_dims(embedding)` 与 config 比对，不一致即拒绝并提示）。
+5. `semantic_facts` 视图每次点查 UNION 双臂；量级再上一个数量级时考虑物化 + 增量刷新。现在不动，标记即可。
+
+### K.5 优先级行动清单
+
+K.1.1（一行断言 + README）、K.1.2（schema 两行）、K.2.2（一行）、K.2.1（两条 SQL + 一个索引）、K.2.3（tx 包裹）。前五项一天内可清，全部不引入新技术债。
+
+---
+
+## 附录 L：宏观架构审核（Mission-First，2026-07-20）
+
+> 定位：与附录 K（微观缺陷）互补，只做**系统级架构与创新性**评审。评审范围：8 份计划/评审文档 + `src/xar` 全核（~29.5k LOC，163 文件，41 表）+ schema + 编排。
+> 裁决尺度：(a) 架构性错误 (b) 方向对/形状错 (c) 对但未完成 (d) 该删的仪式。
+
+### L.1 总体裁决
+
+**这套架构只有一半在服务使命，但恰好是最重要的那一半。** 真正产生研究杠杆的主轴不是 README 宣扬的「双时态 KG + 多 Agent 报告 DAG」，而是文档后期长出来的另一条线：`semantic_facts` 统一事实流 → 类型化论点（Thesis/Debate/验证点）→ 零 LLM 健康度 → 挑战触发重建的**反身性论点循环**（thesis_signals.py:184-200、thesis_health.py:186-220、glm_worker.py:584-601）。这条线是真护城河。**而名义上的中心件——知识图谱——实际上是一个图形状的查找索引**：全库无一处多跳遍历（grep `RECURSIVE` 为零），`causally_linked` 因果边只写不读（extract.py:204 写入，无任何查询消费），`neighbors(as_of=)` 双时态读路径零调用方（graphrag.py:13-28，仅 supply_chain/landscape 两个内部调用且均不传 as_of）。被营销为「谁二供 EML」的图查询能力，实际是 1 跳查找 + prompt 散文。同时系统以「每周一个新 vendored 模块」的速度增生（Fenny/Andy/Exploration/资金流），自上轮评审 ~10.9k LOC 膨胀至 ~29.5k LOC，**新增面与 alpha 飞轮的耦合度递减**。架构上最值钱的资产（信任纪律 + 反身论点循环）被埋在三层冗余的管道商品之下。
+
+### L.2 架构级发现
+
+**L.2.1【(a) 高】KG 是图形状数据库，不是推理基底——「本体为中心件」名实不符**
+
+`retrieval/graphrag.py` 全部 7 个函数均为 1 跳；全库 grep `WITH RECURSIVE` 为零；`causally_linked` 边在 extract.py:200-208 被认真写入但**没有任何代码读取**——没有传染分析、没有二阶效应。Agent 对图的全部消费是把供应商/客户/事件清单 dump 成文本 brief（nodes.py:50-66）。产业链 KG 的独有价值只有**结构推理**（多跳传染、二阶受益、替代传播）；从不做这些查询，`kg_nodes/kg_edges` 的实体消解、双时态 supersession、种子策展（store.py:151-193）就是**以图谱维护成本买一个可以用 `companies` + `events` 两张表实现的功能**。本体 schema 表达力够（17 类节点、21 类边、26 类事件）——问题在读侧缺失。要么补读侧（L.5 动作 2），要么承认 KG 是索引、`semantic_facts` 扶正为中心件，停止付图谱维护税。
+
+**L.2.2【(b) 高】双时态是写侧纪律，读侧从未点查——昂贵的诚实，廉价的消费**
+
+写侧完整（supersession store.py:67-68、corroboration boost :44-56、bitemporal 去重 :38-43）。读侧：`neighbors(as_of=)` 零调用方，全部读路径是 `invalidated_at IS NULL` 当前态。**例外且值得肯定**：tx-time 轴已兑现为可回测性——回测 `GREATEST(COALESCE(as_of, observed_at::date), ...)` 入场（catalyst_returns.py:98-107）、evidence_link 游标（evidence_link.py:76-86）、slx `knowledge_time<=as_of`。但有效时间轴（t_valid/supersession）是纯写侧仪式：系统从不回答「2025-03-01 那天供应链长什么样」。校准：保留写侧（防污染），停止宣传读侧能力，或补真实消费者（论点复盘「当时我们以为供应链是什么」）。
+
+**L.2.3【(b) 高】报告 DAG 是线性 prompt 链，且已被 Thesis 子系统在功能上整体超越**
+
+`agents/graph.py:24-52` 是 7 节点串行序列——无分支、无并行（analysts 串行循环 nodes.py:258）、无 resume。「多空辩论」是 2 轮 bull/bear 散文互驳（debate.py:21-38），**无裁判、无评分、不改变任何下游决策**。对比 Thesis 子系统（dossier → validate 硬校验 → 版本化 → 零 LLM 健康度 → 翻转触发重建），后者在结构化、可校验、可机器复核、可 reflexive 每个维度上严格优于前者，且报告管线已开始从 Thesis 借砖补喂（nodes.py:67-95）——等于承认原生管线是降级版。报告的正确形态是**论点对象的渲染**：报告 = 当前 Thesis + 争论天平 + 证据链 + 健康度 diff 的叙述化投影。现 DAG 烧 STRONG token（debate/editor 走最贵链 router.py:65-67）产出不可测量的散文。判 (b)：evidence_gate 保留，DAG 拓扑重建为 hypothesis-driven；同时消除文档三处背离（README:129 称 11 类 TaskClass 实为 17 类 router.py:31-48；蓝图称并行分析师实为串行；「可控 DAG」实为线性）。
+
+**L.2.4【(c) 中高】Alpha 回测是断头路：测量存在，写回不存在**
+
+`catalyst_returns` 的消费者只有 CLI（cli.py:350）和只读 API（api/app.py:319-321）；`resolve_claims` 的 hit/miss 只作为**文本**进入 dossier 供 LLM 阅读（thesis.py:128-131、earnings.py:270-274）。**没有任何确定性写回**：hit-rate 不调整 confidence、源可靠性、硬编码阈值（`_REVISION_PCT` signals.py:22-24、`_EVENT_Z=2.0`/`_CHALLENGE_SCORE=-0.5` thesis_signals.py:31-32、triage 融合权重 mining/triage.py 全部手工常量）。唯一真校准环是 earnings `score_outcomes → calibration`（DESIGN §5.14）——证明团队知道闭环长什么样，但只建了一个孤岛。量化飞轮的最小形态：信号 → 结算 → 按 (source × claim_type × polarity) 分桶的 empirical prior → 先验写回抽取置信度/信号阈值/论点权重。已完成前两步半，停在「把统计结果喂给 LLM 当阅读材料」——这是**最弱形式的反馈**：不可审计、不可复现、随 prompt 漂移。离闭环最近、缺口最小、杠杆最大。
+
+**L.2.5【(b) 中】LLM 编排：路由是好工程，但 TaskClass 增生与三执行器是运维型复杂，非研究型复杂**
+
+17 个 TaskClass（router.py:31-48，文档已漂）、3 种执行器（litellm / agent_sdk / codex_cli 子进程，llm.py:288-306）+ ollama 本地钉扎 + 动态升降层 + route_overrides + 额度探针。解决的问题真实（订阅额度内白嫖、账单封顶），计费记账与预算闸干净（llm.py:307-316）。但 glm_worker 的本质是**以「榨干 GLM 订阅额度」为目标的常驻守护**——优化成本函数而非研究质量函数；本地 qwen3-14b 抽取质量衰减无在线度量（赛马是一次性 scripts/bench_local_llm.py）。分工大体正确（z-score、验证点阈值、`_grounded`、validate_* 都是确定性闸），错位两处：① 报告分析师层用 LLM 产出本该是结构化查询结果的散文（L.2.3）；② KG 抽取的 drivers→causally_linked 无校验消费（L.2.1）。应给每个 TaskClass 配「为什么需要 LLM/为什么需要这一档」的度量，否则 17 类路由各自漂移。
+
+**L.2.6【(a) 中】状态/运行存储碎片化：6 套互不相通的 run 存储**
+
+`ingest_runs`（schema.sql:473）、`report_runs`、`capability_runs`（UA-P1 新增）、`kvstate`/`glm_worker_state`、`llm_usage.run_id`、`fcn._JOBS`（内存）。UNIFIED_ARCH_PLAN §0 自己承认「5 个状态存储互不相通」，然后**加了第 6 个**而不是收敛。10x 规模时运维排障需在 6 个地方拼接「昨晚到底跑了什么」。校准为 (a) 中级：架构错误但可逆——`capability_runs` 升格唯一运行表，report_runs/ingest_runs 降 view；便宜的地基修复，越晚越贵。
+
+**L.2.7【(c) 中】供应商/数据广度与本体深度失衡：31 个 provider 文件喂 1 跳图**
+
+31 个 provider 文件、15+ 数据源、947 公司、coverage360 十六维覆盖——**采集广度机构级**；消费侧是 1 跳图查找 + 30 条 semantic_facts 注入 brief（nodes.py:49）。数据进得多、结构推理出得少。微信 T0-T4 分层挖掘是采集侧优秀工程，但仍服务同一条「events → brief」窄管道。广度边际收益递减：论点质量上限由 dossier 证据密度和争论结构决定，不由第 17 个数据源决定。10x 真实断点：① `hybrid_search` trigram 全表扫（vector.py:65-70）；② `challenged_companies_v2` 全论点逐家 Python 循环（thesis_health.py:190-209）；③ `bootstrap_seed` 每晚全量 delete+recreate（store.py:183-191）——均有渐进解。
+
+**L.2.8【(d) 中】Fenny 与（较轻微的）Exploration：共享数据库的并列产品，非复合架构**
+
+`fcn` vendored、从不 import xar（by design）——反向读：与本体/论点/回测/语义层**零数据流耦合**，只共享 LLM 路由器和一张 blotter 表。Monte-Carlo Dupire 定价台对「可信可溯源投研」使命贡献为零。Exploration 至少复用 documents/embeddings 栈且姿态干净；Andy 至少有 macro_bridge → kg_events 的真实勾稽（ingestion/macro_bridge.py）。自用工具箱放多个产品无可厚非，但 Fenny 是**蹭底座的独立产品**，让每个架构决策变贵，且制造「平台很全」的假象稀释主轴完成度。判 (d)：不删代码，删「它是平台一部分」的叙事——应回独立 repo 经 API 消费 XAR。
+
+### L.3 信任链/可溯源作为护城河的实现度：75%
+
+**真实且锋利的部分**（逐条有证据）：
+- `_grounded` 证据逐字回查（extract.py:73-93，CJK bigram 修正），不过即丢，写库前拦截——全库最强单点；
+- 数值对账闸 tie_out.py + 检索侧 `[UNVERIFIED-NUMERIC]` 标记（nodes.py:20）；
+- 证据闸 judge 看到**被引用 chunk 真实文本**（evidence_gate.py:58-70），失败默认 risk=0.6 不放过；
+- 类型化论点纪律：证据 ref_id 白名单、证据锚 <5 时 conviction ≤3 硬耦合、不过拒绝入库（DESIGN §5.9）；
+- 人审状态机：approve 仅接受 awaiting_approval（graph.py:84-88）；
+- PIT 纪律 tx-time 轴已兑现（L.2.2）。
+
+**缺口**（按严重度）：
+1. **KG 无纠错回路**（两轮评审列为 P1-3 仍未落地）——图谱静默腐坏时用户无修正入口；可治理与可溯源同等重要。
+2. **resolution/校准不写回**（L.2.4）——系统知道哪些断言兑现了，但不因此更可信；信任是静态的，不复利。
+3. **人审只闸报告，不闸论点**——Thesis/earnings 裁决的 build 无人审闸，而它们恰是会被机器自动重写的对象（翻转触发重建）；自动重写 + 无人工抽检 = 信任链在最高价值对象上反而更薄。research_audit 方向正确，应扩展到论点重建。
+
+### L.4 Alpha 飞轮闭环度：约 40%
+
+- **环 A（论点反身环，已闭，本系统最好的架构）**：新事实 → evidence_link 相对主张分类（evidence_link.py:28-38，与利好利空解耦——hedge-fund 级正确抽象）→ 争论天平 lean_now（thesis_health.py:91,146）→ flipped/信号挑战 → `challenged_companies_v2` → `_alt_correction` 触发重建（glm_worker.py:584-601）→ 新版本论点。高频信号定「何时重写」（零 LLM z-score），LLM 定「写成什么」——分工教科书级正确。
+- **环 B（信号有效性环，断头）**：催化剂 → forward returns + 期望兑现 → **终点是 CLI 打印和 dossier 文本**。不回写 confidence、不调阈值、不改路由、不养源可靠性。回测方法论四重局限（无基准/成本/多重比较/幸存者，catalyst_returns.py:29-31）自我声明「not investable」。
+- **环 C（earnings 校准环，孤岛级闭环）**：证明闭环能力存在，未泛化。
+
+**真实飞轮**：(1) 每个信号族有 empirical hit-rate/IC，按 (source × claim_type × polarity × horizon) 分桶；(2) prior 作为**参数**写回——信号权重、论点 conviction 先验、triage 融合权重、路由 relevance 判据；(3) 失效信号族自动降权/退役。当前距离 = 一张物化 `signal_performance` 表 + 三个读它的消费点。缺口小得刺眼。
+
+### L.5 创新性评估与三个最大杠杆动作
+
+**真新颖且可防御**：
+1. **semantic_facts 统一事实流 + 前瞻断言结算生命周期**（schema.sql:449-467 + resolve_claims.py）——「叙事/立场/前瞻」与硬事件统一为可点查、可回测、带兑现状态的单一流。多数系统不做 expectation→realization 结算。
+2. **类型化论点 + 争论天平 + 验证点 + 机器健康度 + 翻转触发重写**——把投研论点从散文变成带 falsifier、可被新证据机器复核的对象。对「研究」本身的正确建模，行业罕见。
+3. **Triage 前置 SNR 闸 + 可审计融合权重**（mining/triage.py）——「值不值得深抽」从事后丢弃前移为事前门控，由 96% 额度烧噪音的实测驱动。
+
+**商品重实现**：RRF 混合检索（教科书 k=60）、多 Agent 报告流水线（TradingAgents 同构且更弱——线性无并行）、RAG 对话壳、vendor+mount 子应用、LiteLLM 路由。
+
+**三个最大杠杆动作（按 ROI 排序）**：
+
+1. **建 `signal_performance` 物化表，把环 B 焊死**（~3-5 天）。聚合 resolution hit/miss + catalyst_returns + earnings calibration 为 (source × category × polarity × horizon) 的 empirical prior 表；三个消费点：`store.add_event` 的 confidence 先验、thesis dossier 证据权重、triage/信号阈值周期再校准。把「可信」从静态纪律变成复利资产，基础设施已存在 80%。
+2. **给 KG 一个真的读侧，或给它降级**（二选一，~1 周）。实现 2-3 跳受限递归 CTE（`contagion(node, rels, max_depth=3)` over `supplies`+`single_source_risk`+`causally_linked`），注入 thesis/earnings dossier 作为「二阶暴露」节——回答「capex 砍单沿链传导到哪些持仓」，链式 KG 唯一不可替代的查询。若不做，则正式把 semantic_facts 扶正为中心件，KG 维护降级（冻结本体泛化）。**现在的状态最差：付全价维护税，收 1 跳查找的租。**
+3. **报告 DAG 退役，报告 = 论点对象的渲染**（~1 周）。删除 5 散文分析师 + 2 轮无裁判辩论（debate.py 全文、nodes.py:240-259 的 ANALYSTS），报告改为 Thesis + 争论天平 + 证据链 + 健康度 diff + 宏观勾稽的叙述化投影，evidence_gate 保留继续生效。顺手把 report_runs 并入 capability_runs（L.2.6）。收益：消灭与 Thesis 子系统功能重叠 80% 的平行管线、消除文档三处名实不符、每份报告省一整条 STRONG token 链。
+
+### L.6 该删的仪式清单
+
+| 组件 | 证据 | 处置 |
+|---|---|---|
+| `causally_linked` 边（只写不读） | extract.py:200-208 写入；grep 零读取方 | 删写入或配读侧（动作 2 决定）；当前是纯税 |
+| `neighbors(as_of=)` 双时态读路径 | graphrag.py:13-28；零调用方 | 保留签名、停止宣传；或配真实消费者 |
+| bull/bear 辩论节点 | debate.py:21-38；无裁判、不改变任何决策 | 删；争论已由 ThesisDebate 严格建模 |
+| 5 散文分析师 roster | nodes.py:240-259；串行、产出不可测 | 删；由 dossier + Thesis 渲染替代 |
+| Fenny 作为「平台第四模块」的叙事 | `fcn` 与本体零耦合（by design） | 代码可留，架构上划出——独立产品经 API 消费 |
+| 6 套 run 状态存储中的 4 套 | L.2.6 | capability_runs 升格唯一，其余降 view |
+| 蓝图文档 Neo4j/Graphiti/LangGraph 选型叙事 | DESIGN.md §2 图、§3 表 | 文档层删除，防后来者「按蓝图回退」 |
+
+**明确保留的成熟判断**：单 Postgres 收敛、semantic_facts 复用三表不另起（否决 semantic_claims 平行表是正确裁决）、加性幂等 schema、key-gated 优雅降级、订阅优先计费纪律、确定性闸优先于 LLM 闸。
+
 ### J.5 独立复核与处置（2026-07-21，第三方逐条实证）
 
 对附录 J 逐条**独立实证复核**（源码 + 实跑 `pytest` + 端到端 LLM 探测，非转述）。裁定：**J.1.1/J.1.2/J.1.3 三 bug 成立·全修；J.2.1 设计矛盾成立·按实测据裁定为「对称归强层」；J.3 三项各裁定**。验证：`ruff` 通过；`pytest tests/test_glm_worker.py tests/test_capabilities.py tests/test_dynamic_routing.py` **27 passed**（J.1.1 的 2 红转绿）；host 侧 kimi/minimax key 镜像 + `model_usable` USABLE 实证。
@@ -975,3 +1131,22 @@ registry 将 moonshot 的 key_env 改为 `KIMI_API_KEY`、新增 `MINIMAX_API_KE
 **附注（非附录 J 项，记录）**：全量 `pytest`（773 项）有 **7 项 DB-态失败**（test_earnings_outcomes ×4 / test_evidence_link::test_link_idempotent_cursor / test_macro_bridge::test_link_routes_and_mount_coexist / test_pipeline::test_end_to_end），经 `git stash` 本轮改动在**净 HEAD 上复现同样 7 红** —— 系共享生产库测试残留（FK 违例 / 游标态，如 test_end_to_end 先删 `documents` 后删引用它的 `kg_edges` 的隔离序 bug），**与本轮模型层改动无关**，属既有测试卫生问题，不在附录 J 范围。
 
 > 第三方裁定：附录 J 的 **3 bug（J.1.1/1.2/1.3）全修 + J.2.1 设计矛盾按实测对称归强层解决 + J.3 两项修/注、一项 cosmetic 不采纳**；model 层改动 `ruff` 通过、目标测试 27 passed、host 侧 key 镜像与动态路由力度实证一致。7 项 DB-态失败为既有测试残留、净 HEAD 同复现，与本轮无关。
+
+### K.6 独立复核与处置（2026-07-22，第三方逐条实证）
+
+按自用姿态逐条裁定（修正确性缺陷；架构/perf-at-scale 记录不做）。验证：全量 `pytest` **771 passed / 2 failed**（较上轮 766/7，K.1.1+K.1.2 使 **5/7 长期红转绿**）、`ruff` clean、schema 幂等应用。
+
+| 条目 | 裁定 | 处置 |
+|---|---|---|
+| **K.1.1** 测试漂移（anchors 断言 10 vs 实 12） | **成立·已修** | `test_macro_bridge` 断言 10→12 + README 两处「10 条→**12 条理论锚（A1–A8 + 4 META）**」。实测 test_macro_bridge 转绿——此前 RV-2 误归「DB-态」，实为 **code-as-truth 镜像漂移**（theory_anchors.yml 12 条，断言未同步） |
+| **K.1.2** kg_edges/kg_events.`source_doc_id` FK 裸 RESTRICT | **成立·已修** | FK 改 `ON DELETE SET NULL`（CREATE 改 + 既有库幂等 DO 块 ALTER，仅当 delete_rule≠SET NULL 才改）。实测两 FK delete_rule=SET NULL；**test_end_to_end + 3 个 earnings 测试连带转绿**（它们复用库删 documents 撞残留边正是此 FK） |
+| **K.2.2** Chathy 预算按会话累计 | **成立·已修** | `run_id` 改 per-turn `chat:{sid}:{len(msgs)}`——per-run 预算上限不再跨会话累计致长会话静默降级 |
+| **K.3.3** 死代码 extract.py:179 | **成立·已修** | 删被 181 行立即覆盖的 `company_node = d["company_id"]` |
+| **K.2.1** trigram 死索引（检索热路径全表扫） | **成立·不做（behavioral/perf-at-scale）** | 加 `%`/`similarity>阈值` 过滤会**改召回行为**，当前语料量非瓶颈；记录，量级上台阶再动 |
+| **K.2.3** 抽取半成品盖戳不可恢复 | **成立·不做（热路径重构）** | tx 包裹抽取写入是热路径改动+回归风险；当前「毒文档盖戳跳过」是**有意设计**（不阻塞队列头），残留边为已 `_grounded` 的真事实，自用可接受。记录 |
+| **K.3.2** 测试隔离（复用库红） | **部分·infra 级** | K.1.1/K.1.2 已修其中 **5/7**；余 `test_calibration_buckets`（生产 1 条真 verdict 污染全局桶计数）、`test_link_idempotent_cursor`（跨测试 kg_events 泄漏）——用真实公司 id（now/snow/crm）且聚合生产数据，**安全修复需 rollback-fixture 测试隔离基建（§8.2 自用不采纳）**。净 HEAD 同红、非本轮引入 |
+| K.3.1 bootstrap 全量重放、K.4 结构建议 | 记录 | unit-of-work/HNSW/schema_migrations 等架构+perf，非正确性缺陷，自用姿态记录不做 |
+
+### 附录 L 处置（2026-07-22）
+
+附录 L（Mission-First 宏观架构）全部为**系统级架构方向**评审：KG 是索引非推理基底（补读侧或降级）、双时态读侧未消费、报告 DAG 退役换「论点对象渲染」、`signal_performance` 飞轮焊死环 B、6 套 run 存储收敛、Fenny 架构划出、蓝图 Neo4j/LangGraph 叙事删除。这些是**战略级重构决策**（每项数日~1 周），非机器可修的正确性缺陷——属用户裁量的架构演进方向，**不在「逐条修复」范围**。其判断（尤其「semantic_facts 是真中心件、KG 现付全价维护税收 1 跳租」「环 B 断头、signal_performance 是最大杠杆」）记录供决策，本轮不做机械修改。其「明确保留的成熟判断」（单 Postgres、加性幂等 schema、订阅优先计费、确定性闸优先）与本项目现状一致。

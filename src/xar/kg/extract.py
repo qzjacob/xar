@@ -176,7 +176,6 @@ def extract_from_document(doc_id: str, run_id: str | None = None, max_chars: int
         if not _grounded(ev.evidence, text):  # evidence not in source -> drop
             n_dropped += 1
             continue
-        company_node = d["company_id"]
         rid, _ = resolve.resolve(ev.company)
         company_node = rid or d["company_id"]
         # narrative is additive semantic context. The event is already evidence-grounded

@@ -53,7 +53,9 @@ def run_turn(session_id: str, user_text: str) -> Iterator[dict]:
 
     msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + sessions.history_for_llm(session_id)
     tool_defs = openai_tool_defs()
-    run_id = f"chat:{session_id}"
+    # per-turn run_id(msgs 长度每轮递增)—— 否则会话级 run_id 让 per-run 预算上限在整个会话
+    # 生命周期累计,长会话超限后所有 token 候选被永久跳过、静默降级(K.2.2)。
+    run_id = f"chat:{session_id}:{len(msgs)}"
 
     for _ in range(_MAX_ITERS):
         final: dict | None = None

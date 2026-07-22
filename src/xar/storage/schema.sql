@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS kg_edges (
     observed_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     invalidated_at TIMESTAMPTZ,                 -- superseded marker (bitemporal)
     confidence    REAL NOT NULL DEFAULT 0.7,
-    source_doc_id TEXT REFERENCES documents(id),
+    source_doc_id TEXT REFERENCES documents(id) ON DELETE SET NULL,  -- K.1.2: 保事实、弃文档级溯源
     license_tag   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_edges_src ON kg_edges(src_id);
@@ -110,10 +110,27 @@ CREATE TABLE IF NOT EXISTS kg_events (
     observed_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     invalidated_at TIMESTAMPTZ,
     confidence    REAL NOT NULL DEFAULT 0.7,
-    source_doc_id TEXT REFERENCES documents(id),
+    source_doc_id TEXT REFERENCES documents(id) ON DELETE SET NULL,  -- K.1.2: 保事实、弃文档级溯源
     license_tag   TEXT,
     dedup_key     TEXT UNIQUE                   -- event-level dedup across sources
 );
+-- K.1.2 迁移(既有库):把 source_doc_id FK 从默认 RESTRICT 改 ON DELETE SET NULL —— 否则删除已抽取
+-- 文档(数据室删除 / test_end_to_end 自清)必 FK 违例。幂等:仅当当前 delete_rule≠SET NULL 才改。
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.referential_constraints
+             WHERE constraint_name='kg_edges_source_doc_id_fkey' AND delete_rule <> 'SET NULL') THEN
+    ALTER TABLE kg_edges DROP CONSTRAINT kg_edges_source_doc_id_fkey;
+    ALTER TABLE kg_edges ADD CONSTRAINT kg_edges_source_doc_id_fkey
+      FOREIGN KEY (source_doc_id) REFERENCES documents(id) ON DELETE SET NULL;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.referential_constraints
+             WHERE constraint_name='kg_events_source_doc_id_fkey' AND delete_rule <> 'SET NULL') THEN
+    ALTER TABLE kg_events DROP CONSTRAINT kg_events_source_doc_id_fkey;
+    ALTER TABLE kg_events ADD CONSTRAINT kg_events_source_doc_id_fkey
+      FOREIGN KEY (source_doc_id) REFERENCES documents(id) ON DELETE SET NULL;
+  END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_events_company ON kg_events(company_id);
 CREATE INDEX IF NOT EXISTS idx_events_type ON kg_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_events_date ON kg_events(event_date);

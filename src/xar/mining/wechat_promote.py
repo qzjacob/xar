@@ -90,7 +90,9 @@ def promote_candidates(*, dry_run: bool = False, subscribe_fn=None) -> dict:
         "SELECT gh_id, name, articles_seen, articles_kept, keep_rate, promote_status "
         "FROM wechat_discovered "
         "WHERE promoted_at IS NULL AND coalesce(promote_status,'') <> 'rejected' "
-        "AND articles_seen >= %s AND keep_rate >= %s "
+        # 运营方已批准的号:不再受阈值闸(人已裁定)——否则其 keep_rate 事后跌破 min 会静默消失、
+        # 永停 approved 态不订阅(WD-13 复评#1)。其余仍需达 min_articles + min_keep_rate。
+        "AND (promote_status = 'approved' OR (articles_seen >= %s AND keep_rate >= %s)) "
         "ORDER BY keep_rate DESC, articles_kept DESC",
         (s.wechat_promote_min_articles, s.wechat_promote_min_keep_rate))
 
@@ -126,9 +128,11 @@ def promote_candidates(*, dry_run: bool = False, subscribe_fn=None) -> dict:
             continue
         # 登记进策展名册(feed_id 键)→ 稳定轮询接管;tier=2(一般,待运营方按需升 1)
         roster.register(feed_id, name=c.get("name") or "", tier=2)
+        # 保留晋升来源以供审计:人工批准记 'approved',自动线记 'auto'(WD-13 复评#2)
+        src = "approved" if c.get("promote_status") == "approved" else "auto"
         db.execute("UPDATE wechat_discovered SET promoted_at=%s, feed_id=%s, "
-                   "promote_status='auto', updated_at=now() WHERE gh_id=%s",
-                   (_now(), feed_id, c["gh_id"]))
+                   "promote_status=%s, updated_at=now() WHERE gh_id=%s",
+                   (_now(), feed_id, src, c["gh_id"]))
         out["promoted"] += 1
         log.info("promote: 订阅+登记 %s(%s) keep_rate=%.2f seen=%d → feed %s",
                  c.get("name"), c["gh_id"], c["keep_rate"], c["articles_seen"], feed_id)
@@ -191,17 +195,22 @@ def promotion_stats() -> dict:
         "SELECT count(*) discovered, "
         "count(*) FILTER (WHERE promoted_at IS NOT NULL) promoted, "
         "count(*) FILTER (WHERE promote_status='queued') hitl_queued, "
-        "count(*) FILTER (WHERE promoted_at IS NULL AND articles_seen >= %s "
-        "                 AND keep_rate >= %s) eligible_pending "
+        # eligible_pending 与 promote_candidates 过滤口径一致:排除 rejected(WD-13 复评#4)
+        "count(*) FILTER (WHERE promoted_at IS NULL AND coalesce(promote_status,'') <> 'rejected' "
+        "                 AND articles_seen >= %s AND keep_rate >= %s) eligible_pending "
         "FROM wechat_discovered",
         (s.wechat_promote_min_articles, s.wechat_promote_min_keep_rate))
     return dict(r[0]) if r else {}
 
 
 def hitl_queue(limit: int = 30) -> list[dict]:
-    """HITL 晋升待批队列(供 Fetchy):边缘区间、等运营方批准的发现号,按 keep_rate 降序。"""
+    """HITL 晋升待批队列(供 Fetchy):边缘区间、等运营方批准的发现号,按 keep_rate 降序。
+    加 keep_rate>=min_keep 下限:入队后 keep_rate 跌破 min 的掉队号会从 promote_candidates 消失,
+    不再更新状态而滞留 queued —— 过滤掉不再够格者,避免 Fetchy 待批区显示永不订阅的僵尸号(WD-13 复评#3)。"""
     rows = db.query(
         "SELECT gh_id, name, articles_seen, articles_kept, keep_rate "
         "FROM wechat_discovered WHERE promote_status='queued' AND promoted_at IS NULL "
-        "ORDER BY keep_rate DESC NULLS LAST, articles_kept DESC LIMIT %s", (limit,))
+        "AND keep_rate >= %s "
+        "ORDER BY keep_rate DESC NULLS LAST, articles_kept DESC LIMIT %s",
+        (get_settings().wechat_promote_min_keep_rate, limit))
     return [dict(r) for r in rows]

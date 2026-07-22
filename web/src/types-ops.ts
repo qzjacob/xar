@@ -274,6 +274,14 @@ export interface WechatReviewItem {
   articles_seen: number;
   review_status: string;
 }
+export interface WechatPromoteItem {
+  // hitl_queue() 返回形状(无 review_status,有 articles_kept)—— 与抓取审核队列不同(WD-13 复评#6)
+  gh_id: string;
+  name: string;
+  keep_rate: number | null;
+  articles_seen: number;
+  articles_kept: number;
+}
 export interface WechatDiscoverFunnel {
   discovered?: number;
   promoted?: number;
@@ -296,7 +304,7 @@ export interface WechatDiscoverInfo {
   evolve?: { summary: Record<string, unknown>; winners: WechatEvolveWinner[] };
   review?: Record<string, number>; // {pending: n, approved: n, blocked: n}
   reviewQueue?: WechatReviewItem[];
-  promoteQueue?: WechatReviewItem[]; // HITL 晋升待批(边缘信噪号)
+  promoteQueue?: WechatPromoteItem[]; // HITL 晋升待批(边缘信噪号)
   strata?: WechatTrackStrata[]; // 双轨分层 keep_rate(WCDA发现流 / werss订阅流)
   funnel?: WechatDiscoverFunnel;
   error?: string;
