@@ -274,6 +274,17 @@ export interface WechatReviewItem {
   articles_seen: number;
   review_status: string;
 }
+export interface WechatDiscoverFunnel {
+  discovered?: number;
+  promoted?: number;
+  hitl_queued?: number;
+  eligible_pending?: number;
+}
+export interface WechatTrackStrata {
+  track: string; // discover | subscribed | other
+  triaged: number;
+  kept: number;
+}
 export interface WechatDiscoverInfo {
   enabled: boolean;
   wcdaConfigured?: boolean;
@@ -285,7 +296,9 @@ export interface WechatDiscoverInfo {
   evolve?: { summary: Record<string, unknown>; winners: WechatEvolveWinner[] };
   review?: Record<string, number>; // {pending: n, approved: n, blocked: n}
   reviewQueue?: WechatReviewItem[];
-  funnel?: Record<string, unknown>;
+  promoteQueue?: WechatReviewItem[]; // HITL 晋升待批(边缘信噪号)
+  strata?: WechatTrackStrata[]; // 双轨分层 keep_rate(WCDA发现流 / werss订阅流)
+  funnel?: WechatDiscoverFunnel;
   error?: string;
 }
 export interface FetchyInfo {

@@ -48,8 +48,9 @@ def _candidate_queries() -> dict[str, str]:
             a = (a or "").strip()
             if _has_cjk(a) and 2 <= len(a) <= 8:
                 out.setdefault(a, "company")
-    for r in db.query("SELECT query FROM wechat_query_stats WHERE strategy='mined'"):
-        out.setdefault(r["query"], "mined")     # 从内容挖的新词(开放式拓覆盖)
+    for r in db.query("SELECT query, strategy FROM wechat_query_stats "
+                      "WHERE strategy IN ('mined','sub_mined','kg_mined')"):
+        out.setdefault(r["query"], r["strategy"])   # 挖的新词:发现标题/订阅正文/KG 实体(拓覆盖+反哺)
     return out
 
 
@@ -76,50 +77,113 @@ def update_query_stats() -> int:
     return len(rows)
 
 
-def mine_new_queries(top: int = 6) -> int:
-    """从高信噪(kept)文章标题挖高频 CJK n-gram 新词(不在池中)→ 入池 strategy='mined'。
-    开放式拓覆盖:让进化跳出本体词表;噪音候选会被 bandit 以低 keep_rate 淘汰(自纠正)。"""
-    dm = float(get_settings().wechat_deep_min)
-    titles = [r["title"] for r in db.query(
-        "SELECT title FROM documents WHERE source='wechat' AND meta->>'via'='discover' "
-        "AND triage_score >= %s AND title IS NOT NULL", (dm,))]
-    if not titles:
-        return 0
-    pool = set(_candidate_queries())
+def _cjk_grams(texts: list[str], pool: set[str], top: int) -> list[str]:
+    """从一批文本挖高频 CJK n-gram(长 2-4,≥3 次、不在池中)→ 返回 top 个新词。"""
     cnt: Counter = Counter()
-    for t in titles:
+    for t in texts:
         for chunk in re.findall(r"[一-鿿]{2,8}", t or ""):
             for length in (2, 3, 4):
                 for i in range(len(chunk) - length + 1):
                     cnt[chunk[i:i + length]] += 1
-    added = 0
-    for gram, c in cnt.most_common(300):
-        if added >= top:
+    out: list[str] = []
+    for gram, c in cnt.most_common(400):
+        if len(out) >= top:
             break
         if c >= 3 and gram not in pool and len(gram) >= 2:
-            db.execute("INSERT INTO wechat_query_stats (query, strategy, runs) "
-                       "VALUES (%s,'mined',0) ON CONFLICT (query) DO NOTHING", (gram,))
-            added += 1
-    if added:
-        log.info("wechat_evolve mined %d new candidate queries", added)
+            out.append(gram)
+    return out
+
+
+def _insert_mined(grams: list[str], strategy: str, pool: set[str]) -> int:
+    added = 0
+    for g in grams:
+        if g in pool:
+            continue
+        db.execute("INSERT INTO wechat_query_stats (query, strategy, runs) "
+                   "VALUES (%s,%s,0) ON CONFLICT (query) DO NOTHING", (g, strategy))
+        pool.add(g)
+        added += 1
     return added
 
 
+def mine_new_queries(top: int = 6) -> int:
+    """从**三源**挖新查询臂(拓覆盖 + WCDA↔werss 反哺闭环);入池后由 bandit 以 keep_rate 自纠正:
+      1) WCDA 发现流 kept 标题 → 'mined'(开放式拓覆盖,让进化跳出本体词表)。
+      2) werss 订阅流 kept 标题 → 'sub_mined'(订阅流信噪 ~81% 远高于发现流,更干净的挖词源)。
+      3) KG 抽出的实体名(kg_nodes,源自 kept 微信文档)→ 'kg_mined'(图谱新标的/技术 → 下一轮搜索词)。
+    这就是「订阅优质内容 → 更准搜索词 → WCDA 搜得更广 → 更多好号晋升」的持续增强环。"""
+    dm = float(get_settings().wechat_deep_min)
+    pool = set(_candidate_queries())
+    added = 0
+
+    disc = [r["title"] for r in db.query(
+        "SELECT title FROM documents WHERE source='wechat' AND meta->>'via'='discover' "
+        "AND triage_score >= %s AND title IS NOT NULL", (dm,))]
+    added += _insert_mined(_cjk_grams(disc, pool, top), "mined", pool)
+
+    sub = [r["title"] for r in db.query(   # werss 订阅流(feed_id 非空)= 更高信噪反哺源
+        "SELECT title FROM documents WHERE source='wechat' AND coalesce(meta->>'feed_id','') <> '' "
+        "AND triage_score >= %s AND title IS NOT NULL", (dm,))]
+    added += _insert_mined(_cjk_grams(sub, pool, top), "sub_mined", pool)
+
+    try:                                    # KG 实体:图谱把正文里的具体标的/技术抽成了节点名
+        ents = [r["name"] for r in db.query(
+            "SELECT DISTINCT n.name FROM kg_nodes n "
+            "JOIN kg_edges e ON e.src_id = n.id OR e.dst_id = n.id "
+            "JOIN documents d ON d.id = e.source_doc_id "
+            "WHERE d.source='wechat' AND d.triage_score >= %s AND n.name IS NOT NULL", (dm,))]
+        kg_terms = [e for e in ents if _has_cjk(e) and 2 <= len(e) <= 8 and e not in pool][:top]
+        added += _insert_mined(kg_terms, "kg_mined", pool)
+    except Exception as e:  # noqa: BLE001 — KG 挖词是尽力而为,不得拖垮赛马主流程
+        log.warning("wechat_evolve KG 挖词跳过: %s", str(e)[:120])
+
+    if added:
+        log.info("wechat_evolve mined %d new candidate queries (title/sub/kg)", added)
+    return added
+
+
+_MINED_STRATEGIES = ("mined", "sub_mined", "kg_mined")
+
+
 def prune_query_pool() -> int:
-    """删已证明无用的 **mined** 查询(跑过 ≥2 次仍 0 命中,或 keep_rate<5%)→ 池不膨胀、长期稳定。
-    只删 mined(本体词/海外词/公司名永久保留作覆盖底座,bandit 靠低 UCB 自然少选它们)。"""
-    before = db.query("SELECT count(*) n FROM wechat_query_stats WHERE strategy='mined'")[0]["n"]
-    db.execute("DELETE FROM wechat_query_stats WHERE strategy='mined' AND runs >= 2 "
+    """删已证明无用的**挖词**(跑过 ≥2 次仍 0 命中,或 keep_rate<5%)→ 池不膨胀、长期稳定。
+    只删挖词(mined/sub_mined/kg_mined);本体词/海外词/公司名永久保留作覆盖底座,bandit 靠低 UCB 自然少选。"""
+    q_in = "('mined','sub_mined','kg_mined')"
+    before = db.query(f"SELECT count(*) n FROM wechat_query_stats WHERE strategy IN {q_in}")[0]["n"]
+    db.execute(f"DELETE FROM wechat_query_stats WHERE strategy IN {q_in} AND runs >= 2 "
                "AND (articles = 0 OR keep_rate < 0.05)")
-    after = db.query("SELECT count(*) n FROM wechat_query_stats WHERE strategy='mined'")[0]["n"]
+    after = db.query(f"SELECT count(*) n FROM wechat_query_stats WHERE strategy IN {q_in}")[0]["n"]
     pruned = int(before) - int(after)
     if pruned:
         log.info("wechat_evolve pruned %d dud mined queries (pool stays bounded)", pruned)
     return pruned
 
 
+def _query_theme_index() -> dict[str, str]:
+    """query → 主题标签(主题均衡选臂用)。主题词→其 theme;路线词→归属 theme(ROUTE_THEMES 首个);
+    海外资产词→'overseas';公司名/挖词等→'other'。"""
+    from ..ingestion import wechat_discover as wd
+    from ..ingestion.registry import ROUTE_THEMES
+    from ..ontology import cn_routing
+
+    idx: dict[str, str] = {}
+    for theme, terms in cn_routing.CN_THEME_TERMS.items():
+        for t in terms:
+            idx.setdefault(t, theme)
+    for route, terms in cn_routing.CN_ROUTE_TERMS.items():
+        ths = ROUTE_THEMES.get(route)
+        th = ths[0] if isinstance(ths, (list, tuple)) and ths else "route"
+        for t in terms:
+            idx.setdefault(t, th)
+    for t in wd._OVERSEAS_ASSET_TERMS:
+        idx.setdefault(t, "overseas")
+    return idx
+
+
 def select_queries(n: int = 40) -> list[str]:
-    """一轮进化选臂:先刷新反馈 + 挖新词 + 剪枝(稳定),再 UCB 选 n 个(利用高 keep + 探索低 runs)。"""
+    """一轮进化选臂:先刷新反馈 + 挖新词 + 剪枝,再 **主题均衡** UCB 选 n 个:利用段每主题限额(防
+    光模块霸榜)、探索段按主题 round-robin 保底(每主题都拿探索位)、最终列表按主题交错(让 discover
+    的广度优先收号看到主题均匀分布)。治「光模块单一化」;keep_rate 仍是赛马裁判。"""
     update_query_stats()
     mine_new_queries()
     prune_query_pool()
@@ -141,19 +205,57 @@ def select_queries(n: int = 40) -> list[str]:
     def _ucb(q: str) -> float:
         return _bayes(q) + _UCB_C * math.sqrt(math.log(total_runs) / (_runs(q) + 1))
 
+    theme_idx = _query_theme_index()
+
+    def _theme(q: str) -> str:
+        return theme_idx.get(q, "other")
+
     all_q = list(cands)
     explore_n = max(1, int(n * _EXPLORE_FRAC))
     exploit_n = n - explore_n
-    # 利用:已评估(articles>=MIN_SAMPLE)按 UCB 降序(高 keep_rate 优先)
     evaluated = sorted([q for q in all_q if stats.get(q) and int(stats[q]["articles"]) >= _MIN_SAMPLE],
                        key=_ucb, reverse=True)
-    picked: list[str] = evaluated[:exploit_n]
-    # 探索:剩余里 runs 最少的(未评估/新词优先)—— 覆盖前沿
-    rest = sorted([q for q in all_q if q not in picked], key=lambda q: (_runs(q), -_ucb(q)))
-    for q in rest:
-        if len(picked) >= n:
+
+    # 利用:已评估按 UCB 降序,但**每主题限额**(单一主题不得霸榜 exploit → 治光模块单一化)。
+    n_themes = max(1, len({_theme(q) for q in all_q}))
+    per_theme_cap = max(2, exploit_n // n_themes)
+    picked: list[str] = []
+    tct: Counter = Counter()
+    for q in evaluated:
+        if len(picked) >= exploit_n:
             break
-        picked.append(q)
+        if tct[_theme(q)] < per_theme_cap:
+            picked.append(q)
+            tct[_theme(q)] += 1
+    for q in evaluated:                     # 限额太紧没填满 → 放宽补齐(仍从已评估)
+        if len(picked) >= exploit_n:
+            break
+        if q not in picked:
+            picked.append(q)
+
+    # 探索:剩余按主题分桶,round-robin 取「runs 最少」的 → **每主题都拿到探索位**(覆盖前沿)。
+    picked_set = set(picked)
+    by_theme: dict[str, list[str]] = {}
+    for q in sorted([q for q in all_q if q not in picked_set], key=lambda q: (_runs(q), -_ucb(q))):
+        by_theme.setdefault(_theme(q), []).append(q)
+    while len(picked) < n and any(by_theme.values()):
+        for th in list(by_theme):
+            if len(picked) >= n:
+                break
+            if by_theme[th]:
+                picked.append(by_theme[th].pop(0))
+
+    # 交错:按主题 round-robin 重排 → discover 广度优先收号看到主题均匀分布(否则 exploit 光模块全在前)。
+    inter: dict[str, list[str]] = {}
+    for q in picked:
+        inter.setdefault(_theme(q), []).append(q)
+    ordered: list[str] = []
+    while any(inter.values()):
+        for th in list(inter):
+            if inter[th]:
+                ordered.append(inter[th].pop(0))
+    picked = ordered
+
     # 记 runs + strategy + last_run
     for q in picked:
         db.execute(
@@ -162,15 +264,12 @@ def select_queries(n: int = 40) -> list[str]:
             "runs = wechat_query_stats.runs + 1, last_run = now(), "
             "strategy = COALESCE(wechat_query_stats.strategy, EXCLUDED.strategy)",
             (q, cands.get(q, "broad")))
-    log.info("wechat_evolve select: %d picked (%d exploit / %d explore), pool=%d",
-             len(picked), min(exploit_n, len(evaluated)), len(picked) - min(exploit_n, len(evaluated)),
-             len(all_q))
+    log.info("wechat_evolve select: %d picked across %d themes, pool=%d", len(picked), n_themes, len(all_q))
     return picked
 
 
 def leaderboard(top: int = 15) -> dict:
     """赛马榜:命中率最高/最低查询 + 池子概况(供观测)。"""
-    dm = float(get_settings().wechat_deep_min)
     winners = db.query(
         "SELECT query, strategy, articles, kept, keep_rate, runs FROM wechat_query_stats "
         "WHERE articles >= %s ORDER BY keep_rate DESC NULLS LAST, kept DESC LIMIT %s",
@@ -181,7 +280,7 @@ def leaderboard(top: int = 15) -> dict:
     agg = db.query(
         "SELECT count(*) pool, count(*) FILTER (WHERE runs > 0) tried, "
         "count(*) FILTER (WHERE articles >= %s) evaluated, "
-        "count(*) FILTER (WHERE strategy='mined') mined, "
+        "count(*) FILTER (WHERE strategy IN ('mined','sub_mined','kg_mined')) mined, "
         "round(avg(keep_rate) FILTER (WHERE articles >= %s)::numeric,3) avg_keep "
         "FROM wechat_query_stats", (_MIN_SAMPLE, _MIN_SAMPLE))
     return {"summary": dict(agg[0]) if agg else {},

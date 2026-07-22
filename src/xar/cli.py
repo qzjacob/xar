@@ -140,11 +140,11 @@ def ingest_wechat_discover(
     抓正文 → 落 source='wechat'(进现有 triage 去噪)。需 XAR_WECHAT_DISCOVER_ENABLED=true + 后端。"""
     from .ingestion import wechat_discover
 
-    if not (wechat_discover.wcda_available() or wechat_discover.available()
-            or wechat_discover.accounts_available()):
-        print("[yellow]发现未开启[/yellow] —— 设 XAR_WECHAT_DISCOVER_ENABLED=true,并配后端:\n"
-              "  文章级(推荐): WCDA_BASE_URL 指向 wechat-download-api;\n"
-              "  账号级: WERSS_AK/WERSS_SK(we-mp-rss)+ 已扫码登录。")
+    # WCDA = 唯一全网搜索引擎(werss 自带搜索 discover_accounts 已弃用,werss 仅做订阅+轮询)。
+    if not (wechat_discover.wcda_available() or wechat_discover.available()):
+        print("[yellow]发现未开启[/yellow] —— 设 XAR_WECHAT_DISCOVER_ENABLED=true,并配 WCDA 后端:\n"
+              "  WCDA_BASE_URL 指向 wechat-download-api(搜号→抓正文);\n"
+              "  晋升订阅另需 WERSS_AK/WERSS_SK + we-mp-rss 已扫码会话。")
         raise typer.Exit(0)
     if wechat_discover.wcda_available():                  # 文章级(wechat-download-api,主用)
         from .config import get_settings
@@ -158,12 +158,9 @@ def ingest_wechat_discover(
             from .mining import wechat_evolve
             print("[cyan]evolve:[/cyan] " + json.dumps(wechat_evolve.leaderboard(6)["summary"],
                   ensure_ascii=False, default=str))
-    if wechat_discover.available():                       # 文章级(通用 /api/search)
+    if wechat_discover.available():                       # 文章级(通用 /api/search,备用后端)
         ids = wechat_discover.discover()
         print(f"[green]article-search discover:[/green] {len(ids)} articles ingested")
-    if wechat_discover.accounts_available():              # 账号级(we-mp-rss search_Biz)
-        r = wechat_discover.discover_accounts()
-        print(f"[green]account discover:[/green] {json.dumps(r, ensure_ascii=False, default=str)}")
     if promote:
         from .mining.wechat_promote import promote_candidates, prune_accounts
 

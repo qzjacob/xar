@@ -469,6 +469,15 @@ def ops_wechat_review(body: dict) -> dict:
     return ops.set_wechat_review(str(body.get("gh_id", "")), str(body.get("action", "")))
 
 
+@app.post("/api/ops/fetchy/wechat-promote")
+def ops_wechat_promote(body: dict) -> dict:
+    """HITL 晋升审批 {gh_id, action: approve|reject|reset}。approve → 下轮把该号订阅进 werss
+    优质名册(稳定轮询);reject → 永不晋升。与抓取门控(wechat-review)正交,运行时生效。"""
+    from . import ops
+
+    return ops.set_wechat_promote(str(body.get("gh_id", "")), str(body.get("action", "")))
+
+
 @app.get("/api/ops/llm")
 def ops_llm() -> dict:
     from . import ops

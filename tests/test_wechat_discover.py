@@ -148,8 +148,9 @@ def _wire_promote(monkeypatch, cands, subscribed_today=0):
 
 def test_promote_respects_thresholds_and_subscribes(monkeypatch):
     """够格的号按 keep_rate 排序自动订阅 + 登记进策展名册(roster);每次写一次 promoted_at。"""
+    # 两号 keep_rate 均 >= auto 线(0.7)且号名非垃圾 → 自动订阅档。
     cands = [{"gh_id": "gh_a", "name": "A", "articles_seen": 10, "articles_kept": 8, "keep_rate": 0.8},
-             {"gh_id": "gh_b", "name": "B", "articles_seen": 5, "articles_kept": 3, "keep_rate": 0.6}]
+             {"gh_id": "gh_b", "name": "B", "articles_seen": 5, "articles_kept": 4, "keep_rate": 0.8}]
     registered = _wire_promote(monkeypatch, cands)
     updates: list = []
     monkeypatch.setattr(wp.db, "execute", lambda sql, params=None: updates.append(params))
@@ -158,6 +159,20 @@ def test_promote_respects_thresholds_and_subscribes(monkeypatch):
     assert out["eligible"] == 2 and out["promoted"] == 2 and out["failed"] == 0
     assert subs == ["gh_a", "gh_b"] and len(updates) == 2
     assert registered == ["feed_gh_a", "feed_gh_b"]   # 晋升 → 登记进策展名册
+
+
+def test_promote_hybrid_queues_borderline(monkeypatch):
+    """混合闸:>=auto(0.7)+非垃圾名 → 自动订阅;min..auto 区间 → 入 HITL 待批(不订阅)。"""
+    cands = [{"gh_id": "gh_hi", "name": "高信噪", "articles_seen": 6, "articles_kept": 5, "keep_rate": 0.83},
+             {"gh_id": "gh_mid", "name": "边缘号", "articles_seen": 6, "articles_kept": 4, "keep_rate": 0.6}]
+    registered = _wire_promote(monkeypatch, cands)
+    execs: list = []
+    monkeypatch.setattr(wp.db, "execute", lambda sql, params=None: execs.append((sql, params)))
+    subs: list = []
+    out = wp.promote_candidates(subscribe_fn=lambda gh, name: subs.append(gh) or f"feed_{gh}")
+    assert out["auto_eligible"] == 1 and out["queued"] == 1 and out["promoted"] == 1
+    assert subs == ["gh_hi"] and registered == ["feed_gh_hi"]   # 只自动订阅高信噪号
+    assert any("promote_status='queued'" in s for s, _ in execs)  # 边缘号入 HITL 队列
 
 
 def test_promote_daily_cap(monkeypatch):
@@ -176,35 +191,6 @@ def test_promote_dry_run_does_not_subscribe(monkeypatch):
     out = wp.promote_candidates(dry_run=True,
                                 subscribe_fn=lambda *a: pytest.fail("dry-run 不得订阅"))
     assert out["dry_run"] and out["promoted"] == 0
-
-
-def test_werss_subscribe_rejects_missing_feed_id(monkeypatch):
-    """we-mp-rss 返回 200 但 body 无 feed_id/id → 返回 None(不拿 gh_id 冒充,幽灵订阅防护)。"""
-    class _S:
-        werss_base_url = "http://werss:8001"
-        werss_api_token = ""
-        http_user_agent = "x"
-
-    monkeypatch.setattr(wp, "get_settings", lambda: _S())
-
-    class _Resp:
-        content = b"{}"
-
-        def raise_for_status(self):
-            pass
-
-        def json(self):
-            return {}                       # 200 但无 feed_id/id
-
-    monkeypatch.setattr(wp.httpx, "post", lambda *a, **k: _Resp())
-    assert wp._werss_subscribe("gh_x", "X") is None      # 不落假 feed → 下轮重试
-
-    class _Resp2(_Resp):
-        def json(self):
-            return {"feed_id": "f_123"}
-
-    monkeypatch.setattr(wp.httpx, "post", lambda *a, **k: _Resp2())
-    assert wp._werss_subscribe("gh_x", "X") == "f_123"   # 有 feed_id 才算订阅成功
 
 
 def test_promote_subscribe_failure_no_update(monkeypatch):
@@ -393,6 +379,7 @@ class _WcdaDiscoverS:
     wcda_accounts_per_query = 6
     wcda_accounts_per_run = 12
     wcda_articles_per_account = 6
+    wcda_account_junk_filter = True    # 号名垃圾预筛(测试号名非垃圾 → 行为不变)
     wechat_hitl_gate = False           # human-in-the-loop 门控(默认关=轻量:抓全部非 blocked)
 
 

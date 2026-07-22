@@ -82,15 +82,14 @@ def _run_source(src: str, ids: list[str], since, *, shard: int | None = None) ->
         # 不拖垮已成功的订阅轮询、不误标整轮 wechat 失败。文章级/账号级各自 available() 自门控。
         if shard in (None, 0):
             try:
+                # WCDA = 唯一全网搜索引擎;werss discover_accounts 已弃用(werss 仅订阅+轮询)。
                 if wechat_discover.wcda_available():        # 文章级(wechat-download-api,主用)
                     pulled += len(wechat_discover.discover_via_wcda())
-                if wechat_discover.available():            # 文章级(通用 /api/search 后端)
+                if wechat_discover.available():            # 文章级(通用 /api/search 备用后端)
                     pulled += len(wechat_discover.discover())
-                if wechat_discover.accounts_available():   # 账号级(we-mp-rss 订阅模式)
-                    wechat_discover.discover_accounts()
                 from ..mining.wechat_promote import promote_candidates, prune_accounts
-                promote_candidates()                      # 订阅模式高产号晋升
-                prune_accounts()                          # 订阅模式低信噪号止损
+                promote_candidates()                      # WCDA 高产号混合晋升(自动/HITL)
+                prune_accounts()                          # 发现订阅低信噪号止损(停用+退订)
             except Exception as e:  # noqa: BLE001
                 log.warning("wechat discover/promote/prune failed (isolated, 订阅轮询不受影响): %s", e)
     elif src == "aifinmarket":

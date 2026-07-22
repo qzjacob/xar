@@ -682,7 +682,6 @@ def _wechat_discover_summary() -> dict:
     """微信「全网发现」漏斗观测:开关 + 已发现文档数 + 晋升漏斗统计(供 Jarvy)。"""
     from ..config import get_settings
     from ..ingestion import wcda_api, wechat_search, werss_api
-    from ..mining.wechat_promote import promotion_stats
 
     s = get_settings()
     out = {"enabled": bool(s.wechat_discover_enabled),
@@ -694,16 +693,25 @@ def _wechat_discover_summary() -> dict:
                                        "source='wechat' AND meta->>'via'='discover'")
         out["wcdaDocs"] = _count("documents",
                                  "source='wechat' AND meta->>'backend'='wcda'")
-        out["funnel"] = promotion_stats()      # 发现候选/已订阅/够格待晋升
+        from ..mining import wechat_promote as wp
+        out["funnel"] = wp.promotion_stats()   # 发现候选/已订阅/HITL待批/够格待晋升
+        out["promoteQueue"] = wp.hitl_queue(30)  # HITL 晋升待批队列(边缘号,批准后订阅)
         from ..mining import wechat_evolve
         lb = wechat_evolve.leaderboard(8)      # 进化赛马:池概况 + 高/低命中率查询
         out["evolve"] = {"summary": lb["summary"], "winners": lb["winners"][:8]}
-        # human-in-the-loop 门控态 + 审核队列
+        # 双轨分层 keep_rate(WCDA 发现流 vs werss 订阅流)+ HITL 门控态 + 抓取审核队列
         from ..storage import db
+        out["strata"] = [dict(r) for r in db.query(
+            "SELECT CASE WHEN meta->>'via'='discover' THEN 'discover' "
+            "  WHEN coalesce(meta->>'feed_id','')<>'' THEN 'subscribed' ELSE 'other' END track, "
+            "count(*) FILTER (WHERE triaged_at IS NOT NULL) triaged, "
+            "count(*) FILTER (WHERE triage_score >= %s) kept "
+            "FROM documents WHERE source='wechat' AND triaged_at IS NOT NULL GROUP BY 1",
+            (float(s.wechat_deep_min),))]
         out["hitlGate"] = bool(s.wechat_hitl_gate)   # 严格门控(只抓 approved)开关
         out["review"] = {r["review_status"]: r["n"] for r in db.query(
             "SELECT review_status, count(*) n FROM wechat_discovered GROUP BY review_status")}
-        out["reviewQueue"] = [dict(r) for r in db.query(   # 待审号(供人工批准/拉黑)
+        out["reviewQueue"] = [dict(r) for r in db.query(   # 抓取待审号(供人工批准/拉黑)
             "SELECT gh_id, name, keep_rate, articles_seen, review_status FROM wechat_discovered "
             "WHERE review_status='pending' ORDER BY keep_rate DESC NULLS LAST, articles_seen DESC "
             "LIMIT 30")]
@@ -726,6 +734,13 @@ def set_wechat_review(gh_id: str, action: str) -> dict:
     if not rows:
         return {"ok": False, "detail": f"未找到发现号 gh_id={gh_id!r}", "gh_id": gh_id}
     return {"ok": True, "gh_id": gh_id, "review_status": mapped}
+
+
+def set_wechat_promote(gh_id: str, action: str) -> dict:
+    """HITL 晋升审批(Fetchy 晋升待批区):action ∈ approve|reject|reset。
+    approve → 下轮 promote_candidates 自动订阅该号进 werss 名册;reject → 永不晋升;reset → 回待批。"""
+    from ..mining.wechat_promote import set_promote_status
+    return set_promote_status(gh_id, action)
 
 
 def fetchy() -> dict:

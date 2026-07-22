@@ -15,8 +15,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import httpx
-
 from ..config import get_settings
 from ..logging import get_logger
 from ..storage import db
@@ -29,32 +27,20 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _werss_subscribe(gh_id: str, name: str) -> str | None:
-    """默认订阅适配器:请 we-mp-rss 服务端订阅该号。成功返回 feed_id,失败返回 None。
-    we-mp-rss 的确切订阅端点在主机 spike 期定型 —— 只需改这一处;失败安全降级。"""
-    s = get_settings()
-    base = s.werss_base_url.strip()
-    if not base:
-        log.warning("promote: WERSS_BASE_URL 未配置,无法自动订阅 %s(%s)", name, gh_id)
-        return None
-    headers = {"User-Agent": s.http_user_agent}
-    if s.werss_api_token:
-        headers["Authorization"] = f"Bearer {s.werss_api_token}"
-    try:
-        r = httpx.post(base.rstrip("/") + "/api/subscribe",
-                       json={"gh_id": gh_id, "name": name},
-                       headers=headers, timeout=30, follow_redirects=True)
-        r.raise_for_status()
-        data = r.json() if r.content else {}
-        feed = data.get("feed_id") or data.get("id")
-        if not feed:   # 200 但 body 缺 feed id(端点 spike-pending 时完全可能)—— 不能拿 gh_id
-            # 冒充 feed id 幽灵订阅(会被永久标 promoted + roster 轮询错误 feed);判为未订阅重试
-            log.warning("promote: we-mp-rss 订阅 %s 返回 200 但无 feed_id/id — 判为未订阅,下轮重试", gh_id)
-            return None
-        return str(feed)
-    except Exception as e:  # noqa: BLE001
-        log.warning("promote: we-mp-rss 订阅 %s 失败: %s", gh_id, str(e)[:160])
-        return None
+def _default_subscribe(gh_id: str, name: str) -> str | None:
+    """真实订阅适配器:调 werss_api.subscribe(add_mp,真实端点 POST /api/v1/wx/mps)。
+    发现文档的 gh_id 即 wcda fakeid,故直接组 account dict。成功返回 feed_id(MP_WXS_…),
+    会话过期/失败返回 None(候选保留,下轮重试)。测试可注入 subscribe_fn 桩。"""
+    from ..ingestion import werss_api
+    return werss_api.subscribe({"fakeid": gh_id, "name": name})
+
+
+def _name_ok(name: str) -> bool:
+    """号名不含明显跨域垃圾标记(复用发现层同一 stoplist)。用负向过滤而非「必须命中主题」:
+    后者会误伤纯品牌名的合法号(如「砺算科技」)。垃圾名(游戏/超市/租房…)→ 降级 HITL 待批。
+    注:候选已过发现层 junk-filter + keep_rate 闸,此为晋升前的最后一道跨域护栏。"""
+    from ..ingestion.wechat_discover import _is_junk_account
+    return not _is_junk_account({"name": name or ""})
 
 
 def _sync_candidates() -> None:
@@ -90,24 +76,48 @@ def _promoted_today() -> int:
 
 
 def promote_candidates(*, dry_run: bool = False, subscribe_fn=None) -> dict:
-    """跑一轮晋升:聚合 → 选够格的号 → 每日上限内订阅并登记进策展名册。返回统计。"""
+    """跑一轮**混合晋升**:聚合 → 分档 → 每日上限内自动订阅高信噪号、其余进 HITL 待批。
+    分档(均需 articles_seen>=min_articles、promote_status 非 rejected):
+      · 运营方已批准(promote_status='approved') → 订阅(人已裁定,不看 keep_rate)。
+      · keep_rate>=auto_keep_rate 且号名主题相关 → 自动订阅(promote_status='auto')。
+      · min_keep_rate<=keep_rate<auto(或号名不相关) → 入 HITL 队列(promote_status='queued')。
+    只对未晋升号操作;策展名册(手工 tier-1)不经此路。返回统计。"""
     s = get_settings()
-    subscribe_fn = subscribe_fn or _werss_subscribe
+    subscribe_fn = subscribe_fn or _default_subscribe
     _sync_candidates()
 
     cands = db.query(
-        "SELECT gh_id, name, articles_seen, articles_kept, keep_rate FROM wechat_discovered "
-        "WHERE promoted_at IS NULL AND articles_seen >= %s AND keep_rate >= %s "
+        "SELECT gh_id, name, articles_seen, articles_kept, keep_rate, promote_status "
+        "FROM wechat_discovered "
+        "WHERE promoted_at IS NULL AND coalesce(promote_status,'') <> 'rejected' "
+        "AND articles_seen >= %s AND keep_rate >= %s "
         "ORDER BY keep_rate DESC, articles_kept DESC",
         (s.wechat_promote_min_articles, s.wechat_promote_min_keep_rate))
 
+    auto_line = s.wechat_promote_auto_keep_rate
+    to_subscribe: list[dict] = []       # 自动订阅(高信噪+主题相关,或运营方已批准)
+    to_queue: list[dict] = []           # 进 HITL 待批(边缘区间,或号名不相关)
+    for c in cands:
+        kr = c["keep_rate"] or 0.0
+        if c.get("promote_status") == "approved":
+            to_subscribe.append(c)
+        elif kr >= auto_line and _name_ok(c.get("name") or ""):
+            to_subscribe.append(c)
+        else:
+            to_queue.append(c)
+
     cap_left = max(0, s.wechat_promote_max_per_day - _promoted_today())
-    picked = cands[:cap_left]
-    out = {"eligible": len(cands), "cap_left": cap_left, "promoted": 0,
-           "failed": 0, "dry_run": dry_run,
+    picked = to_subscribe[:cap_left]    # 超上限的自动候选保留(promote_status 不变),下轮重试
+    out = {"eligible": len(cands), "auto_eligible": len(to_subscribe), "queued": len(to_queue),
+           "cap_left": cap_left, "promoted": 0, "failed": 0, "dry_run": dry_run,
            "candidates": [dict(c) for c in cands[:20]]}
     if dry_run:
         return out
+
+    # 边缘候选入 HITL 队列(只对尚未入队的置 queued,不覆盖 approved/rejected/auto)
+    for c in to_queue:
+        db.execute("UPDATE wechat_discovered SET promote_status='queued', updated_at=now() "
+                   "WHERE gh_id=%s AND promote_status IS NULL", (c["gh_id"],))
 
     for c in picked:
         feed_id = subscribe_fn(c["gh_id"], c.get("name") or "")
@@ -116,8 +126,9 @@ def promote_candidates(*, dry_run: bool = False, subscribe_fn=None) -> dict:
             continue
         # 登记进策展名册(feed_id 键)→ 稳定轮询接管;tier=2(一般,待运营方按需升 1)
         roster.register(feed_id, name=c.get("name") or "", tier=2)
-        db.execute("UPDATE wechat_discovered SET promoted_at=%s, feed_id=%s, updated_at=now() "
-                   "WHERE gh_id=%s", (_now(), feed_id, c["gh_id"]))
+        db.execute("UPDATE wechat_discovered SET promoted_at=%s, feed_id=%s, "
+                   "promote_status='auto', updated_at=now() WHERE gh_id=%s",
+                   (_now(), feed_id, c["gh_id"]))
         out["promoted"] += 1
         log.info("promote: 订阅+登记 %s(%s) keep_rate=%.2f seen=%d → feed %s",
                  c.get("name"), c["gh_id"], c["keep_rate"], c["articles_seen"], feed_id)
@@ -149,11 +160,28 @@ def prune_accounts(*, dry_run: bool = False) -> dict:
     out = {"evaluated": len(rows), "pruned": len(pruned), "dry_run": dry_run, "accounts": pruned}
     if dry_run:
         return out
+    from ..ingestion import werss_api
     for p in pruned:
-        roster.deactivate(p["feed_id"])
-        log.info("prune: 停用低信噪发现号 %s(%s) keep_rate=%.2f seen=%d",
+        roster.deactivate(p["feed_id"])               # 停止轮询
+        werss_api.unsubscribe(p["feed_id"])           # 真正从 we-mp-rss 退订(不留废号继续抓)
+        log.info("prune: 停用+退订低信噪发现号 %s(%s) keep_rate=%.2f seen=%d",
                  p["name"], p["feed_id"], p["keep_rate"], p["seen"])
     return out
+
+
+def set_promote_status(gh_id: str, action: str) -> dict:
+    """HITL 晋升审批(供 ops/Fetchy):action ∈ approve|reject|reset。
+    approve → 'approved'(下轮 promote_candidates 订阅);reject → 'rejected'(永不晋升);
+    reset → 回 'queued'。只对未晋升号有效。"""
+    mapped = {"approve": "approved", "reject": "rejected", "reset": "queued"}.get(action)
+    if not mapped:
+        return {"ok": False, "detail": f"action must be approve|reject|reset, got {action!r}"}
+    rows = db.query(
+        "UPDATE wechat_discovered SET promote_status=%s, updated_at=now() "
+        "WHERE gh_id=%s AND promoted_at IS NULL RETURNING gh_id", (mapped, gh_id))
+    if not rows:
+        return {"ok": False, "detail": f"未找到未晋升发现号 gh_id={gh_id!r}", "gh_id": gh_id}
+    return {"ok": True, "gh_id": gh_id, "promote_status": mapped}
 
 
 def promotion_stats() -> dict:
@@ -162,8 +190,18 @@ def promotion_stats() -> dict:
     r = db.query(
         "SELECT count(*) discovered, "
         "count(*) FILTER (WHERE promoted_at IS NOT NULL) promoted, "
+        "count(*) FILTER (WHERE promote_status='queued') hitl_queued, "
         "count(*) FILTER (WHERE promoted_at IS NULL AND articles_seen >= %s "
         "                 AND keep_rate >= %s) eligible_pending "
         "FROM wechat_discovered",
         (s.wechat_promote_min_articles, s.wechat_promote_min_keep_rate))
     return dict(r[0]) if r else {}
+
+
+def hitl_queue(limit: int = 30) -> list[dict]:
+    """HITL 晋升待批队列(供 Fetchy):边缘区间、等运营方批准的发现号,按 keep_rate 降序。"""
+    rows = db.query(
+        "SELECT gh_id, name, articles_seen, articles_kept, keep_rate "
+        "FROM wechat_discovered WHERE promote_status='queued' AND promoted_at IS NULL "
+        "ORDER BY keep_rate DESC NULLS LAST, articles_kept DESC LIMIT %s", (limit,))
+    return [dict(r) for r in rows]

@@ -54,6 +54,9 @@ export const ops = {
   wechatReview: (gh_id: string, action: "approve" | "block" | "pending") =>
     post<{ ok: boolean; gh_id: string; review_status: string }>(
       "/api/ops/fetchy/wechat-review", { gh_id, action }),
+  wechatPromote: (gh_id: string, action: "approve" | "reject" | "reset") =>
+    post<{ ok: boolean; gh_id: string; promote_status: string }>(
+      "/api/ops/fetchy/wechat-promote", { gh_id, action }),
   connectors: () => get<ConnectorsInfo>("/api/ops/connectors"),
   skills: () => get<SkillsInfo>("/api/ops/skills"),
   datalake: () => get<DataLakeInfo>("/api/ops/datalake"),

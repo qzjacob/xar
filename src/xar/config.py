@@ -197,19 +197,21 @@ class Settings(BaseSettings):
     wechat_search_api_token: str = Field(default="", validation_alias="WECHAT_SEARCH_API_TOKEN")
     wechat_discover_enabled: bool = Field(default=False, validation_alias="XAR_WECHAT_DISCOVER_ENABLED")
     wechat_discover_queries_per_run: int = 40   # 每轮跑的查询数(游标轮转,避免打爆反爬)
-    wechat_discover_max_articles: int = 200     # 每轮抓取正文的文章上限(成本闸)
+    wechat_discover_max_articles: int = 320     # 每轮抓取正文的文章上限(成本闸;广度优先收号后上调)
     wechat_discover_min_chars: int = 200        # 正文短于此 → 跳过(图片/视频号,triage 也会地板掉)
     wechat_discover_lookback_days: int = 14     # 搜索只要近 N 天(高信噪、避免历史回填灌库)
-    # 晋升门:发现文档 triage 产出达标的号,自动加入 we-mp-rss 订阅做长期稳定轮询。
-    wechat_promote_min_articles: int = 3        # 该号至少发现过 N 篇(已 triage)才够格晋升
-    wechat_promote_min_keep_rate: float = 0.5   # 且 triage 保留率 >= 此值(高信噪号才晋升)
+    # 晋升门(混合):WCDA 发现证明的高信噪号 → 晋升为 we-mp-rss 订阅做长期稳定轮询。
+    #   keep_rate>=auto_keep_rate 且 >=min_articles → 自动订阅;min_keep_rate..auto_keep_rate → HITL 待批。
+    wechat_promote_min_articles: int = 5        # 该号至少发现过 N 篇(已 triage)才够格晋升(证据下限)
+    wechat_promote_min_keep_rate: float = 0.5   # HITL 下限:>= 此值才入晋升漏斗(0.5~auto 进人工待批)
+    wechat_promote_auto_keep_rate: float = 0.7  # 自动订阅线:keep_rate >= 此值直接订阅(其余进 HITL 队列)
     wechat_promote_max_per_day: int = 5         # 每日自动订阅上限(防打爆 we-mp-rss 会话限流)
     # 账号级发现(Phase 1 后端=we-mp-rss search_Biz):本体词搜公众号 → 自动订阅 → 现有轮询+triage。
     # search/add_mp 端点需鉴权(feed 端点公开);we-mp-rss 支持 AK/SK 非交互凭据(Authorization: AK-SK ak:sk)。
     werss_ak: str = Field(default="", validation_alias="WERSS_AK")   # we-mp-rss 访问密钥(search/订阅鉴权)
     werss_sk: str = Field(default="", validation_alias="WERSS_SK")
-    wechat_account_prune_min_articles: int = 8   # 发现订阅的号累计 triage ≥N 篇才评估去留
-    wechat_account_prune_max_keep_rate: float = 0.15  # keep_rate < 此值 → 停用(证明低信噪,止损)
+    wechat_account_prune_min_articles: int = 5   # 发现订阅的号累计 triage ≥N 篇才评估去留(更快剪废号)
+    wechat_account_prune_max_keep_rate: float = 0.15  # keep_rate < 此值 → 停用+退订(证明低信噪,止损)
     # human-in-the-loop 门控:关(默认,轻量)=抓全部非 blocked 号,运营方事后拉黑差号;
     # 开(严格)=只抓 approved 号,新号(pending)进审核队列待批准。blocked 号任何模式都不抓。
     wechat_hitl_gate: bool = Field(default=False, validation_alias="XAR_WECHAT_HITL_GATE")
@@ -217,8 +219,9 @@ class Settings(BaseSettings):
     # 与 we-mp-rss 相比登录更稳(无 selector 抓取)。base 为空 → wcda 发现路径 no-op。
     wcda_base_url: str = Field(default="", validation_alias="WCDA_BASE_URL")
     wcda_accounts_per_query: int = 6      # 每个关键词取前 N 个公众号
-    wcda_accounts_per_run: int = 12       # 每轮最多处理 N 个新账号(界定抓取量)
+    wcda_accounts_per_run: int = 32       # 每轮最多处理 N 个新账号(界定抓取量;广度优先→给多主题留位)
     wcda_articles_per_account: int = 6     # 每个号取最近 N 篇(逐篇解析全文,成本闸)
+    wcda_account_junk_filter: bool = True  # 收号后正文解析前:号名含明显跨域垃圾标记即跳过(挡租房/超市/游戏等,省解析预算)
 
     # --- Exploration module (frontier research): arXiv is public, no key ---
     arxiv_enabled: bool = True

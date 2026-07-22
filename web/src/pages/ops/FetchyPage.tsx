@@ -68,6 +68,15 @@ export function FetchyPage() {
     }
   }
 
+  async function promoteAccount(ghId: string, action: "approve" | "reject" | "reset") {
+    try {
+      await ops.wechatPromote(ghId, action);
+      await load(); // 晋升审批即时生效,下轮订阅进 werss 名册
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   if (!info || !cfg) {
     return (
       <OpsContainer>
@@ -256,6 +265,16 @@ export function FetchyPage() {
               发现文档 {wd.discoveredDocs ?? 0} · 门控 {wd.hitlGate ? "严格(只抓批准)" : "轻量(拉黑差号)"}
             </span>
           </div>
+          <div className="mb-2 flex flex-wrap gap-x-3 gap-y-0.5 text-2xs text-brand-200">
+            <span>晋升漏斗:发现 {wd.funnel?.discovered ?? 0} · 已订阅 {wd.funnel?.promoted ?? 0}
+              {" "}· HITL待批 {wd.funnel?.hitl_queued ?? 0} · 够格 {wd.funnel?.eligible_pending ?? 0}</span>
+            {(wd.strata ?? []).map((t) => (
+              <span key={t.track}>
+                {t.track === "discover" ? "WCDA发现流" : t.track === "subscribed" ? "werss订阅流" : "其它"}
+                {" "}keep {t.triaged > 0 ? Math.round((t.kept / t.triaged) * 100) + "%" : "—"}
+              </span>
+            ))}
+          </div>
           {wd.evolve?.winners && wd.evolve.winners.length > 0 && (
             <div className="mb-2">
               <div className="mb-1 text-2xs uppercase tracking-wide text-brand-200">进化赛马 · 高命中率查询</div>
@@ -296,6 +315,33 @@ export function FetchyPage() {
               <p className="text-2xs text-brand-200">审核队列为空(无 pending 号)。</p>
             )}
           </div>
+          {(wd.promoteQueue ?? []).length > 0 && (
+            <div className="mt-2 border-t border-line pt-2">
+              <div className="mb-1 flex items-center gap-2 text-2xs text-brand-200">
+                <span className="uppercase tracking-wide">晋升待批</span>
+                <span>边缘信噪号(0.5–0.7),批准后订阅进 werss 优质名册</span>
+              </div>
+              <div className="max-h-64 space-y-1 overflow-y-auto">
+                {(wd.promoteQueue ?? []).map((a) => (
+                  <div key={a.gh_id}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-line bg-surface-2 px-2.5 py-1.5">
+                    <span className="min-w-0">
+                      <span className="block truncate text-xs font-medium text-brand-900">{a.name || a.gh_id}</span>
+                      <span className="text-2xs text-brand-200">
+                        {a.articles_seen} 篇 · keep {a.keep_rate != null ? Math.round(a.keep_rate * 100) + "%" : "—"}
+                      </span>
+                    </span>
+                    <span className="flex shrink-0 gap-1">
+                      <button type="button" onClick={() => void promoteAccount(a.gh_id, "approve")}
+                        className="rounded bg-pos/15 px-2 py-1 text-2xs font-medium text-pos hover:bg-pos/25">批准订阅</button>
+                      <button type="button" onClick={() => void promoteAccount(a.gh_id, "reject")}
+                        className="rounded bg-neg/15 px-2 py-1 text-2xs font-medium text-neg hover:bg-neg/25">拒绝</button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </OpsContainer>

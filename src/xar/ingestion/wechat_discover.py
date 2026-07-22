@@ -173,12 +173,22 @@ def _existing_feed_ids() -> set[str]:
     return ids
 
 
-def _record_discovered_account(fakeid: str, name: str, feed_id: str) -> None:
-    db.execute(
-        "INSERT INTO wechat_discovered (gh_id, name, promoted_at, feed_id) "
-        "VALUES (%s,%s,now(),%s) ON CONFLICT (gh_id) DO UPDATE SET "
-        "name=EXCLUDED.name, promoted_at=now(), feed_id=EXCLUDED.feed_id, updated_at=now()",
-        (fakeid, name, feed_id))
+def _record_discovered_account(fakeid: str, name: str, feed_id: str | None = None) -> None:
+    """记录被发现的候选号。**feed_id=None(WCDA 发现)→ 只记候选,绝不碰 promoted_at**——否则每个
+    发现号都被误标「已晋升」,promote_candidates(WHERE promoted_at IS NULL)永远选不到候选,晋升桥断。
+    feed_id 非空(直接订阅路径)→ 才同时标 promoted_at + feed_id。"""
+    if feed_id:
+        db.execute(
+            "INSERT INTO wechat_discovered (gh_id, name, promoted_at, feed_id) "
+            "VALUES (%s,%s,now(),%s) ON CONFLICT (gh_id) DO UPDATE SET "
+            "name=EXCLUDED.name, promoted_at=now(), feed_id=EXCLUDED.feed_id, updated_at=now()",
+            (fakeid, name, feed_id))
+    else:
+        db.execute(
+            "INSERT INTO wechat_discovered (gh_id, name) VALUES (%s,%s) "
+            "ON CONFLICT (gh_id) DO UPDATE SET "
+            "name=COALESCE(EXCLUDED.name, wechat_discovered.name), updated_at=now()",
+            (fakeid, name))
 
 
 def discover_accounts(limit: int | None = None) -> dict:
@@ -290,6 +300,21 @@ def wcda_available() -> bool:
     return bool(get_settings().wechat_discover_enabled) and wcda_api.available()
 
 
+# 号名里的明显跨域垃圾标记 —— 搜索谐音/撞名带出的非投研号(租房/超市/游戏/招聘/优惠…)。
+# 用负向 stoplist(硬拒)而非「必须命中主题」:后者会误伤纯品牌名的合法号(如「砺算科技」)。
+# 谐音垃圾(如「HBM8877免费租房」关键词命中却是租房号)靠此标记拦下;漏网的由 triage/prune 兜底。
+_JUNK_NAME_MARKERS = (
+    "免费租房", "租房", "种球", "超市", "工会", "招聘", "优惠", "游戏", "客单价", "门店",
+    "餐饮", "会员通", "销售有限公司", "旅游", "巴士", "颜究所", "美满人生", "龙头股票",
+)
+
+
+def _is_junk_account(acct: dict) -> bool:
+    """号名/别名含明显跨域垃圾标记 → 判为垃圾号(收号后、正文解析前的廉价预筛,省最贵的 parse)。"""
+    txt = f"{acct.get('name', '')} {acct.get('alias', '')}"
+    return any(m in txt for m in _JUNK_NAME_MARKERS)
+
+
 def discover_via_wcda(limit: int | None = None, *, queries: list[str] | None = None,
                       strategy: str = "broad") -> list[str]:
     """跑一轮 wcda 文章级发现。返回落库文档 id。默认关/无后端 → 空。
@@ -305,14 +330,25 @@ def discover_via_wcda(limit: int | None = None, *, queries: list[str] | None = N
         queries = _slice_for_today(_precise_queries(), s.wechat_discover_queries_per_run)
     aliases = _alias_index()
 
-    # 1) 搜号 → 收集候选账号(按 fakeid 去重),记发现它的 query(供进化引擎按查询算命中率)
-    accounts: dict[str, dict] = {}
+    # 1) 搜号 → **广度优先**收集候选账号。先搜所有选中查询(每查询 top per_query 号),再按
+    #    round-robin(第 r 轮取每查询的第 r 个号)去重铺开到 accounts_per_run —— 保证每个跨主题
+    #    查询的头号都先入选,而非头几个光通信查询深度吃光预算(治「光模块单一化」的核心修复)。
+    per_query = s.wcda_accounts_per_query
+    run_cap = s.wcda_accounts_per_run
+    hits_by_q: list[list[dict]] = []
     for q in queries:
-        for acct in wcda_api.search_accounts(q, limit=s.wcda_accounts_per_query):
-            if acct["fakeid"] not in accounts:
-                acct["_query"] = q
-                accounts[acct["fakeid"]] = acct
-        if len(accounts) >= s.wcda_accounts_per_run:
+        hs = wcda_api.search_accounts(q, limit=per_query)
+        for h in hs:
+            h["_query"] = q
+        hits_by_q.append(hs)
+    accounts: dict[str, dict] = {}
+    for r in range(per_query):
+        for hs in hits_by_q:
+            if len(accounts) >= run_cap:
+                break
+            if r < len(hs):
+                accounts.setdefault(hs[r]["fakeid"], hs[r])
+        if len(accounts) >= run_cap:
             break
 
     # human-in-the-loop 门控:加载审核态。blocked 永不抓;严格门控(wechat_hitl_gate)只抓 approved,
@@ -320,13 +356,16 @@ def discover_via_wcda(limit: int | None = None, *, queries: list[str] | None = N
     reviewed = {r["gh_id"]: r["review_status"] for r in
                 db.query("SELECT gh_id, review_status FROM wechat_discovered")}
     strict = bool(s.wechat_hitl_gate)
+    junk_filter = bool(s.wcda_account_junk_filter)
 
     ids: list[str] = []
-    for fakeid, acct in list(accounts.items())[:s.wcda_accounts_per_run]:
+    for fakeid, acct in accounts.items():
         _record_discovered_account(fakeid, acct["name"], None)   # 记录(供审核队列,含 pending 新号)
         rv = reviewed.get(fakeid, "pending")
         if rv == "blocked" or (strict and rv != "approved"):
             continue                                             # 门控:不抓(严格模式下等人工批准)
+        if junk_filter and rv != "approved" and _is_junk_account(acct):
+            continue                                             # 廉价预筛:明显跨域垃圾号不解析(省预算)
         arts = wcda_api.list_articles(fakeid, limit=s.wcda_articles_per_account)
         seen = _already_ingested([a["url"] for a in arts])   # 已抓过的不再解析(解析最贵)
         for a in arts:

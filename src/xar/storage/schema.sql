@@ -560,6 +560,12 @@ CREATE INDEX IF NOT EXISTS idx_wechat_discovered_pending
 -- 严格门控(wechat_hitl_gate)开时只抓 approved;任何模式都不抓 blocked。ALTER 幂等,向后兼容。
 ALTER TABLE wechat_discovered ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'pending';
 CREATE INDEX IF NOT EXISTS idx_wechat_discovered_review ON wechat_discovered(review_status);
+-- 混合晋升态(promote_candidates):NULL=未入晋升漏斗 / 'queued'=达 HITL 区间待运营方批准 /
+-- 'approved'=已批准待下轮订阅 / 'auto'=达自动线已自动订阅 / 'rejected'=运营方拒绝(不再晋升)。
+-- 与 review_status(抓取门控)正交:review_status 决定抓不抓,promote_status 决定订不订。ALTER 幂等。
+ALTER TABLE wechat_discovered ADD COLUMN IF NOT EXISTS promote_status TEXT;
+CREATE INDEX IF NOT EXISTS idx_wechat_discovered_promote
+    ON wechat_discovered(promote_status) WHERE promote_status IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
 -- 发现查询的**持续赛马**记分板 (mining/wechat_evolve.py)。每个查询词是一个「臂」:
@@ -568,7 +574,7 @@ CREATE INDEX IF NOT EXISTS idx_wechat_discovered_review ON wechat_discovered(rev
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS wechat_query_stats (
     query      TEXT PRIMARY KEY,
-    strategy   TEXT,                                    -- broad | overseas | company | mined
+    strategy   TEXT,                                    -- broad|overseas|company|mined|sub_mined|kg_mined
     runs       INT NOT NULL DEFAULT 0,                  -- 被选中跑的次数(探索计数)
     accounts   INT NOT NULL DEFAULT 0,                  -- 发现的公众号数
     articles   INT NOT NULL DEFAULT 0,                  -- 经它入库的文章数(已 triage)

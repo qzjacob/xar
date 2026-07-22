@@ -118,6 +118,26 @@ def subscribe(account: dict) -> str | None:
         return None
 
 
+def unsubscribe(feed_id: str) -> bool:
+    """退订一个 feed(DELETE add_mp)。成功/号本就不存在 → True;网络/鉴权/会话错误 → False。
+    止损(prune_accounts)用:真正从 we-mp-rss 移除废号,避免其在服务端堆积继续抓文。"""
+    s = get_settings()
+    if not available() or not (feed_id or "").strip():
+        return False
+    base = s.werss_base_url.rstrip("/")
+    polite(_host(base))
+    try:
+        r = httpx.delete(f"{base}{_API}/mps/{quote(str(feed_id))}", headers=_headers(),
+                         timeout=30, follow_redirects=True)
+        if r.status_code == 404:               # 已不存在 = 目标态达成,幂等成功
+            return True
+        r.raise_for_status()
+        return True
+    except Exception as e:  # noqa: BLE001
+        log.warning("werss unsubscribe %s failed: %s", feed_id, str(e)[:160])
+        return False
+
+
 def _host(base_url: str) -> str:
     from urllib.parse import urlparse
 
