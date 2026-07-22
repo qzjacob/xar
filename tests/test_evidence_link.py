@@ -42,13 +42,19 @@ _VP_PE = dt.date(2099, 6, 30)
 
 def _teardown():
     db.execute("DELETE FROM company_thesis WHERE company_id=%s AND version=%s", (_CID, _TVER))
-    db.execute("DELETE FROM kg_events WHERE dedup_key LIKE 'pytestlink%%'")
+    # 事务隔离(_thesis 依赖 isolated_db)下安全清全 'now' 的 semantic_facts 两臂 + 链接:
+    # _pending_facts 走 semantic_facts(kg_events + expert_insights),生产 ServiceNow('now')的真实
+    # 事件(162+8 行)会被当 pending fact 反复处理致幂等断言红(out2≠0)—— 事务内清干净、只留本测试
+    # 自建事件,teardown 整体 rollback、生产行复原、绝不落库(K.3.2 测试隔离)。
+    db.execute("DELETE FROM thesis_fact_links WHERE company_id=%s", (_CID,))
+    db.execute("DELETE FROM kg_events WHERE company_id=%s", (_CID,))
+    db.execute("DELETE FROM expert_insights WHERE company_id=%s", (_CID,))
     db.execute("DELETE FROM fundamentals WHERE company_id=%s AND metric='crpo_yoy' "
                "AND source='derived' AND period_end=%s", (_CID, _VP_PE))
 
 
 @pytest.fixture()
-def _thesis(seeded_db):
+def _thesis(isolated_db):
     _teardown()
     db.execute(
         "INSERT INTO company_thesis(company_id, version, as_of, stance, conviction, one_liner, content) "

@@ -25,14 +25,14 @@ def _insert_verdict(cid, ed, direction, conviction, expected_move=0.08, outcome=
 
 
 @pytest.fixture()
-def _clean(seeded_db):
-    def wipe():
-        db.execute("DELETE FROM earnings_verdicts WHERE model='test'")
-        db.execute("DELETE FROM event_calendar WHERE company_id IN ('now','snow','crm') "
-                   "AND scheduled_for=%s", (_PAST,))
-    wipe()
+def _clean(isolated_db):
+    # 事务隔离(isolated_db)下可安全清**全表** earnings_verdicts:calibration() 聚合全部 verdicts,
+    # 生产/残留行会污染全局桶计数(test_calibration_buckets 的 4≠3),清干净才能只看本测试插入的;
+    # 全在单事务内、teardown 整体 rollback、绝不落库,生产 verdict 复原(K.3.2 测试隔离)。
+    db.execute("DELETE FROM earnings_verdicts")
+    db.execute("DELETE FROM event_calendar WHERE company_id IN ('now','snow','crm') "
+               "AND scheduled_for=%s", (_PAST,))
     yield
-    wipe()
 
 
 def test_score_hit_and_abstain(_clean, monkeypatch):
