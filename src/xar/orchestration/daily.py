@@ -93,9 +93,11 @@ def _run_source(src: str, ids: list[str], since, *, shard: int | None = None) ->
             except Exception as e:  # noqa: BLE001
                 log.warning("wechat discover/promote/prune failed (isolated, 订阅轮询不受影响): %s", e)
     elif src == "aifinmarket":
+        # Per-shard structured valuation snapshot only. 研报摘要(公司/行业/策略/宏观)统一
+        # 由 glm_worker 的 aifin_research daily sweep 全库全扫 + 多账号轮询,避免双花配额。
         for cid in ids:
             try:
-                providers.aifinmarket.pull(cid)
+                pulled += providers.aifinmarket.pull_fundamentals(cid)
             except Exception as e:  # noqa: BLE001
                 log.warning("aifinmarket %s: %s", cid, e)
     elif src == "futu":

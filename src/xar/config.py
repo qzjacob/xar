@@ -2,6 +2,7 @@
 copy `.env.example` -> `.env`, set ANTHROPIC_API_KEY, and run."""
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 
 from pydantic import AliasChoices, Field
@@ -177,6 +178,35 @@ class Settings(BaseSettings):
     aifinmarket_base_url: str = Field(default="", validation_alias="AIFINMARKET_BASE_URL")
     aifinmarket_token: str = Field(default="", validation_alias="AIFINMARKET_TOKEN")
     enable_aifinmarket: bool = False
+    # Multi-account subscription pool: numbered tokens AIFINMARKET1_TOKEN..N (all
+    # subscription seats share identical MCP permissions) round-robin so every seat's
+    # daily quota is used, not just one. `.env` is passed to containers via env_file,
+    # so numbered vars land in os.environ after a recreate.
+    aifinmarket_max_accounts: int = 32          # how many AIFINMARKET{i}_TOKEN slots to scan
+    aifinmarket_daily_calls_per_account: int = 0  # per-seat/day safety cap (0 = unlimited)
+    aifinmarket_news_top_k: int = 5             # docs pulled per research-summary query
+    aifinmarket_min_interval_seconds: float = 0.3  # dispatcher throttle between MCP calls
+
+    @property
+    def aifinmarket_tokens(self) -> list[str]:
+        """Ordered, de-duplicated subscription-token pool. Reads numbered seats
+        AIFINMARKET{1..max}_TOKEN from the process env plus the legacy single
+        AIFINMARKET_TOKEN, dropping blanks/dupes. Tests monkeypatch os.environ."""
+        toks: list[str] = []
+        for i in range(1, self.aifinmarket_max_accounts + 1):
+            v = (os.environ.get(f"AIFINMARKET{i}_TOKEN") or "").strip()
+            if v:
+                toks.append(v)
+        legacy = (self.aifinmarket_token or os.environ.get("AIFINMARKET_TOKEN") or "").strip()
+        if legacy:
+            toks.append(legacy)
+        seen: set[str] = set()
+        out: list[str] = []
+        for t in toks:
+            if t not in seen:
+                seen.add(t)
+                out.append(t)
+        return out
 
     # --- WeChat Official Accounts (微信公众号) via a we-mp-rss service ---------
     # Self-hosted https://github.com/rachelos/we-mp-rss exposes public feed

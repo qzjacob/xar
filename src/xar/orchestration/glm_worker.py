@@ -119,7 +119,7 @@ FETCHY_SOURCES: dict[str, dict] = {   # cadence key → 标签/节拍(小时;Non
     "gangtise_insight": {"label": "Gangtise 投研文本(研报/纪要)", "hours": None},
     "gangtise_backfill": {"label": "Gangtise 历史回填", "hours": 6},
     "wind_edb": {"label": "万得 EDB 数据追踪", "hours": 24},
-    "aifinmarket_theme": {"label": "万得主题资讯", "hours": 24},
+    "aifin_research": {"label": "万得另类研报摘要(公司/行业/策略/宏观·多账号)", "hours": 24},
     "earnings_watch": {"label": "季报观察窗(日历/预期/隐波)", "hours": 6},
     "flow": {"label": "资金流(ETF/风格/空头/期权)", "hours": 24},
     "andy_macro": {"label": "Andy 宏观库(FRED vintage/识别/登记簿/勾稽)", "hours": 24},
@@ -406,19 +406,13 @@ def _pull_fresh(cfg: dict | None = None) -> dict:
         from ..ingestion import alt
         return alt.pull_source("wind_edb")
 
-    def _aifin_theme():
-        # 修 pull_theme_news 孤儿:遍历主题拉行业资讯(company_id=None)。
-        from ..ingestion.registry import THEMES
+    def _aifin_research():
+        # 另类研报摘要 sweep:全库 universe 公司资讯/公告 + 行业/策略/宏观 研究观点,
+        # 多账号轮询铺满每个订阅席位的每日配额(触顶自动 failover)。
         from ..providers import aifinmarket
         if not aifinmarket.available():
             return {"skipped": "aifinmarket disabled"}
-        n = 0
-        for tid, t in THEMES.items():
-            try:
-                n += aifinmarket.pull_theme_news(f"{t.get('nameCn') or tid} 产业链 业绩 需求")
-            except Exception as e:  # noqa: BLE001
-                log.warning("aifin theme %s: %s", tid, str(e)[:120])
-        return {"themes": len(THEMES), "docs": n}
+        return aifinmarket.pull_research_sweep()
 
     from ..config import get_settings
     s = get_settings()
@@ -432,7 +426,7 @@ def _pull_fresh(cfg: dict | None = None) -> dict:
     _run("gangtise_insight", s.gangtise_insight_hours * 3600, _gangtise_insight)
     _run("gangtise_backfill", 6 * 3600, _gangtise_backfill)
     _run("wind_edb", 24 * 3600, _wind_edb)
-    _run("aifinmarket_theme", 24 * 3600, _aifin_theme)
+    _run("aifin_research", 24 * 3600, _aifin_research)
     _run("earnings_watch", 6 * 3600, _earnings_watch)   # 季报观察窗:日历/analyst/隐含波动刷新
     _run("flow", 24 * 3600, _flow_daily)                # 资金流:ETF/风格/空头/期权 → alt_signals
     _run("andy_macro", 24 * 3600, _andy_macro)          # Andy 宏观库:连接器/识别/登记簿/勾稽
