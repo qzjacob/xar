@@ -28,8 +28,8 @@ log = get_logger("xar.kg.expert")
 QUALITY_MIN = 0.55
 # 'gangtise' 纳入 → 券商研报/纪要/专家/MD&A 走 expert 语义道:distill 成 stance-bearing
 # kg_events(expert) → semantic_facts → thesis dossier「语义事实」+ evidence_link 相对主张分类。
-ALT_SOURCES = ("wechat", "x", "news", "aifinmarket", "social", "product", "finnhub", "fmp",
-               "gangtise")
+ALT_SOURCES = ("wechat", "x", "news", "aifinmarket", "alphapai", "social", "product",
+               "finnhub", "fmp", "gangtise")
 
 
 class ExpertInsight(BaseModel):

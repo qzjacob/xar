@@ -194,6 +194,19 @@ class Settings(BaseSettings):
     # macro dims run every sweep (deduped by doc_id).
     aifinmarket_company_shards: int = 6
 
+    # --- Alpha派 (AlphaPai, 讯兔科技投研 SaaS) — CN/HK/US 投研另类数据源 -----------
+    # open-api.rabyte.cn,header `app-agent: <key>`。recall-data(纪要/研报/点评/公告/三方研报)+
+    # stock/agent(公司一页纸/投资逻辑)→ documents(source='alphapai')。key 空 -> 跳过。
+    alphapai_api_key: str = Field(default="", validation_alias="ALPHAPAI_API_KEY")
+    alphapai_base_url: str = Field(default="https://open-api.rabyte.cn",
+                                   validation_alias="ALPHAPAI_BASE_URL")
+    enable_alphapai: bool = True
+    # 核心召回类型(信息密度序):内资纪要/美股纪要/研报/外资研报/三方研报/点评/公告/社媒
+    alphapai_recall_types: str = "roadShow,roadShow_us,report,foreign_report,third_report,comment,ann,social_media"
+    alphapai_lookback_days: int = 30            # recall 只取近 N 天(取 FRESH 内容)
+    alphapai_company_shards: int = 6            # 公司维分片(4h 节拍→24h 覆盖全库)
+    alphapai_agent_modes: str = "2,7"           # 核心公司拉的 agent 模式:2=公司一页纸 7=投资逻辑
+
     @property
     def aifinmarket_tokens(self) -> list[str]:
         """Ordered, de-duplicated subscription-token pool. Reads numbered seats
@@ -268,7 +281,7 @@ class Settings(BaseSettings):
     # --- Daily auto-ingest system (orchestration/daily.py + Dagster sidecar) ---
     # Which sources the daily loop pulls (CSV; each unavailable one is skipped).
     daily_enabled_sources: str = ("edgar,cninfo,finnhub,fmp,twitter,reddit,wechat,"
-                              "aifinmarket,futu,polymarket,rss,macro")
+                              "aifinmarket,alphapai,futu,polymarket,rss,macro")
     daily_run_hour: int = 6            # nightly schedule hour (cron "0 {hour} * * *")
     daily_universe_shards: int = 8     # full universe split into N nightly shards
     daily_news_lookback_days: int = 7  # default Finnhub/FMP news pull window

@@ -120,6 +120,7 @@ FETCHY_SOURCES: dict[str, dict] = {   # cadence key → 标签/节拍(小时;Non
     "gangtise_backfill": {"label": "Gangtise 历史回填", "hours": 6},
     "wind_edb": {"label": "万得 EDB 数据追踪", "hours": 24},
     "aifin_research": {"label": "万得另类研报摘要(公司/行业/策略/宏观·多账号·分片)", "hours": 4},
+    "alphapai_research": {"label": "AlphaPai 投研(纪要/研报/点评/公告 + 一页纸/投资逻辑·分片)", "hours": 4},
     "earnings_watch": {"label": "季报观察窗(日历/预期/隐波)", "hours": 6},
     "flow": {"label": "资金流(ETF/风格/空头/期权)", "hours": 24},
     "andy_macro": {"label": "Andy 宏观库(FRED vintage/识别/登记簿/勾稽)", "hours": 24},
@@ -427,6 +428,24 @@ def _pull_fresh(cfg: dict | None = None) -> dict:
             out["shard"] = f"{cur + 1}/{shards}"
         return out
 
+    def _alphapai_research():
+        # AlphaPai 另类投研 sweep(源可能过期→激进抓取,数据落库优先):公司维分片 recall + 主题 recall
+        # + 核心公司 agent 一页纸/投资逻辑。公司维分片(4h 节拍→24h 覆盖全库)。
+        from ..config import get_settings
+        from ..ingestion.registry import COMPANIES
+        from ..providers import alphapai
+        if not (alphapai.available() and get_settings().enable_alphapai):
+            return {"skipped": "alphapai disabled"}
+        shards = max(1, get_settings().alphapai_company_shards)
+        ids = [c["id"] for c in COMPANIES]
+        cur = int(get_state("alphapai_shard").get("i", 0)) % shards
+        save_state("alphapai_shard", {"i": (cur + 1) % shards})
+        shard_ids = [cid for n, cid in enumerate(ids) if n % shards == cur]
+        out = alphapai.pull_research_sweep(company_universe=shard_ids)
+        if isinstance(out, dict):
+            out["shard"] = f"{cur + 1}/{shards}"
+        return out
+
     from ..config import get_settings
     s = get_settings()
     _run("twitter", 3600, _twitter)
@@ -440,6 +459,7 @@ def _pull_fresh(cfg: dict | None = None) -> dict:
     _run("gangtise_backfill", 6 * 3600, _gangtise_backfill)
     _run("wind_edb", 24 * 3600, _wind_edb)
     _run("aifin_research", 4 * 3600, _aifin_research)   # 4h × 6 分片 = 24h 覆盖全库(不阻塞抽取)
+    _run("alphapai_research", 4 * 3600, _alphapai_research)   # AlphaPai 投研:4h × 6 分片 = 24h 覆盖全库
     _run("earnings_watch", 6 * 3600, _earnings_watch)   # 季报观察窗:日历/analyst/隐含波动刷新
     _run("flow", 24 * 3600, _flow_daily)                # 资金流:ETF/风格/空头/期权 → alt_signals
     _run("andy_macro", 24 * 3600, _andy_macro)          # Andy 宏观库:连接器/识别/登记簿/勾稽

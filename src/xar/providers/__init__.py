@@ -14,15 +14,15 @@ from __future__ import annotations
 
 from ..ingestion.registry import COMPANIES
 from ..logging import get_logger
-from . import (aifinmarket, arxiv, finnhub, fmp, futu, gangtise, journals, polygon,
-               polymarket, reddit, twitter, wind, yahoo)
+from . import (aifinmarket, alphapai, arxiv, finnhub, fmp, futu, gangtise, journals,
+               polygon, polymarket, reddit, twitter, wind, yahoo)
 
 log = get_logger("xar.providers")
 
 # Structured market-data providers in preference order (all that are available run).
 # gangtise = deep CN sell-side research (financials/valuation/一致预期 + 投研文本); CN-only,
 # no-ops for non-CN names (unresolvable code) and OFF unless enable_gangtise + GTS keys.
-_MARKET = [fmp, finnhub, polygon, yahoo, wind, aifinmarket, futu, gangtise]
+_MARKET = [fmp, finnhub, polygon, yahoo, wind, aifinmarket, alphapai, futu, gangtise]
 
 
 def status() -> dict[str, bool]:
@@ -32,9 +32,9 @@ def status() -> dict[str, bool]:
         "polygon": polygon.available(), "yahoo": yahoo.available(),
         "wind": wind.available(), "polymarket": polymarket.available(),
         "twitter": twitter.available(), "reddit": reddit.available(),
-        "aifinmarket": aifinmarket.available(), "arxiv": arxiv.available(),
-        "journals": journals.available(), "futu": futu.available(),
-        "gangtise": gangtise.available(),
+        "aifinmarket": aifinmarket.available(), "alphapai": alphapai.available(),
+        "arxiv": arxiv.available(), "journals": journals.available(),
+        "futu": futu.available(), "gangtise": gangtise.available(),
     }
 
 

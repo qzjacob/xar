@@ -13,7 +13,7 @@ ORDER BY clause.
 from __future__ import annotations
 
 # Highest-priority ingest streams — processed before all other pending documents.
-PRIORITY_SOURCES: tuple[str, ...] = ("aifinmarket",)
+PRIORITY_SOURCES: tuple[str, ...] = ("aifinmarket", "alphapai")
 
 
 def priority_order_sql(col: str = "source") -> str:

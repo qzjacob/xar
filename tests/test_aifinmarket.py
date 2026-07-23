@@ -48,6 +48,10 @@ class _FakeS:
 
 # ── 席位池派生 ────────────────────────────────────────────────────────────────
 def test_token_pool_dedup_and_order(monkeypatch):
+    # 先清掉任何泄漏的 AIFINMARKET{i}_TOKEN(全量套件里前序测试/宿主 env 可能残留),
+    # 否则 aifinmarket_tokens 会扫到它们污染断言(隔离防污)。
+    for i in range(1, 33):
+        monkeypatch.delenv(f"AIFINMARKET{i}_TOKEN", raising=False)
     for i in (1, 2, 3):
         monkeypatch.setenv(f"AIFINMARKET{i}_TOKEN", f"tok{i}")
     monkeypatch.setenv("AIFINMARKET4_TOKEN", "")        # 空槽被跳过

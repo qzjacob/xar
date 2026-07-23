@@ -10,9 +10,10 @@ from xar import pipeline_priority as pp
 
 
 def test_priority_order_sql_and_membership():
-    assert "aifinmarket" in pp.PRIORITY_SOURCES
-    assert pp.priority_order_sql("d.source") == "(d.source IN ('aifinmarket'))"
-    assert pp.priority_order_sql("source") == "(source IN ('aifinmarket'))"
+    assert "aifinmarket" in pp.PRIORITY_SOURCES and "alphapai" in pp.PRIORITY_SOURCES
+    lit = ", ".join("'" + s + "'" for s in pp.PRIORITY_SOURCES)
+    assert pp.priority_order_sql("d.source") == f"(d.source IN ({lit}))"
+    assert pp.priority_order_sql("source") == f"(source IN ({lit}))"
 
 
 def test_build_kg_prioritizes_aifinmarket(isolated_db, monkeypatch):

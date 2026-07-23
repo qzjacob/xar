@@ -100,6 +100,15 @@ def _run_source(src: str, ids: list[str], since, *, shard: int | None = None) ->
                 pulled += providers.aifinmarket.pull_fundamentals(cid)
             except Exception as e:  # noqa: BLE001
                 log.warning("aifinmarket %s: %s", cid, e)
+    elif src == "alphapai":
+        # AlphaPai 投研 recall(per-shard 公司)。全量抓取由 glm_worker alphapai_research sweep 分片跑;
+        # daily 分片只补公司维 recall(数据落库优先,源可能过期)。
+        if providers.alphapai.available():
+            for cid in ids:
+                try:
+                    pulled += providers.alphapai.pull_company(cid)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("alphapai %s: %s", cid, e)
     elif src == "futu":
         # Futu OpenD (富途): snapshot valuation + 资讯 news + 板块 plates for HK/CN/US
         # names. OFF unless enable_futu + OpenD reachable (available() gates it).

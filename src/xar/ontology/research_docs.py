@@ -22,7 +22,7 @@ from .thesis import PILLAR_KINDS
 class ResearchDocSpec:
     doc_type: str                   # documents.doc_type 取值(全局唯一)
     label_zh: str
-    vendor: str                     # 'gangtise' | 'aifinmarket'
+    vendor: str                     # 'gangtise' | 'aifinmarket' | 'alphapai'(自由文本,标注来源)
     endpoint: str                   # 文档化真相(open-insight/broker-report/getList …)
     kb_resource_type: int | None    # Gangtise FILE_TYPE_MAP 码(10/40/60);非 KB 检索类=None
     extraction: str = "expert"      # 'expert'(语义洞见道)| 'kg_only' | 'none'
