@@ -175,3 +175,27 @@ def test_gts_code_does_not_cache_transient_failure(monkeypatch):
     monkeypatch.setattr(client, "post",
                         lambda url, payload, **k: {"list": [{"gtsCode": "600519.SH"}]})
     assert g.gts_code("tz") == "600519.SH" and g._CODE_CACHE["tz"] == "600519.SH"
+
+
+def test_dead_endpoint_circuit_breaker(monkeypatch):
+    # 返回 999010(接口地址不存在)的端点应熔断:首打命中网络,之后直接短路、零 HTTP。
+    client._DEAD_URLS.clear()
+    monkeypatch.setattr(client, "_auth", lambda force=False: {"token": "t"})
+    monkeypatch.setattr(client, "_headers", lambda tok: {})
+    calls = {"n": 0}
+
+    class _R:
+        def json(self):
+            return {"code": "999010", "msg": "接口地址不存在"}
+
+    def fake_post(url, headers=None, json=None, timeout=None):   # noqa: A002
+        calls["n"] += 1
+        return _R()
+
+    monkeypatch.setattr(client.requests, "post", fake_post)
+    url = client.MGMT_DISCUSS_EC_URL
+    assert client.post(url, {"x": 1}) is None          # 首打:命中网络,拿到 999010
+    assert url in client._DEAD_URLS                    # 熔断记录
+    assert client.post(url, {"x": 1}) is None          # 二打:短路
+    assert calls["n"] == 1                              # 只发生一次 HTTP
+    client._DEAD_URLS.clear()

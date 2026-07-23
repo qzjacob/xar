@@ -96,9 +96,17 @@ def available() -> bool:
     return bool(s.enable_gangtise and s.gts_access_key and s.gts_secret_key)
 
 
+# 熔断:返回 999010(接口地址不存在)的端点本进程内不再重复请求,避免每轮对已下线端点
+# (如 management_discuss/*)逐公司空打几十次 HTTP、既耗时又刷屏 warning。
+_DEAD_URLS: set[str] = set()
+
+
 def post(url: str, payload: dict, *, _retry: bool = True) -> dict | None:
     """POST an authed data request; returns body['data'] on code 000000, else None.
-    Re-auths once on an invalid-token response (token expiry mid-run)."""
+    Re-auths once on an invalid-token response (token expiry mid-run). Endpoints that
+    answer 999010 (接口地址不存在) are circuit-broken for the rest of the process."""
+    if url in _DEAD_URLS:
+        return None
     tok = _auth()
     if tok is None:
         return None
@@ -114,6 +122,11 @@ def post(url: str, payload: dict, *, _retry: bool = True) -> dict | None:
     if code == "0000001008" and _retry:            # token invalid/expired → re-auth once
         _auth(force=True)
         return post(url, payload, _retry=False)
+    if code == "999010":                           # 接口地址不存在 → 熔断,本进程不再打该端点
+        _DEAD_URLS.add(url)
+        log.warning("gangtise %s code=999010 接口地址不存在 → 熔断(本进程停打该端点)",
+                    url.rsplit("/", 1)[-1])
+        return None
     log.warning("gangtise %s code=%s msg=%s", url.rsplit("/", 1)[-1], code, body.get("msg"))
     return None
 

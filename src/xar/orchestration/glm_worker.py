@@ -38,7 +38,7 @@ GLM_PIN: tuple[str, ...] = ("glm-5.2-sub", "glm-4.6-sub")
 # 本地优先头(minis 3090/ollama,算力调度方案 §9):XAR_GLM_WORKER_LOCAL_FIRST=true 时
 # _fetchy_pin 把它前插到钉扎链首 —— 前插而非替换:本地零成本,端点不可达(含 mlrun
 # --exclusive 独占停机)由 llm.complete 的候选轮转自动回落云 GLM(抢占协议的消费端)。
-LOCAL_MODEL_ID = "glm4-local"
+LOCAL_MODEL_ID = "qwen3-14b-local"   # 默认本地抽取头(config.glm_worker_local_model 可覆盖)
 
 # 精确额度识别:类型优先(litellm.RateLimitError),文案兜底。刻意不含 'exceed'/'429'
 # —— llm.BudgetExceeded("run kg-x exceeded $N")与 ContextWindowExceededError 不是额度耗尽。
@@ -119,7 +119,7 @@ FETCHY_SOURCES: dict[str, dict] = {   # cadence key → 标签/节拍(小时;Non
     "gangtise_insight": {"label": "Gangtise 投研文本(研报/纪要)", "hours": None},
     "gangtise_backfill": {"label": "Gangtise 历史回填", "hours": 6},
     "wind_edb": {"label": "万得 EDB 数据追踪", "hours": 24},
-    "aifin_research": {"label": "万得另类研报摘要(公司/行业/策略/宏观·多账号)", "hours": 24},
+    "aifin_research": {"label": "万得另类研报摘要(公司/行业/策略/宏观·多账号·分片)", "hours": 4},
     "earnings_watch": {"label": "季报观察窗(日历/预期/隐波)", "hours": 6},
     "flow": {"label": "资金流(ETF/风格/空头/期权)", "hours": 24},
     "andy_macro": {"label": "Andy 宏观库(FRED vintage/识别/登记簿/勾稽)", "hours": 24},
@@ -230,20 +230,22 @@ def save_fetchy(cfg: dict) -> dict:
     return fetchy_config()
 
 
-def _fetchy_pin(cfg: dict) -> tuple[str, ...]:
+def _fetchy_pin(cfg: dict, *, local: bool = True) -> tuple[str, ...]:
     """选中的模型放链首,GLM_PIN 其余保持为回退链;Fetchy 未显式选型时,本地优先开关
-    (glm_worker_local_first)再往前插本地头(glm_worker_local_model,默认 glm4-local——
+    (glm_worker_local_first)再往前插本地头(glm_worker_local_model,默认 qwen3-14b-local——
     换代/回滚改 env 即可,零代码)。显式选型 = 操作员意图,压过本地优先。
     仅在云订阅 key 在位(_sub_ready)时前插 —— 本地头会让 run_once 的订阅门(链首非
     GLM 则放行)失效,故零计量回退不变量必须在此保住:回退尾必须是订阅 GLM。
-    配置的本地模型不可用(拼错/PREVIEW/无 key)= 安全降级回纯云钉扎链,绝不炸工人。"""
+    配置的本地模型不可用(拼错/PREVIEW/无 key)= 安全降级回纯云钉扎链,绝不炸工人。
+    local=False → 不前插本地头(供 thesis 等 STRONG 任务:qwen-14B 干强任务吃力/易违规,
+    强任务保持云端强模型路由;本地优先仅收窄到 bulk 抽取 build_kg/expert)。"""
     m = cfg.get("model")
     if m and m != GLM_PIN[0]:
         return (m, *tuple(x for x in GLM_PIN if x != m))
     from ..config import get_settings
 
     s = get_settings()
-    if s.glm_worker_local_first and _sub_ready():
+    if local and s.glm_worker_local_first and _sub_ready():
         mid = s.glm_worker_local_model or LOCAL_MODEL_ID
         reason = model_usable(mid)
         if reason is None:
@@ -407,12 +409,23 @@ def _pull_fresh(cfg: dict | None = None) -> dict:
         return alt.pull_source("wind_edb")
 
     def _aifin_research():
-        # 另类研报摘要 sweep:全库 universe 公司资讯/公告 + 行业/策略/宏观 研究观点,
-        # 多账号轮询铺满每个订阅席位的每日配额(触顶自动 failover)。
+        # 另类研报摘要 sweep:公司维**分片轮转**(每轮 1/N 家,配 4h 节拍 → 24h 覆盖全库),
+        # 行业/策略/宏观每轮全量(doc_id 去重)。分片使单轮 ~6min、不再 40min 阻塞抽取/灌爆队列;
+        # 多账号轮询铺满每席位配额(触顶自动 failover)。
+        from ..config import get_settings
+        from ..ingestion.registry import COMPANIES
         from ..providers import aifinmarket
         if not aifinmarket.available():
             return {"skipped": "aifinmarket disabled"}
-        return aifinmarket.pull_research_sweep()
+        shards = max(1, get_settings().aifinmarket_company_shards)
+        ids = [c["id"] for c in COMPANIES]
+        cur = int(get_state("aifin_shard").get("i", 0)) % shards
+        save_state("aifin_shard", {"i": (cur + 1) % shards})
+        shard_ids = [cid for n, cid in enumerate(ids) if n % shards == cur]
+        out = aifinmarket.pull_research_sweep(company_universe=shard_ids)
+        if isinstance(out, dict):
+            out["shard"] = f"{cur + 1}/{shards}"
+        return out
 
     from ..config import get_settings
     s = get_settings()
@@ -426,7 +439,7 @@ def _pull_fresh(cfg: dict | None = None) -> dict:
     _run("gangtise_insight", s.gangtise_insight_hours * 3600, _gangtise_insight)
     _run("gangtise_backfill", 6 * 3600, _gangtise_backfill)
     _run("wind_edb", 24 * 3600, _wind_edb)
-    _run("aifin_research", 24 * 3600, _aifin_research)
+    _run("aifin_research", 4 * 3600, _aifin_research)   # 4h × 6 分片 = 24h 覆盖全库(不阻塞抽取)
     _run("earnings_watch", 6 * 3600, _earnings_watch)   # 季报观察窗:日历/analyst/隐含波动刷新
     _run("flow", 24 * 3600, _flow_daily)                # 资金流:ETF/风格/空头/期权 → alt_signals
     _run("andy_macro", 24 * 3600, _andy_macro)          # Andy 宏观库:连接器/识别/登记簿/勾稽
@@ -681,9 +694,12 @@ def run_once(*, batch_docs: int | None = None, backfill_units: int | None = None
         # ok 态零探针开销:直接抽取;额度耗尽由 _llm_stage 内的错误定性翻转状态
         out["extract"], q = _llm_stage(batch_docs, q, pin)
 
-    # 另类数据高频校正闭环(零 LLM 的信号→事件 每轮做;论点重建仅在额度 ok 时)
+    # 另类数据高频校正闭环(零 LLM 的信号→事件 每轮做;论点重建仅在额度 ok 时)。
+    # thesis 重建是 STRONG 任务 → 走**云端** pin(local=False,不前插 qwen),
+    # 本地优先仅收窄到上面的 bulk 抽取(_llm_stage)。
     if stages_on.get("alt_correction", True):
-        out["alt_correct"] = _alt_correction(q, s.glm_worker_thesis_rebuilds, pin)
+        out["alt_correct"] = _alt_correction(q, s.glm_worker_thesis_rebuilds,
+                                             _fetchy_pin(cfg, local=False))
 
     # 独立抓取审计(每日):TaskClass.AUDIT 强 token 模型,**在 pinned 与 quota 门之外**——
     # 验收模型 ≠ 生产 GLM,GLM 耗尽也不影响审计(独立性的另一半)。模块级函数便于测试打桩。

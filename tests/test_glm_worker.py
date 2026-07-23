@@ -67,11 +67,13 @@ def test_fetchy_pin_local_first(monkeypatch):
     monkeypatch.setenv("OLLAMA_API_KEY", "ollama")
     monkeypatch.setenv("GLM_SUB_API_KEY", "test-sub")
     monkeypatch.setenv("XAR_GLM_WORKER_LOCAL_FIRST", "true")
-    # 钉死本地头默认值:生产 .env 已切 qwen3-14b-local(Phase 4),不钉则环境泄漏
-    monkeypatch.setenv("XAR_GLM_WORKER_LOCAL_MODEL", "glm4-local")
+    # 钉死本地头值 = 现默认 qwen3-14b-local(与 LOCAL_MODEL_ID 一致),不钉则环境泄漏
+    monkeypatch.setenv("XAR_GLM_WORKER_LOCAL_MODEL", "qwen3-14b-local")
     get_settings.cache_clear()
     try:
         assert gw._fetchy_pin({}) == (gw.LOCAL_MODEL_ID, *gw.GLM_PIN)
+        # bulk-only:STRONG 任务(local=False)不前插本地头,走纯云钉扎链
+        assert gw._fetchy_pin({}, local=False) == gw.GLM_PIN
         # Fetchy 显式选型 = 操作员意图,本地头让位
         explicit = gw._fetchy_pin({"model": "kimi-k3-sub"})
         assert explicit[0] == "kimi-k3-sub" and gw.LOCAL_MODEL_ID not in explicit
@@ -79,7 +81,7 @@ def test_fetchy_pin_local_first(monkeypatch):
         monkeypatch.setenv("GLM_SUB_API_KEY", "")
         get_settings.cache_clear()
         assert gw._fetchy_pin({}) == gw.GLM_PIN
-        # 开关关(默认)→ 不前插
+        # 开关显式关(默认现为开)→ 不前插
         monkeypatch.setenv("GLM_SUB_API_KEY", "test-sub")
         monkeypatch.setenv("XAR_GLM_WORKER_LOCAL_FIRST", "false")
         get_settings.cache_clear()
@@ -228,7 +230,7 @@ def test_run_once_exhausted_probes_and_skips(state_db, monkeypatch):
     gw.save_state("quota", {"status": "exhausted", "exhaust_count": 1})
     # 钉死纯云钉扎链:宿主真实 .env 的 XAR_GLM_WORKER_LOCAL_FIRST=true 会让本地头
     # 领链首 → 订阅门(链首非 GLM 则放行)绕过 probe,本测试的额度状态机断言随环境漂移。
-    monkeypatch.setattr(gw, "_fetchy_pin", lambda cfg: gw.GLM_PIN)
+    monkeypatch.setattr(gw, "_fetchy_pin", lambda cfg, local=True: gw.GLM_PIN)
     monkeypatch.setattr(gw, "_sub_ready", lambda: True)
     monkeypatch.setattr(gw, "probe", lambda: False)
     monkeypatch.setattr(gw, "_pull_fresh", lambda cfg=None: {"stub": True})

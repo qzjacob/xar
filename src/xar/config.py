@@ -51,8 +51,8 @@ class Settings(BaseSettings):
     # (见 glm_worker._fetchy_pin);端点不可达(如 mlrun --exclusive 停机)由候选轮转自动回落云 GLM。
     ollama_api_key: str = Field(default="", validation_alias="OLLAMA_API_KEY")
     ollama_api_base: str = Field(default="", validation_alias="OLLAMA_API_BASE")
-    glm_worker_local_first: bool = False   # on → glmworker 本地优先(需 OLLAMA_API_KEY + GLM 订阅 key 双在场)
-    glm_worker_local_model: str = "glm4-local"  # 本地头 registry id;换代/回滚 = 改 env 重建容器,零代码(Phase 4)
+    glm_worker_local_first: bool = True    # 默认开:抽取第一顺位=本地 Qwen(零成本/不限流/不饱和),GLM 订阅仅作回退
+    glm_worker_local_model: str = "qwen3-14b-local"  # 本地头 registry id(minis ollama qwen3-14b-xar);换代=改 env 重建,零代码
     llm_local_timeout_s: int = 180         # 本地候选 per-call 超时(防挂死;连接拒绝本就秒败→轮转)
     # Claude Max subscription via the Agent SDK (executor="agent_sdk"). Zero per-token bill —
     # runs on the Max plan's OAuth login. Host-only (needs the `claude` CLI + ~/.claude creds);
@@ -184,8 +184,15 @@ class Settings(BaseSettings):
     # so numbered vars land in os.environ after a recreate.
     aifinmarket_max_accounts: int = 32          # how many AIFINMARKET{i}_TOKEN slots to scan
     aifinmarket_daily_calls_per_account: int = 0  # per-seat/day safety cap (0 = unlimited)
-    aifinmarket_news_top_k: int = 5             # docs pulled per research-summary query
+    aifinmarket_news_top_k: int = 5             # docs/query for industry/strategy/macro dims
+    aifinmarket_company_top_k: int = 2          # docs/company for the (bulk) company dim — kept
+                                                # low so全库 universe 入流不压垮本地 qwen 抽取吞吐
     aifinmarket_min_interval_seconds: float = 0.3  # dispatcher throttle between MCP calls
+    # Company-dim sweep is sharded across N runs so no single run floods the queue /
+    # blocks the worker's extraction batch. At the aifin_research 4h cadence, N=6 →
+    # full universe covered every 24h (~1/6 of companies per run). Industry/strategy/
+    # macro dims run every sweep (deduped by doc_id).
+    aifinmarket_company_shards: int = 6
 
     @property
     def aifinmarket_tokens(self) -> list[str]:

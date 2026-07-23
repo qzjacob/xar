@@ -365,7 +365,9 @@ def pull_research_sweep(*, company_universe: list[str] | None = None) -> dict:
         if not name:
             continue
         try:
-            counts["company_news"] += _pull_news_docs(cid, f"{name} 最新 研报 观点 业绩", scope="company")
+            counts["company_news"] += _pull_news_docs(
+                cid, f"{name} 最新 研报 观点 业绩", scope="company",
+                top_k=get_settings().aifinmarket_company_top_k)
         except Exception as e:  # noqa: BLE001
             log.warning("aifin company news %s: %s", cid, str(e)[:120])
         if _cn_code(cid):
