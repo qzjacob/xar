@@ -101,13 +101,24 @@ def _system_phanny() -> str:
 7. **不要输出 size**(size 由系统按 conviction/赔率/波动确定性计算)。"""
 
 
-def _primary_pin():
-    """host 择优深度研究订阅执行器;无 → deepseek 强 token(仍显式 high effort)。"""
-    from ..models import agentsdk, codex_cli, llm
+def _host_executor() -> str | None:
+    """host 上可用的订阅深度研究执行器(codex/claude-max);无 → None(裸 token)。"""
+    from ..models import agentsdk, codex_cli
     s = get_settings()
     if s.codex_enabled and codex_cli.available():
-        return llm.CODEX_PIN
+        return "codex"
     if s.anthropic_max_enabled and agentsdk.available():
+        return "claude-max"
+    return None
+
+
+def _primary_pin():
+    """host 择优深度研究订阅执行器;无 → deepseek 强 token(仍显式 high effort)。"""
+    from ..models import llm
+    ex = _host_executor()
+    if ex == "codex":
+        return llm.CODEX_PIN
+    if ex == "claude-max":
         return llm.CLAUDE_MAX_PIN
     return ("deepseek-v4-pro",)
 
@@ -147,6 +158,10 @@ def build_one(cid: str, *, event: dict | None = None, force: bool = False, run_i
     if prev and not force:
         return {"status": "skipped", "company_id": cid, "event_date": str(event_date),
                 "version": prev["version"], "reason": "verdict locked (use force)"}
+    # host-only 闸(可选):无订阅执行器时 docker worker 延后,host 专跑(整本 book 较重,防 OOM)。
+    if get_settings().phanny_verdict_host_only and _host_executor() is None:
+        return {"status": "deferred_host", "company_id": cid, "event_date": str(event_date),
+                "reason": "no subscription executor (host-only)"}
     d = dossier_phanny(cid, event)
     if d is None:
         return {"status": "no_data", "company_id": cid, "reason": "unknown company"}

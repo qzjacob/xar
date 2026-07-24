@@ -55,6 +55,7 @@ def _install_stubs(monkeypatch, conv_map, dir_map):
 
     monkeypatch.setattr(engine, "_next_earnings", fake_next)
     monkeypatch.setattr(engine, "dossier_phanny", fake_dossier)
+    monkeypatch.setattr(engine, "_host_executor", lambda: "claude-max")   # 绕过 host_only 闸(与配置解耦)
     monkeypatch.setattr(llm, "complete_json", fake_cj)
 
 

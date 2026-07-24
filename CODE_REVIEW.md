@@ -1154,3 +1154,56 @@ K.1.1（一行断言 + README）、K.1.2（schema 两行）、K.2.2（一行）�
 ### K.3.2 追加处置（2026-07-22，RV-4）：测试隔离基建落地
 
 K.6 表中 K.3.2 的「余 2 红」已**全部修复**（全量 pytest **773 passed / 0 failed**）。根因是聚合读到共享库里不属于本测试的数据：`calibration()` 数全部 verdicts（生产 1 条污染桶计数）、`link_company._pending_facts` 走 `semantic_facts` 数到 ServiceNow(`now`) **162 条生产 kg_events + 8 条 expert_insights**。安全修复不能删 162 条真实生产数据，故建**事务回滚测试隔离基建** `tests/conftest.py::isolated_db`：单连接单事务 + `db.conn/db.tx` 猴补为 no-op-commit 代理 + teardown ROLLBACK；测试可在事务内临时删全聚合域校验干净聚合而**绝不落库**。实测 rollback 后生产数据完整复原（162/8/12 零丢失）。**§8.2「不采纳测试隔离基建」的裁决据此更新**：非全局 autouse、仅按需 opt-in 的轻量事务回滚 fixture 成本低、零生产风险，已采纳。
+
+---
+
+## 附录 M：Phanny 季报多空事件交易模块复核（commit `352a1d3`，2026-07-24）
+
+> 视角：延续本附录链的"可信结果 / 不埋技术债"第一性原理；聚焦单名 propose→debate→入库 流水线的健壮性与 blast radius。
+> 复核对象：commit `352a1d3`——`src/xar/phanny/{engine,book,sizing,distribution}.py` + `ontology/phanny_events.py` + 复用的 `research/earnings.py` / `models/llm.py` 上下文。
+> 方法：全量读改动文件上下文 + 逐条与 earnings 底座对照核验（line ref 均经本人核对，非转述）。**本附录仅记录意见，不修改代码。**
+> **结论先行**：**发现 1 项中等健壮性 bug**（单名 propose 失败会废弃整本 book batch）+ 2 项轻微观察（窗口口径 / 软 gross_cap）。version/UNIQUE 竞态处理、evidence grounding、haircut/integrity guards、schema CHECK 约束经核验与 earnings 底座一致、成立。bug 的修复方向已具备（build_one 的拒绝路径已就位），改动成本极低。
+
+### M.1 中等 bug（建议修复）
+
+**M.1.1 `propose()` 未捕获 LLM 失败 → 单名失败废弃整本 book batch [中]**
+
+- 位置：`src/xar/phanny/engine.py:139-143`（`propose()` 的 `complete_json` 调用）+ 调用方 `build_one`（`:170-172`）+ `book.run_book` 的 build 循环（`src/xar/phanny/book.py:41-46`）。
+- 现状：`propose()` 在 `with ctx:` 内直接调 `llm.complete_json(prompt + suffix, PhannyProposal, ...)`，**无 try/except**。这与它镜像的 earnings 底座 `research/earnings.py:521-527` 形成直接分歧——后者把同样的调用包进 `try/except → return {"status": "rejected", ...}`，`judge_due`/`earnings` 路径对单名失败做了隔离。
+- 两条失败路径均会逃逸：
+  1. **解析失败（2 次重试后）**：`complete_json` 的失败语义是 `return schema()`（`models/llm.py:494`，"safe empty default"）。但 `PhannyProposal` 的 `direction`（`phanny_events.py:46`，无默认）、`conviction`（`:47`，`Field(ge=1, le=10)` 无默认）、`dimensions`（`:48`，`Field(min_length=1, max_length=6)` 无默认）均为**必填**，故 `PhannyProposal()` 抛 `ValidationError` 而非返回可用空对象。注：这正是原审 §4.1 对 `complete_json` "safe empty default 对带必填字段的 schema 是谎言"判断的又一实例。
+  2. **provider/网络错误**：`complete()` 内 transient 错误只在候选内重试一次，其余错误与最终空响应**直接 propagate 出 `complete_json`**（该函数只 catch `model_validate` 错误）。
+- 后果：任一路径逃出 `propose` → `build_one`（`:170` 调用 `propose` 处无 guard）→ `run_book` 的 build 循环（`book.py:41`，**无 try/except**）。而 `_store` 仅在 step 5（`book.py:89-92`）执行——**在整本 build 循环 + REDEBATE（step 2，`:52-62`）全部完成后**。故**单一名字的 propose 失败即可使整批存储零条裁决**，已成功构建的名字一并丢弃。对一本 40 名的 book、`reasoning_effort="high"`，单次运行中某名两次都拿不到合法 JSON 是现实概率，爆炸半径 = 整次运行。
+- 契约已支持优雅降级：`build_one` 紧接处 `if p0 is None or problems: return {"status": "rejected", ...}`（`:171-172`），且 `run_book` 把非 `converged` 结果归入 `skipped`（`book.py:45-46`）—— 说明 per-name 隔离是预期行为，仅 propose 的异常路径未被接线。
+- 修复方向（零依赖、镜像 earnings）：在 `propose()` 的 `complete_json` 调外加 `try/except Exception as e: return (None, [f"llm: {str(e)[:160]}"], (pin[0] if pin else "token"))`，使 `build_one` 走既有拒绝分支。亦可只 catch 外层并返回与 earnings 一致的语义。**建议本修复在合入或下一轮 phanny 触及时一并处理。**
+
+### M.2 轻微观察（低危）
+
+**M.2.1 单名 vs book/portfolio 读取窗口口径不一致 [低 / 需确认]**
+
+- 位置：`engine._next_earnings`（`engine.py:25` `days = s.phanny_watch_days + s.phanny_verdict_lead_days + 2`）vs `judge_due`（`engine.py:238` 仅 `phanny_watch_days`）与 portfolio 读取（同口径）。
+- 现状：单名 `build_verdict` 经 `_next_earnings` 能取到观察窗 + lead-days 尾部的事件并成功入库；但 `judge_due`（批量）与 `portfolio()` 只扫 `phanny_watch_days`。
+- 后果：为 lead-days 尾部事件按需构建的裁决**已存储**，却不会出现在 `portfolio()`，也不会被 `judge_due` 重新选中。用户侧可能表现为"裁决凭空消失"。
+- 判断：很可能是**有意**（lead-days 部署期专供单名 build，book 只管观察窗内的及时事件）。但建议在文档/注释中写明这条边界，避免误判为数据丢失。
+
+**M.2.2 `apply_portfolio` 的 `gross_cap` 是软上限（best-effort）[低]**
+
+- 位置：`phanny/sizing.py::apply_portfolio`（经 `book.py:83` 调用，`gross_cap=s.phanny_gross_cap_pct`）。
+- 现状：floor-clip 把缩放后 < 1.0% 的仓位回抬到 1.0%，可致已实现的 gross 略超 `gross_cap`（docstring 已声明、测试断言 `<= cap*1.35`）。
+- 后果：`gross_cap` 不是硬天花板——它驱动仓位 sizing，故应在用户可见处明确"软闸"语义，避免按字面值当作硬约束。非 bug，属文档/对账口径。
+
+### M.3 经复核认可的项（成立）
+
+- **version/UNIQUE 竞态处理**（`engine._store`，`engine.py:194-209`）：`SELECT max(version)+1` 走子查询原子化，撞 UNIQUE → `raced`（不 re-raise），与 earnings `_store` 一致；并发输家安全、不炸批。
+- **evidence grounding**（`dossier_phanny` 的 `known_ids` + `validate_proposal` 对 evidence id 精确串匹配，`phanny_events.py:91-94`）：复用 earnings 的接地纪律，无回退。
+- **haircut / integrity guards**（`book._ensemble` + `distribution.convergence_integrity`，`book.py:64-70`）：批非正态时禁"降分凑收敛"，REDEBATE 仅补数据不重标 conviction。
+- **implied_move 单位一致性**：dossier（`engine.py:76`）与 `name_size`（经 `book.py:77`）共用同一 `implied_move`（小数比例），无单位混用。
+- **schema CHECK 约束**：`phanny_verdicts` 的 direction/conviction 约束与 earnings 表对称、幂等。
+
+### M.4 处置建议（按优先级，均可独立交付、零新依赖）
+
+1. **M.1.1**（propose 异常隔离）：镜像 earnings，加 try/except 返回 `(None, [...], model)`——一行级、零依赖、爆炸半径从"整批"降到"单名"。优先级最高。
+2. **M.2.1**（窗口口径）：在 `_next_earnings` / `judge_due` / `portfolio` 注释中写明 lead-days 尾部的边界语义（文档级，非代码逻辑改动）。
+3. **M.2.2**（gross_cap 软闸语义）：在 sizing docstring / ops 控制台显式标注 gross_cap 为软上限（cosmetic）。
+
+> 第二意见结论：**phanny 模块结构与 earnings 底座对称、纪律承接干净**；唯一实质问题是 **M.1.1——`propose()` 未隔离 LLM 失败，单名失败可废弃整本 book**，修复成本极低（镜像 earnings 既有 try/except 形态）。其余两项为口径/语义观察，记录待确认。version 竞态、evidence grounding、integrity guards 经核验成立。
