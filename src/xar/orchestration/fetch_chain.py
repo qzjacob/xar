@@ -101,7 +101,9 @@ def _alphapai_worklist(st: dict) -> list:
     companies = _alphapai_companies(st)
     items: list = [["minutes", cid] for cid in companies]                    # ① 纪要(相关性序)
     items += [["theme", (THEMES[t].get("nameCn") or t)] for t in THEMES]     # ② 主题
-    items += [["rest", cid] for cid in companies[: s.fetch_chain_alphapai_rest_top]]  # ③ 头部其余类型
+    top = s.fetch_chain_alphapai_rest_top                                     # ③ 其余类型(0=全库,尽用额度)
+    rest = companies if top <= 0 else companies[:top]
+    items += [["rest", cid] for cid in rest]
     return items
 
 
@@ -278,8 +280,22 @@ def _load_state() -> dict:
     start = (datetime.fromisoformat(today).date() - timedelta(days=lookback)).isoformat()
     st = {"date": today, "stage": 0, "cursor": 0, "b204": 0, "order": order,
           "pinned_ids": universe_priority_order(), "alphapai_start": start,
-          "last_done_date": raw.get("last_done_date"),
+          "last_done_date": raw.get("last_done_date"), "passes": 1, "done_at_epoch": 0.0,
           "counts": {name: {} for name in order}, "stage_log": [], "done": False}
+    save_state(STATE_KEY, st)
+    return st
+
+
+def _new_pass(st: dict) -> dict:
+    """整轮跑完后开新一轮(日内滚动重跑):保留当日 pinned 相关性序,重置阶段/游标/计数,
+    刷新 recall 窗口到近端(捕捉白天新发布的纪要)。alphapai 若已 203 耗尽,新轮里其 exhausted()
+    仍为真 → 秒跳过,不浪费调用。"""
+    lookback = get_settings().fetch_chain_refetch_days
+    st = {**st, "stage": 0, "cursor": 0, "b204": 0, "done": False,
+          "passes": int(st.get("passes", 1)) + 1,
+          "alphapai_start": (datetime.fromisoformat(st["date"]).date()
+                             - timedelta(days=lookback)).isoformat(),
+          "counts": {name: {} for name in st["order"]}, "stage_log": []}
     save_state(STATE_KEY, st)
     return st
 
@@ -303,7 +319,12 @@ def step(*, budget_seconds: float | None = None) -> dict:
         return {"skipped": "fetch_chain disabled"}
     st = _load_state()
     if st.get("done"):
-        return {"idle": st["date"], "counts": st.get("counts", {})}
+        # 日内滚动重跑:整条链跑完 → 冷却期内空转;冷却到期(且开启)→ 重开一轮抓白天新内容。
+        repoll = get_settings().fetch_chain_repoll_seconds
+        if repoll <= 0 or time.time() - float(st.get("done_at_epoch", 0)) < repoll:
+            return {"idle": st["date"], "passes": st.get("passes", 1),
+                    "counts": st.get("counts", {})}
+        st = _new_pass(st)
     reg = stages()
     order = st["order"]
     budget = budget_seconds if budget_seconds is not None else get_settings().fetch_chain_slice_seconds
@@ -313,6 +334,7 @@ def step(*, budget_seconds: float | None = None) -> dict:
     while time.monotonic() - t0 < budget:
         if int(st["stage"]) >= len(order):
             st["done"] = True
+            st["done_at_epoch"] = time.time()            # 供日内滚动重跑冷却计时
             st["last_done_date"] = st["date"]
             save_state(STATE_KEY, st)
             break

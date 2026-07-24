@@ -16,6 +16,7 @@ class _S:
     fetch_chain_order = "alphapai,gangtise,aifinmarket,alphapai_agents"
     fetch_chain_slice_seconds = 1000.0
     fetch_chain_refetch_days = 3
+    fetch_chain_repoll_seconds = 3600
     alphapai_lookback_days = 30
     fetch_chain_alphapai_rest_top = 60
     fetch_chain_agent_companies = 30
@@ -274,17 +275,64 @@ def test_first_ever_run_uses_lookback_window(mem, monkeypatch):
     assert mem[fc.STATE_KEY]["alphapai_start"] == "2026-06-24"  # 2026-07-24 - 30d
 
 
-def test_done_idles_until_next_day(mem, monkeypatch):
+def test_done_idles_within_repoll_cooldown(mem, monkeypatch):
+    monkeypatch.setattr(fc.time, "time", lambda: 5000.0)   # 5000-4000=1000 < 3600 冷却内
     mem[fc.STATE_KEY] = {
         "date": "2026-07-24", "stage": 4, "cursor": 0, "b204": 0,
         "order": ["alphapai", "gangtise", "aifinmarket", "alphapai_agents"],
-        "pinned_ids": ["c0"], "last_done_date": "2026-07-24",
-        "counts": {}, "stage_log": [], "done": True}
+        "pinned_ids": ["c0"], "last_done_date": "2026-07-24", "passes": 1,
+        "done_at_epoch": 4000.0, "counts": {}, "stage_log": [], "done": True}
     a_ran: list = []
     _reg(monkeypatch, alphapai=_fake_stage("alphapai", items=[["m", 0]], ran=a_ran)[0])
     out = fc.step()
-    assert "idle" in out
-    assert a_ran == []                             # done 早退,不跑任何 stage
+    assert "idle" in out and out["passes"] == 1
+    assert a_ran == []                             # 冷却内空转,不跑任何 stage
+
+
+def test_repoll_starts_new_pass_after_cooldown(mem, monkeypatch):
+    monkeypatch.setattr(fc.time, "time", lambda: 10000.0)  # 10000-4000=6000 > 3600 → 重开一轮
+    mem[fc.STATE_KEY] = {
+        "date": "2026-07-24", "stage": 4, "cursor": 0, "b204": 0,
+        "order": ["alphapai", "gangtise", "aifinmarket", "alphapai_agents"],
+        "pinned_ids": ["c0", "c1"], "last_done_date": "2026-07-24", "passes": 1,
+        "done_at_epoch": 4000.0, "counts": {"alphapai": {"minutes": 99}},
+        "stage_log": [], "done": True}
+    a_ran: list = []
+    _reg(monkeypatch, alphapai=_fake_stage("alphapai", items=[["m", 0]], ran=a_ran)[0])
+    _autoclock(monkeypatch)
+    out = fc.step()
+    st = mem[fc.STATE_KEY]
+    assert st["passes"] == 2                        # 新一轮
+    assert a_ran == [["m", 0]]                      # alphapai 段在新轮里被重跑(捕捉新内容)
+    assert st["alphapai_start"] == "2026-07-21"     # 窗口刷新到近端(3d)
+    assert out["done"] is True                      # 其余空阶段 → 本轮又跑完
+
+
+def test_repoll_disabled_idles_forever(mem, monkeypatch):
+    class _Soff(_S):
+        fetch_chain_repoll_seconds = 0
+    monkeypatch.setattr(fc, "get_settings", lambda: _Soff())
+    monkeypatch.setattr(fc.time, "time", lambda: 10_000_000.0)
+    mem[fc.STATE_KEY] = {
+        "date": "2026-07-24", "stage": 4, "cursor": 0, "b204": 0,
+        "order": ["alphapai", "gangtise", "aifinmarket", "alphapai_agents"],
+        "pinned_ids": ["c0"], "last_done_date": "2026-07-24", "passes": 1,
+        "done_at_epoch": 4000.0, "counts": {}, "stage_log": [], "done": True}
+    _reg(monkeypatch)
+    assert "idle" in fc.step()                      # repoll=0 → 跑完即空转到次日
+
+
+def test_alphapai_worklist_rest_covers_all_when_zero(monkeypatch):
+    import xar.ingestion.registry as reg
+    from xar.providers import alphapai
+
+    class _S0(_S):
+        fetch_chain_alphapai_rest_top = 0
+    monkeypatch.setattr(fc, "get_settings", lambda: _S0())
+    monkeypatch.setattr(alphapai, "has_cjk_name", lambda cid: True)
+    monkeypatch.setattr(reg, "THEMES", {})
+    wl = fc._alphapai_worklist({"pinned_ids": ["c0", "c1", "c2"]})
+    assert [it[1] for it in wl if it[0] == "rest"] == ["c0", "c1", "c2"]   # 0=全库
 
 
 def test_disabled_flag_skips(mem, monkeypatch):

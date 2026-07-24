@@ -218,7 +218,10 @@ class Settings(BaseSettings):
     fetch_chain_step_seconds: int = 300         # 站点节拍(worker cycle=180s → 约每 2 轮一步)
     fetch_chain_slice_seconds: int = 75         # 每步 wall-time 预算(item 之间检查,不抢占单个慢调用)
     fetch_chain_refetch_days: int = 3           # 首轮全扫后 recall 窗口(doc_id upsert 幂等,重叠无害)
-    fetch_chain_alphapai_rest_top: int = 60     # tier-3 非纪要 recall 覆盖的头部公司数
+    fetch_chain_alphapai_rest_top: int = 0      # tier-3 非纪要 recall 覆盖公司数(0=全库,尽用 alphapai 额度)
+    # 日内滚动重跑:整条链跑完后隔 N 秒重开一轮,alphapai 全天持续抓白天新发布的纪要(捕捉时效内容),
+    # 直到当日额度耗尽(203)后 alphapai 段自动秒跳过。0 = 关闭(跑完即空转到次日)。
+    fetch_chain_repoll_seconds: int = 3600
     fetch_chain_agent_companies: int = 30       # 尾段 agent 合成的公司数(CN A 股)
     fetch_chain_aifin_chunk: int = 25           # 万得公司维每 work-item 公司数
     fetch_chain_gangtise_chunk: int = 10        # gangtise broker/MD&A 每 work-item 公司数
