@@ -5,14 +5,27 @@ SSE agent 聚合→one_pager、限流 code 203/204 识别、available() 门控�
 """
 from __future__ import annotations
 
+import pytest
+
 from xar.providers import alphapai
+
+
+@pytest.fixture(autouse=True)
+def _reset_quota():
+    """额度状态是进程内模块级全局 —— 每个用例前后复位,防 203/204 测试污染后续用例
+    (否则 _post 入口短路会让之后的 pull_* 全部秒返回 0)。"""
+    alphapai._reset_quota_state()
+    yield
+    alphapai._reset_quota_state()
 
 
 class _S:
     alphapai_api_key = "k-test"
     alphapai_base_url = "https://open-api.rabyte.cn"
     alphapai_recall_types = "roadShow,report,comment"
+    alphapai_minutes_types = "roadShow,roadShow_ir,roadShow_us"
     alphapai_lookback_days = 30
+    alphapai_backoff_seconds = 900
     alphapai_agent_modes = "2,7"
     enable_alphapai = True
 
@@ -35,8 +48,9 @@ def _post_returning(payload):
 
 
 class _Stream:
-    def __init__(self, chunks):
+    def __init__(self, chunks, ctype="text/event-stream"):
         self._c = chunks
+        self.headers = {"content-type": ctype}
 
     def __enter__(self):
         return self
@@ -49,6 +63,28 @@ class _Stream:
 
     def iter_bytes(self, n=4096):
         yield from self._c
+
+
+class _StreamJSON:
+    """非 SSE 的流响应(限流/错误 JSON 体):content-type=application/json,支持 read()/json()。"""
+    def __init__(self, payload):
+        self._p = payload
+        self.headers = {"content-type": "application/json"}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def raise_for_status(self):
+        pass
+
+    def read(self):
+        pass
+
+    def json(self):
+        return self._p
 
 
 _RECALL = {"code": 200000, "message": "success", "data": [
@@ -148,3 +184,108 @@ def test_agent_skips_non_cn(monkeypatch):
     monkeypatch.setattr(alphapai, "company_by_id",
                         lambda cid: {"name": "NVIDIA", "tickers": ["NVDA"], "region": "US"})
     assert alphapai.pull_agent("nvda", 2) == 0
+
+
+# ── 额度管道(203 当日耗尽 / 204 退避 / 短路 / 沪日重置)────────────────────────────
+def _counting_post(payload, counter):
+    def post(url, headers=None, content=None, timeout=None):   # noqa: A002
+        counter.append(1)
+        return _Resp(payload)
+    return post
+
+
+def test_quota_203_exhausts_and_short_circuits(monkeypatch):
+    monkeypatch.setattr(alphapai, "get_settings", lambda: _S())
+    calls: list = []
+    monkeypatch.setattr(alphapai.httpx, "post",
+                        _counting_post({"code": 203, "message": "用户当日超过限制"}, calls))
+    assert alphapai.quota_exhausted() is False
+    assert alphapai.pull_recall("x", ["comment"], scope="company") == 0
+    assert len(calls) == 1                       # 首次调用命中 203
+    assert alphapai.quota_exhausted() is True     # 当日锁死
+    # 之后任何 pull_* 秒返回 0 且**零 HTTP**(_post 入口短路)
+    assert alphapai.pull_recall("y", ["comment"], scope="company") == 0
+    assert alphapai.pull_minutes("innolight") == 0
+    assert len(calls) == 1                        # 没有再发起任何请求
+
+
+def test_quota_204_backs_off_not_daily(monkeypatch):
+    monkeypatch.setattr(alphapai, "get_settings", lambda: _S())
+    now = [1_000_000.0]
+    monkeypatch.setattr(alphapai.time, "time", lambda: now[0])
+    calls: list = []
+    monkeypatch.setattr(alphapai.httpx, "post",
+                        _counting_post({"code": 204, "message": "系统繁忙"}, calls))
+    assert alphapai.pull_recall("x", ["comment"], scope="company") == 0
+    assert alphapai.quota_backing_off() is True    # 退避中
+    assert alphapai.quota_exhausted() is False      # 但非当日耗尽
+    assert alphapai.pull_recall("y", ["comment"], scope="company") == 0
+    assert len(calls) == 1                          # 退避窗口内不再发起请求
+    now[0] += 901                                   # 退避(900s)到期
+    assert alphapai.quota_backing_off() is False
+
+
+def test_quota_resets_on_new_cn_day(monkeypatch):
+    monkeypatch.setattr(alphapai, "get_settings", lambda: _S())
+    monkeypatch.setattr(alphapai.httpx, "post",
+                        _post_returning({"code": 203, "message": "超限"}))
+    day = ["2026-07-24"]
+    monkeypatch.setattr(alphapai, "_cn_today", lambda: day[0])
+    assert alphapai.pull_recall("x", ["comment"], scope="company") == 0
+    assert alphapai.quota_exhausted() is True
+    day[0] = "2026-07-25"                            # 沪日切换 → 额度恢复
+    assert alphapai.quota_exhausted() is False
+
+
+def test_pull_minutes_uses_minutes_types_and_start(monkeypatch):
+    monkeypatch.setattr(alphapai, "get_settings", lambda: _S())
+    captured: dict = {}
+
+    def fake_post(url, headers=None, content=None, timeout=None):   # noqa: A002
+        import json as _j
+        captured["payload"] = _j.loads(content.decode("utf-8"))
+        return _Resp({"code": 200000, "data": []})
+    monkeypatch.setattr(alphapai.httpx, "post", fake_post)
+    monkeypatch.setattr(alphapai, "company_by_id",
+                        lambda cid: {"name": "中际旭创 Innolight", "tickers": ["300308.SZ"],
+                                     "aliases": ["中际旭创"]})
+    alphapai.pull_minutes("innolight", start="2026-07-21")
+    assert captured["payload"]["recallType"] == ["roadShow", "roadShow_ir", "roadShow_us"]
+    assert captured["payload"]["startTime"] == "2026-07-21"
+    assert "纪要" in captured["payload"]["query"]
+
+
+def test_has_cjk_name(monkeypatch):
+    monkeypatch.setattr(alphapai, "company_by_id",
+                        lambda cid: {"innolight": {"name": "中际旭创", "aliases": []},
+                                     "nvda": {"name": "NVIDIA", "aliases": []}}.get(cid))
+    assert alphapai.has_cjk_name("innolight") is True
+    assert alphapai.has_cjk_name("nvda") is False
+    assert alphapai.has_cjk_name("missing") is False
+
+
+def test_agent_stream_ratelimit_json_body_detected(monkeypatch):
+    """agent(SSE)端点收到非 SSE 的限流 JSON 体(code 203)→ 走统一 code 判定,置当日耗尽。"""
+    monkeypatch.setattr(alphapai, "get_settings", lambda: _S())
+    monkeypatch.setattr(alphapai.httpx, "stream",
+                        lambda method, url, **k: _StreamJSON({"code": 203, "message": "超限"}))
+    monkeypatch.setattr(alphapai, "company_by_id",
+                        lambda cid: {"name": "中际旭创", "tickers": ["300308.SZ"],
+                                     "aliases": ["中际旭创"]})
+    assert alphapai.pull_agent("innolight", 2) == 0
+    assert alphapai.quota_exhausted() is True     # 之前 stream 分支直接绕过 code 判定,现已修复
+
+
+def test_agent_stream_inband_ratelimit_detected(monkeypatch):
+    """SSE 带内事件携带 code 204 → 识别为限流,置退避(非当日耗尽)。"""
+    monkeypatch.setattr(alphapai, "get_settings", lambda: _S())
+    now = [1_000_000.0]
+    monkeypatch.setattr(alphapai.time, "time", lambda: now[0])
+    monkeypatch.setattr(alphapai.httpx, "stream",
+                        lambda method, url, **k: _Stream([b'data: {"code":204,"message":"busy"}\n\n']))
+    monkeypatch.setattr(alphapai, "company_by_id",
+                        lambda cid: {"name": "中际旭创", "tickers": ["300308.SZ"],
+                                     "aliases": ["中际旭创"]})
+    assert alphapai.pull_agent("innolight", 7) == 0
+    assert alphapai.quota_backing_off() is True
+    assert alphapai.quota_exhausted() is False

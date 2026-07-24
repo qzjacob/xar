@@ -30,6 +30,7 @@ import json
 import re
 import threading
 import time
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -41,6 +42,10 @@ from .base import log
 
 _HOST = "mcp.wind.com.cn"
 _CJK = re.compile(r"[一-鿿]+")
+# 万得(Wind,上海)按国内日历日重置席位额度 → 席位冷却/用量的日界必须用 Asia/Shanghai。
+# 容器跑 UTC,若按 UTC 日界(00:00 UTC=08:00 北京),北京午夜刷新的额度会被本地冷却挡到早 8 点
+# 才释放(~8h 假耗尽窗)。与 alphapai/fetch_chain 的沪日日界一致。
+_CN_TZ = ZoneInfo("Asia/Shanghai")
 
 # get_stock_price_indicators 'indexes' (verbatim Wind names) -> canonical metric
 _VAL_INDEXES = {"总市值1": (FinMetric.MARKET_CAP.value, "CNY"),
@@ -65,7 +70,7 @@ def _tok_id(tok: str) -> str:
 
 
 def _today() -> str:
-    return datetime.date.today().isoformat()
+    return datetime.datetime.now(_CN_TZ).date().isoformat()
 
 
 def _reset_if_new_day() -> None:
@@ -87,6 +92,18 @@ def _pool() -> list[str]:
 
 def available() -> bool:
     return bool(_pool())
+
+
+def all_seats_exhausted() -> bool:
+    """True 当每个席位都在冷却或到达当日上限(空池亦视为耗尽)。fetch_chain 用作 aifinmarket
+    段的额度耗尽谓词 —— 全席位触顶即让位下一源。"""
+    _reset_if_new_day()
+    pool = _pool()
+    if not pool:
+        return True
+    cap = get_settings().aifinmarket_daily_calls_per_account
+    return all(_tok_id(t) in _cooldown or (cap and _usage.get(_tok_id(t), 0) >= cap)
+               for t in pool)
 
 
 def _throttle() -> None:
@@ -341,6 +358,57 @@ def pull_theme_news(theme_query: str, top_k: int = 8) -> int:
     return _pull_news_docs(None, theme_query, scope="industry", top_k=top_k)
 
 
+def pull_company_research(company_id: str) -> int:
+    """公司维 research for ONE company: 资讯(get_financial_news) + 公告(CN A 股)。
+    fetch_chain 的 aifinmarket 段公司维 work-item(与 sweep 的公司体等价)。"""
+    if not available():
+        return 0
+    c = company_by_id(company_id)
+    name = _cn_name(company_id) or (c or {}).get("name")
+    if not name:
+        return 0
+    n = 0
+    try:
+        n += _pull_news_docs(company_id, f"{name} 最新 研报 观点 业绩", scope="company",
+                             top_k=get_settings().aifinmarket_company_top_k)
+    except Exception as e:  # noqa: BLE001
+        log.warning("aifin company news %s: %s", company_id, str(e)[:120])
+    if _cn_code(company_id):
+        try:
+            n += pull_announcements(company_id)
+        except Exception as e:  # noqa: BLE001
+            log.warning("aifin company ann %s: %s", company_id, str(e)[:120])
+    return n
+
+
+def pull_global_research() -> dict:
+    """全局维(非公司域)研报摘要:行业(THEMES + 策展清单)+ 策略 + 宏观。每日只需跑一次
+    (fetch_chain 段内单个 work-item;sweep 也委托它,消除旧分片轮转下的 6× 重复调用)。"""
+    if not available():
+        return {"industry": 0, "strategy": 0, "macro": 0}
+    from ..ingestion.registry import THEMES
+    from . import aifin_catalog as cat
+
+    counts = {"industry": 0, "strategy": 0, "macro": 0}
+    theme_qs = [f"{t.get('nameCn') or tid} 产业链 行业 研报 观点" for tid, t in THEMES.items()]
+    for q in theme_qs + list(cat.INDUSTRY_QUERIES):
+        try:
+            counts["industry"] += _pull_news_docs(None, q, scope="industry")
+        except Exception as e:  # noqa: BLE001
+            log.warning("aifin industry '%s': %s", q[:24], str(e)[:120])
+    for q in cat.STRATEGY_QUERIES:
+        try:
+            counts["strategy"] += _pull_news_docs(None, q, scope="strategy")
+        except Exception as e:  # noqa: BLE001
+            log.warning("aifin strategy '%s': %s", q[:24], str(e)[:120])
+    for q in cat.MACRO_QUERIES:
+        try:
+            counts["macro"] += _pull_news_docs(None, q, scope="macro")
+        except Exception as e:  # noqa: BLE001
+            log.warning("aifin macro '%s': %s", q[:24], str(e)[:120])
+    return counts
+
+
 def pull_research_sweep(*, company_universe: list[str] | None = None) -> dict:
     """Daily 另类研报摘要 sweep across ALL subscription seats. Round-robins seats so each
     seat's daily quota is filled (not just seat 1). Four dimensions:
@@ -348,17 +416,18 @@ def pull_research_sweep(*, company_universe: list[str] | None = None) -> dict:
       行业 — THEMES(nameCn) + 策展行业清单;
       策略 — STRATEGY_QUERIES;
       宏观 — MACRO_QUERIES (定性观点;定量 EDB 归 wind_edb 轨).
-    Returns per-dimension doc counts + per-seat call usage + seats cooled by quota."""
+    Returns per-dimension doc counts + per-seat call usage + seats cooled by quota.
+    (Retained for CLI/back-compat; fetch_chain composes pull_company_research +
+    pull_global_research directly.)"""
     if not available():
         return {"skipped": "aifinmarket disabled"}
     _reset_if_new_day()
-    from ..ingestion.registry import COMPANIES, THEMES
-    from . import aifin_catalog as cat
+    from ..ingestion.registry import COMPANIES
 
     counts = {"company_news": 0, "company_ann": 0, "industry": 0, "strategy": 0, "macro": 0}
     ids = company_universe if company_universe is not None else [c["id"] for c in COMPANIES]
 
-    # 1) 公司维:全库 universe 每日全扫 —— 资讯(全部) + 公告(CN A 股)
+    # 1) 公司维:全库 universe 每日全扫 —— 资讯(全部) + 公告(CN A 股);拆分计数供观测
     for cid in ids:
         c = company_by_id(cid)
         name = _cn_name(cid) or (c or {}).get("name")
@@ -376,27 +445,10 @@ def pull_research_sweep(*, company_universe: list[str] | None = None) -> dict:
             except Exception as e:  # noqa: BLE001
                 log.warning("aifin company ann %s: %s", cid, str(e)[:120])
 
-    # 2) 行业维:THEMES + 策展行业清单
-    theme_qs = [f"{t.get('nameCn') or tid} 产业链 行业 研报 观点" for tid, t in THEMES.items()]
-    for q in theme_qs + list(cat.INDUSTRY_QUERIES):
-        try:
-            counts["industry"] += _pull_news_docs(None, q, scope="industry")
-        except Exception as e:  # noqa: BLE001
-            log.warning("aifin industry '%s': %s", q[:24], str(e)[:120])
-
-    # 3) 策略维
-    for q in cat.STRATEGY_QUERIES:
-        try:
-            counts["strategy"] += _pull_news_docs(None, q, scope="strategy")
-        except Exception as e:  # noqa: BLE001
-            log.warning("aifin strategy '%s': %s", q[:24], str(e)[:120])
-
-    # 4) 宏观维(定性)
-    for q in cat.MACRO_QUERIES:
-        try:
-            counts["macro"] += _pull_news_docs(None, q, scope="macro")
-        except Exception as e:  # noqa: BLE001
-            log.warning("aifin macro '%s': %s", q[:24], str(e)[:120])
+    # 2-4) 行业/策略/宏观维(全局,每日一次)
+    g = pull_global_research()
+    for k in ("industry", "strategy", "macro"):
+        counts[k] += g.get(k, 0)
 
     usage = dict(_usage)
     _persist_usage(usage)

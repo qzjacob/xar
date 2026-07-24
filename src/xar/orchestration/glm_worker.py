@@ -116,11 +116,10 @@ FETCHY_SOURCES: dict[str, dict] = {   # cadence key → 标签/节拍(小时;Non
     "alt": {"label": "另类数据追踪器", "hours": 6},
     "futu_news": {"label": "富途资讯", "hours": 3},
     "gangtise": {"label": "Gangtise 结构化(财务/预期)", "hours": 12},
-    "gangtise_insight": {"label": "Gangtise 投研文本(研报/纪要)", "hours": None},
     "gangtise_backfill": {"label": "Gangtise 历史回填", "hours": 6},
     "wind_edb": {"label": "万得 EDB 数据追踪", "hours": 24},
-    "aifin_research": {"label": "万得另类研报摘要(公司/行业/策略/宏观·多账号·分片)", "hours": 4},
-    "alphapai_research": {"label": "AlphaPai 投研(纪要/研报/点评/公告 + 一页纸/投资逻辑·分片)", "hours": 4},
+    "alt_fetch_chain": {"label": "另类语义链(AlphaPai纪要→Gangtise→万得→Agent·相关性×额度接力)",
+                        "hours": None},
     "earnings_watch": {"label": "季报观察窗(日历/预期/隐波)", "hours": 6},
     "flow": {"label": "资金流(ETF/风格/空头/期权)", "hours": 24},
     "andy_macro": {"label": "Andy 宏观库(FRED vintage/识别/登记簿/勾稽)", "hours": 24},
@@ -395,11 +394,6 @@ def _pull_fresh(cfg: dict | None = None) -> dict:
         save_state("cursor", cur)
         return {"attempted": len(todo), "ok": ok, "off": off}
 
-    def _gangtise_insight():
-        # 非标语义抓取(券商研报/纪要/MD&A)——核心优先 + 每日刷新;零 LLM。
-        from ..providers.gangtise import planner
-        return planner.fresh_sweep()
-
     def _gangtise_backfill():
         from ..config import get_settings
         from ..providers.gangtise import planner
@@ -409,42 +403,12 @@ def _pull_fresh(cfg: dict | None = None) -> dict:
         from ..ingestion import alt
         return alt.pull_source("wind_edb")
 
-    def _aifin_research():
-        # 另类研报摘要 sweep:公司维**分片轮转**(每轮 1/N 家,配 4h 节拍 → 24h 覆盖全库),
-        # 行业/策略/宏观每轮全量(doc_id 去重)。分片使单轮 ~6min、不再 40min 阻塞抽取/灌爆队列;
-        # 多账号轮询铺满每席位配额(触顶自动 failover)。
-        from ..config import get_settings
-        from ..ingestion.registry import COMPANIES
-        from ..providers import aifinmarket
-        if not aifinmarket.available():
-            return {"skipped": "aifinmarket disabled"}
-        shards = max(1, get_settings().aifinmarket_company_shards)
-        ids = [c["id"] for c in COMPANIES]
-        cur = int(get_state("aifin_shard").get("i", 0)) % shards
-        save_state("aifin_shard", {"i": (cur + 1) % shards})
-        shard_ids = [cid for n, cid in enumerate(ids) if n % shards == cur]
-        out = aifinmarket.pull_research_sweep(company_universe=shard_ids)
-        if isinstance(out, dict):
-            out["shard"] = f"{cur + 1}/{shards}"
-        return out
-
-    def _alphapai_research():
-        # AlphaPai 另类投研 sweep(源可能过期→激进抓取,数据落库优先):公司维分片 recall + 主题 recall
-        # + 核心公司 agent 一页纸/投资逻辑。公司维分片(4h 节拍→24h 覆盖全库)。
-        from ..config import get_settings
-        from ..ingestion.registry import COMPANIES
-        from ..providers import alphapai
-        if not (alphapai.available() and get_settings().enable_alphapai):
-            return {"skipped": "alphapai disabled"}
-        shards = max(1, get_settings().alphapai_company_shards)
-        ids = [c["id"] for c in COMPANIES]
-        cur = int(get_state("alphapai_shard").get("i", 0)) % shards
-        save_state("alphapai_shard", {"i": (cur + 1) % shards})
-        shard_ids = [cid for n, cid in enumerate(ids) if n % shards == cur]
-        out = alphapai.pull_research_sweep(company_universe=shard_ids)
-        if isinstance(out, dict):
-            out["shard"] = f"{cur + 1}/{shards}"
-        return out
+    def _fetch_chain():
+        # 另类语义抓取链(相关性×额度紧迫接力):AlphaPai纪要 → Gangtise → 万得 → Agent尾。
+        # 每步消耗一个时间片(item 间检查预算),源额度耗尽/清单跑完自动 fallback 下一源。
+        # 状态机在 kvstate 'fetch_chain';取代旧的 gangtise_insight/aifin_research/alphapai_research 分片站点。
+        from ..orchestration import fetch_chain
+        return fetch_chain.step()
 
     from ..config import get_settings
     s = get_settings()
@@ -455,11 +419,11 @@ def _pull_fresh(cfg: dict | None = None) -> dict:
     _run("alt", 6 * 3600, _alt)
     _run("futu_news", 3 * 3600, _futu)
     _run("gangtise", 12 * 3600, _gangtise)
-    _run("gangtise_insight", s.gangtise_insight_hours * 3600, _gangtise_insight)
     _run("gangtise_backfill", 6 * 3600, _gangtise_backfill)
     _run("wind_edb", 24 * 3600, _wind_edb)
-    _run("aifin_research", 4 * 3600, _aifin_research)   # 4h × 6 分片 = 24h 覆盖全库(不阻塞抽取)
-    _run("alphapai_research", 4 * 3600, _alphapai_research)   # AlphaPai 投研:4h × 6 分片 = 24h 覆盖全库
+    # 另类语义抓取链:相关性×额度紧迫接力(AlphaPai纪要→Gangtise→万得→Agent);每步一个时间片,
+    # 源额度耗尽/清单跑完自动 fallback。取代旧 gangtise_insight/aifin_research/alphapai_research。
+    _run("alt_fetch_chain", s.fetch_chain_step_seconds, _fetch_chain)
     _run("earnings_watch", 6 * 3600, _earnings_watch)   # 季报观察窗:日历/analyst/隐含波动刷新
     _run("flow", 24 * 3600, _flow_daily)                # 资金流:ETF/风格/空头/期权 → alt_signals
     _run("andy_macro", 24 * 3600, _andy_macro)          # Andy 宏观库:连接器/识别/登记簿/勾稽
@@ -787,10 +751,16 @@ def status() -> dict:
     except Exception as e:  # noqa: BLE001
         backfill = {"error": str(e)[:120]}
     cfg = fetchy_config()
+    try:
+        from ..orchestration import fetch_chain
+        fc = fetch_chain.status()
+    except Exception as e:  # noqa: BLE001
+        fc = {"error": str(e)[:120]}
     return {"quota": get_state("quota", {"status": "unknown"}),
             "counters": get_state("counters"),
             "cadence": get_state("cadence"),
             "backfill": backfill,
             "extraction_backlog_docs": backlog,
+            "fetch_chain": fc,
             "pin": list(_fetchy_pin(cfg)),
             "fetchy": cfg}

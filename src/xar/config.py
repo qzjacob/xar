@@ -192,7 +192,7 @@ class Settings(BaseSettings):
     # blocks the worker's extraction batch. At the aifin_research 4h cadence, N=6 →
     # full universe covered every 24h (~1/6 of companies per run). Industry/strategy/
     # macro dims run every sweep (deduped by doc_id).
-    aifinmarket_company_shards: int = 6
+    aifinmarket_company_shards: int = 6  # DEPRECATED(旧 aifin_research 分片站点;已由 fetch_chain 取代,保留防 env 破裂)
 
     # --- Alpha派 (AlphaPai, 讯兔科技投研 SaaS) — CN/HK/US 投研另类数据源 -----------
     # open-api.rabyte.cn,header `app-agent: <key>`。recall-data(纪要/研报/点评/公告/三方研报)+
@@ -204,8 +204,24 @@ class Settings(BaseSettings):
     # 核心召回类型(信息密度序):内资纪要/美股纪要/研报/外资研报/三方研报/点评/公告/社媒
     alphapai_recall_types: str = "roadShow,roadShow_us,report,foreign_report,third_report,comment,ann,social_media"
     alphapai_lookback_days: int = 30            # recall 只取近 N 天(取 FRESH 内容)
-    alphapai_company_shards: int = 6            # 公司维分片(4h 节拍→24h 覆盖全库)
+    alphapai_company_shards: int = 6            # DEPRECATED(旧 alphapai_research 分片站点;已由 fetch_chain 取代,保留防 env 破裂)
     alphapai_agent_modes: str = "2,7"           # 核心公司拉的 agent 模式:2=公司一页纸 7=投资逻辑
+    alphapai_minutes_types: str = "roadShow,roadShow_ir,roadShow_us"  # 纪要专用召回类型(fetch_chain 首要固定任务)
+    alphapai_backoff_seconds: int = 900         # 204(系统繁忙)退避秒数(非当日耗尽)
+
+    # --- 另类语义抓取链 (orchestration/fetch_chain.py) — 相关性×额度紧迫接力调度 --------
+    # alphapai纪要 → gangtise → aifinmarket → alphapai agent(尾),每日按序接力:某源当日额度
+    # 耗尽(alphapai 203/aifinmarket 全席位冷却)或清单跑完(gangtise 无额度信号)即 fallback 下一源。
+    # 相关性 = universe_priority_order(种子辩题公司 → coverage 综合分降序);新→旧 = recall startTime 窗。
+    fetch_chain_enabled: bool = True
+    fetch_chain_order: str = "alphapai,gangtise,aifinmarket,alphapai_agents"  # CSV;未来源追加于此
+    fetch_chain_step_seconds: int = 300         # 站点节拍(worker cycle=180s → 约每 2 轮一步)
+    fetch_chain_slice_seconds: int = 75         # 每步 wall-time 预算(item 之间检查,不抢占单个慢调用)
+    fetch_chain_refetch_days: int = 3           # 首轮全扫后 recall 窗口(doc_id upsert 幂等,重叠无害)
+    fetch_chain_alphapai_rest_top: int = 60     # tier-3 非纪要 recall 覆盖的头部公司数
+    fetch_chain_agent_companies: int = 30       # 尾段 agent 合成的公司数(CN A 股)
+    fetch_chain_aifin_chunk: int = 25           # 万得公司维每 work-item 公司数
+    fetch_chain_gangtise_chunk: int = 10        # gangtise broker/MD&A 每 work-item 公司数
 
     @property
     def aifinmarket_tokens(self) -> list[str]:
@@ -280,8 +296,10 @@ class Settings(BaseSettings):
 
     # --- Daily auto-ingest system (orchestration/daily.py + Dagster sidecar) ---
     # Which sources the daily loop pulls (CSV; each unavailable one is skipped).
+    # alphapai 不在 daily 默认源:它的无序 per-company 拉取会抢 fetch_chain 的定序额度
+    # (fetch_chain 独占 alphapai 抓取);daily.py 仍保留 alphapai 分支供手动/CLI 显式运行。
     daily_enabled_sources: str = ("edgar,cninfo,finnhub,fmp,twitter,reddit,wechat,"
-                              "aifinmarket,alphapai,futu,polymarket,rss,macro")
+                              "aifinmarket,futu,polymarket,rss,macro")
     daily_run_hour: int = 6            # nightly schedule hour (cron "0 {hour} * * *")
     daily_universe_shards: int = 8     # full universe split into N nightly shards
     daily_news_lookback_days: int = 7  # default Finnhub/FMP news pull window

@@ -167,6 +167,78 @@ def test_research_sweep_scoped_docs(monkeypatch):
     assert sorted(d.id for d in saved) == ids_run1      # 稳定 doc_id → 幂等,不裂行
 
 
+# ── fetch_chain 谓词 + work-item 单元(all_seats_exhausted / pull_company_research / global)──
+def test_today_uses_shanghai_tz():
+    """席位冷却/用量日界必须走 Asia/Shanghai(万得国内厂商按北京日重置额度),否则 UTC 日界
+    会在北京午夜刷新后仍假冷却席位 ~8h。"""
+    import datetime as _dt
+    from zoneinfo import ZoneInfo
+    assert str(aifinmarket._CN_TZ) == "Asia/Shanghai"
+    assert aifinmarket._today() == _dt.datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+
+
+def test_all_seats_exhausted_paths(monkeypatch):
+    aifinmarket._reset_state()
+    monkeypatch.setattr(aifinmarket, "get_settings", lambda: _FakeS(["A", "B"], cap=0))
+    monkeypatch.setattr(aifinmarket, "_pool", lambda: [])
+    assert aifinmarket.all_seats_exhausted() is True          # 空池 → 耗尽
+    monkeypatch.setattr(aifinmarket, "_pool", lambda: ["A", "B"])
+    assert aifinmarket.all_seats_exhausted() is False         # 无冷却(并把 _usage_date 置今日)
+    aifinmarket._cooldown.add(aifinmarket._tok_id("A"))
+    assert aifinmarket.all_seats_exhausted() is False         # 仅 A 冷却
+    aifinmarket._cooldown.add(aifinmarket._tok_id("B"))
+    assert aifinmarket.all_seats_exhausted() is True          # 全席位冷却 → 耗尽
+
+
+def test_all_seats_exhausted_by_daily_cap(monkeypatch):
+    aifinmarket._reset_state()
+    monkeypatch.setattr(aifinmarket, "_pool", lambda: ["A"])
+    monkeypatch.setattr(aifinmarket, "get_settings", lambda: _FakeS(["A"], cap=2))
+    assert aifinmarket.all_seats_exhausted() is False         # 置今日
+    aifinmarket._usage[aifinmarket._tok_id("A")] = 2          # 到每日上限
+    assert aifinmarket.all_seats_exhausted() is True
+
+
+def test_pull_company_research_news_plus_ann(monkeypatch):
+    aifinmarket._reset_state()
+    monkeypatch.setattr(aifinmarket, "_pool", lambda: ["A"])
+
+    def fake_mcp(server, tool, args, timeout=90):
+        return {"data": {"items": [
+            {"title": "T", "content": "内容" * 40, "date": "2026-07-20", "relevance": 0.8}]}}
+    monkeypatch.setattr(aifinmarket, "_mcp_call", fake_mcp)
+    import xar.ingestion.base as base
+    saved: list = []
+    monkeypatch.setattr(base, "save", lambda doc: saved.append(doc) or doc.id)
+    n = aifinmarket.pull_company_research("innolight")        # CN A 股 → 资讯 + 公告
+    assert n == 2
+    assert {d.meta["scope"] for d in saved} == {"company"}
+    assert all(d.source == "aifinmarket" for d in saved)
+
+
+def test_pull_global_research_three_dims(monkeypatch):
+    aifinmarket._reset_state()
+    monkeypatch.setattr(aifinmarket, "_pool", lambda: ["A"])
+
+    def fake_mcp(server, tool, args, timeout=90):
+        return {"data": {"items": [
+            {"title": f"T-{args.get('query', '')[:6]}", "content": "内容" * 40,
+             "date": "2026-07-20"}]}}
+    monkeypatch.setattr(aifinmarket, "_mcp_call", fake_mcp)
+    import xar.ingestion.base as base
+    import xar.ingestion.registry as reg
+    import xar.providers.aifin_catalog as cat
+    saved: list = []
+    monkeypatch.setattr(base, "save", lambda doc: saved.append(doc) or doc.id)
+    monkeypatch.setattr(reg, "THEMES", {})                   # 主题维置空,专测三定性维
+    monkeypatch.setattr(cat, "INDUSTRY_QUERIES", ("半导体 行业",))
+    monkeypatch.setattr(cat, "STRATEGY_QUERIES", ("A股 策略",))
+    monkeypatch.setattr(cat, "MACRO_QUERIES", ("宏观 政策",))
+    g = aifinmarket.pull_global_research()
+    assert g == {"industry": 1, "strategy": 1, "macro": 1}
+    assert {d.meta["scope"] for d in saved} == {"industry", "strategy", "macro"}
+
+
 # ── 向后兼容 ──────────────────────────────────────────────────────────────────
 def test_backcompat_theme_and_news(monkeypatch):
     aifinmarket._reset_state()
