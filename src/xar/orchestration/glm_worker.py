@@ -515,8 +515,13 @@ def _llm_stage(batch_docs: int, q: dict, pin: tuple[str, ...] = GLM_PIN) -> tupl
             # 再由两条 WHERE 守卫筛队列 —— 消除"先抽后筛"的竞态与额度浪费)。
             out["triage"] = triage.triage_pending(
                 limit=s.glm_worker_triage_docs, run_id=run_id)
-            out["kg"] = kg_extract.build_kg(limit=batch_docs, run_id=run_id)
-            out["expert"] = expert.process(limit=max(batch_docs // 2, 5), run_id=run_id)
+            # bulk KG+expert:默认解耦到常驻 qwen_drain 服务(本地 GPU 满载 + 原子 SKIP-LOCKED,
+            # 不与其双抽)。glm_worker_bulk_extract=true 时回到本轮内联抽取(单机/无 drain 兜底)。
+            if s.glm_worker_bulk_extract:
+                out["kg"] = kg_extract.build_kg(limit=batch_docs, run_id=run_id)
+                out["expert"] = expert.process(limit=max(batch_docs // 2, 5), run_id=run_id)
+            else:
+                out["kg"] = {"skipped": "offloaded to qwen_drain service"}
             # 资金流定向抽取(flow 点评/仓位表述 → kg_events(flow_insight);关键词 triage 先筛)
             from ..kg import flow_extract
             out["flow"] = flow_extract.process(limit=max(batch_docs // 4, 3), run_id=run_id)
@@ -581,6 +586,11 @@ def _alt_correction(q: dict, rebuilds: int, pin: tuple[str, ...] = GLM_PIN) -> d
         out["events"] = thesis_signals.sync_alt_events()
     except Exception as e:  # noqa: BLE001
         out["events"] = {"error": str(e)[:160]}
+    # thesis 重建:默认解耦到常驻 subpool 服务(GLM-5.2/Minimax-M3/Kimi-K3 三订阅并行吃满额度)。
+    # subpool 开启时 glm_worker 不再单钉 GLM 串行重建(避免双做 + 只用一家订阅);关闭时回退本轮内联。
+    from ..config import get_settings as _gs
+    if _gs().subpool_enabled:
+        return out
     # GLM 订阅门只对 GLM 链首适用(与 run_once 的 extract 门同理):用户钉扎其他模型时
     # save 已校验其密钥在位,不能再拿 GLM_SUB_API_KEY 一票否决。
     head_ok = _sub_ready() if pin[0] in GLM_PIN else True

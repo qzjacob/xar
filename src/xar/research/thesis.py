@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 from datetime import date
 
+from ..config import get_settings
 from ..logging import get_logger
 from ..models import llm
 from ..models.router import TaskClass
@@ -248,7 +249,9 @@ def build(cid: str, *, force: bool = False, quality_tier: bool = False,
         suffix = ("\n\n上一稿违规,必须修正:\n- " + "\n- ".join(problems)) if problems else ""
         try:
             t = llm.complete_json(prompt + suffix, CompanyThesis, system=_SYSTEM,
-                                  task=task, node="thesis", run_id=run_id, max_tokens=8000)
+                                  task=task, node="thesis", run_id=run_id,
+                                  max_tokens=get_settings().thesis_max_tokens,
+                                  reasoning_effort=get_settings().thesis_reasoning_effort)
         except Exception as e:  # noqa: BLE001
             return {"status": "rejected", "company_id": cid, "reason": f"llm: {e}"}
         problems = validate_thesis(

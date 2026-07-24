@@ -62,6 +62,42 @@ services:
         condition: service_healthy
     command: bash -lc "xar glm-worker run"
 
+  # 常驻本地 qwen 抽取 drain —— bulk KG+expert 从 glmworker 解耦到此,喂满本地 3090(算力最大化)。
+  qwendrain:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      XAR_DATABASE_URL: postgresql://xar:xar@db:5432/xar
+      XAR_OBJECT_STORE: file:///data/objects
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - xar_data:/data
+      - xar_models:/root/.cache
+    depends_on:
+      db:
+        condition: service_healthy
+    command: bash -lc "xar qwen-drain run"
+
+  # 常驻云端订阅并行池 —— GLM-5.2/Minimax-M3/Kimi-K3 并行跑 thesis 重建,吃满三份订阅 5h 额度窗。
+  subpool:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      XAR_DATABASE_URL: postgresql://xar:xar@db:5432/xar
+      XAR_OBJECT_STORE: file:///data/objects
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - xar_data:/data
+      - xar_models:/root/.cache
+    depends_on:
+      db:
+        condition: service_healthy
+    command: bash -lc "xar subpool run"
+
   dagster:
     build: .
     restart: unless-stopped

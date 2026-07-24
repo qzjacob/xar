@@ -220,11 +220,13 @@ def _endpoint(spec, s) -> tuple[str | None, str | None, bool]:
     return prov.api_base or None, prov.key_env, False
 
 
-def _build_kwargs(spec, messages, max_tokens, want_strong, json_mode, s, base, key_env) -> dict:
+def _build_kwargs(spec, messages, max_tokens, want_strong, json_mode, s, base, key_env,
+                  reasoning_effort=None) -> dict:
     out = max_tokens if not spec.max_output else min(max_tokens, spec.max_output)
     kwargs: dict = dict(model=spec.litellm_model, messages=messages, max_tokens=out)
     if spec.supports_reasoning:  # let strong tasks think; cap the general/bulk tier's thinking
-        kwargs["reasoning_effort"] = s.model_effort if want_strong else "low"
+        # 显式 reasoning_effort 覆盖(如 thesis 高量产任务:low 力度,防 reasoning 烧空 content)。
+        kwargs["reasoning_effort"] = reasoning_effort or (s.model_effort if want_strong else "low")
     if json_mode and spec.supports_json:
         kwargs["response_format"] = {"type": "json_object"}
     if base:                      # OpenAI-compatible / subscription endpoint, per candidate
@@ -258,6 +260,7 @@ def complete(
     json_mode: bool = False,
     complexity: str | None = None,
     relevance: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> str:
     """Plain-text completion, task-routed with cross-provider fallback. `complexity`
     ("low"/"medium"/"high") and `relevance` ("high") drive dynamic layer selection; when
@@ -314,7 +317,8 @@ def complete(
         if run_id and not used_sub and spent >= cap:
             last_err = BudgetExceeded(f"run {run_id} exceeded ${cap}")
             continue
-        kwargs = _build_kwargs(spec, messages, max_tokens, want_strong, json_mode, s, base, key_env)
+        kwargs = _build_kwargs(spec, messages, max_tokens, want_strong, json_mode, s, base, key_env,
+                               reasoning_effort)
         try:
             resp = litellm.completion(**kwargs)
         except Exception as e:  # noqa: BLE001
@@ -464,6 +468,7 @@ def complete_json(
     max_tokens: int = 6000,
     complexity: str | None = None,
     relevance: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> T:
     """Structured output: prompt for JSON matching `schema`, parse + validate, retry once.
     Provider-agnostic; a hard provider failure rotates providers (see complete), and the
@@ -475,6 +480,7 @@ def complete_json(
             instruction if attempt == 0 else instruction + "\n\nYour previous reply was not valid JSON. Return only the JSON object.",
             system=system, tier=tier, task=task, node=node, run_id=run_id, max_tokens=max_tokens,
             json_mode=True, complexity=complexity, relevance=relevance,
+            reasoning_effort=reasoning_effort,
         )
         obj = _extract_json(raw)
         if obj is not None:

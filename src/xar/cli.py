@@ -575,6 +575,52 @@ def glm_worker_probe() -> None:
     raise typer.Exit(0 if ok else 1)
 
 
+# ── 常驻本地 qwen 抽取 drain(本地 GPU 满载,与 glm_worker 解耦)──────────────────
+qdrain_app = typer.Typer(add_completion=False,
+                         help="常驻本地 qwen 抽取 drain(KG+expert,原子 SKIP-LOCKED,喂满 3090)")
+app.add_typer(qdrain_app, name="qwen-drain")
+
+
+@qdrain_app.command("run")
+def qwen_drain_run(
+    once: bool = typer.Option(False, "--once", help="run a single batch and exit"),
+) -> None:
+    """常驻循环(默认)或单批:优先序领取 pending → 本地 qwen KG+expert。"""
+    from .orchestration import qwen_drain
+
+    if once:
+        print(json.dumps(qwen_drain.run_once(), ensure_ascii=False, indent=2, default=str))
+    else:
+        qwen_drain.run_daemon()
+
+
+# ── 常驻云端订阅并行池(GLM-5.2/Minimax-M3/Kimi-K3 并行吃满三份订阅额度)──────────
+subpool_app = typer.Typer(add_completion=False,
+                          help="常驻云端订阅并行池:三订阅并行跑 thesis 重建,吃满各自 5h 额度窗")
+app.add_typer(subpool_app, name="subpool")
+
+
+@subpool_app.command("run")
+def subpool_run(
+    once: bool = typer.Option(False, "--once", help="run a single cycle and exit"),
+) -> None:
+    """常驻循环(默认)或单轮:challenged/stale thesis 分发到三订阅并行重建。"""
+    from .orchestration import subpool_worker
+
+    if once:
+        print(json.dumps(subpool_worker.run_once(), ensure_ascii=False, indent=2, default=str))
+    else:
+        subpool_worker.run_daemon()
+
+
+@subpool_app.command("status")
+def subpool_status() -> None:
+    """三订阅 provider 的额度状态(ok/exhausted + 探测/恢复计数)。"""
+    from .models import subpool
+
+    print(json.dumps(subpool.status(), ensure_ascii=False, indent=2, default=str))
+
+
 # ── 投资论点(CompanyThesis)────────────────────────────────────────────────────
 # ── 微信多层级挖掘(mining/)────────────────────────────────────────────────────
 wechat_app = typer.Typer(add_completion=False, help="微信策展账号名册 + 挖掘目标")

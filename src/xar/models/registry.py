@@ -170,9 +170,11 @@ MODELS: list[ModelSpec] = [
     # the quota-aware resident worker (orchestration/glm_worker.py) pins to it.
     ModelSpec("glm-5.2-sub", "zhipu", "openai/glm-5.2",
               (Capability.CHEAP_BULK, Capability.FAST, Capability.STRONG, Capability.REASONING),
-              Billing.SUBSCRIPTION, 0.60, 2.20, context_window=200_000,
+              Billing.SUBSCRIPTION, 0.60, 2.20, context_window=200_000, max_output=32768,
               supports_reasoning=True, preferred=True, released="2026-06",
-              notes="GLM Coding Plan flat-rate (GLM-5.2); z.ai 国际版订阅支持;quota-windowed, zero overage risk"),
+              notes="GLM Coding Plan flat-rate (GLM-5.2); z.ai 国际版订阅支持;quota-windowed, zero overage risk。"
+                    "max_output=32768:推理模型,默认 8192 会让 reasoning 在 STRONG/high-effort 下烧光预算致 content 空,"
+                    "订阅零边际成本,给足输出+推理空间(见 _build_kwargs 的 min(max_tokens,max_output) 钳制)"),
     ModelSpec("glm-4.6-sub", "zhipu", "openai/glm-4.6",
               (Capability.CHEAP_BULK, Capability.FAST, Capability.STRONG), Billing.SUBSCRIPTION,
               0.60, 2.20, context_window=200_000, supports_reasoning=True,

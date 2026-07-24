@@ -317,6 +317,30 @@ class Settings(BaseSettings):
     glm_worker_gangtise_limit: int = 15    # Gangtise CN research slice per cycle (rotating cursor)
     glm_worker_thesis_rebuilds: int = 2    # signal-challenged theses rebuilt per cycle (LLM)
     glm_worker_link_companies: int = 15    # thesis-holding companies whose fresh facts get claim-linked per cycle
+    # 算力最大化(hardware-solutions/算力调度):本地 GPU 与云端订阅分成三条并行常驻流。
+    # bulk KG+expert 交给常驻 qwen_drain 服务(本地 GPU 满载),glm_worker 不再跑 build_kg/expert
+    # (避免与 drain 的原子领取双抽);thesis 重建交给 subpool 服务(三订阅并行)。glm_worker 只留
+    # 抓取/解析/triage/flow/evidence_link(本地 qwen)+ 审计/季报。
+    glm_worker_bulk_extract: bool = False  # False=bulk KG+expert 由 qwen_drain 常驻服务处理(解耦,防双抽)
+
+    # --- 常驻 qwen 抽取 drain (orchestration/qwen_drain.py;docker 服务 qwendrain) ---
+    qwen_drain_workers: int = 4            # 并发 worker 数(对齐 OLLAMA_NUM_PARALLEL)
+    qwen_drain_batch: int = 8             # 每轮原子领取的文档数(= workers*2)
+    qwen_drain_idle_seconds: int = 60      # 队列空时的休眠(常驻,吸收后续灌入)
+    qwen_drain_model: str = "qwen3-14b-local"  # 本地抽取模型 registry id(换代改 env)
+
+    # --- 云端订阅并行池 (models/subpool.py + orchestration/subpool_worker.py;服务 subpool) ---
+    # GLM-5.2 / Minimax-M3 / Kimi-K3 三订阅并行跑重任务(thesis 重建)直到各自额度耗尽(5h 窗)。
+    # 每 provider 独立额度状态(zhipu/minimax/moonshot),触限即冷却、按 probe 节拍探测恢复。
+    subpool_enabled: bool = True
+    subpool_pins: str = ("glm-5.2-sub,glm-4.6-sub|minimax-m3-sub|kimi-k3-sub")  # '|' 分 provider,','分同 provider 回退链
+    subpool_probe_seconds: int = 900      # 某 provider 触限后的探测节拍(5h 窗内周期性探恢复)
+    subpool_batch: int = 12               # 每轮分发到三订阅的 thesis 重建数(消耗额度)
+    subpool_idle_seconds: int = 120       # 无待建 thesis 或全 provider 冷却时的休眠
+    subpool_thesis_stale_hours: int = 24  # thesis 早于此视为过期、进重建队列(持续吃额度)
+    thesis_max_tokens: int = 16000        # thesis 输出预算(松绑:配 glm-5.2-sub max_output=32768,防推理烧空 content)
+    thesis_reasoning_effort: str = "low"  # thesis 走低推理力度:reasoning 模型(GLM-5.2/Kimi/Minimax)high-effort
+                                          # 会把预算烧在推理致 content 空,thesis 是高量产任务,low 即出内容(治返空)
     # --- 微信多层级挖掘系统 (mining/) ---
     wechat_miner_enabled: bool = True      # T2 triage 预筛闸门(关闭=退回旧的无差别抽取)
     wechat_deep_min: float = 0.4           # triage_score >= 此值才进深度抽取(精度优先)
