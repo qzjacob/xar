@@ -24,16 +24,31 @@ from ..storage import db
 log = get_logger("xar.qwen_drain")
 
 
+def _exclude() -> list[str]:
+    return [s.strip() for s in (get_settings().qwen_drain_exclude_sources or "").split(",")
+            if s.strip()]
+
+
 def _claim(n: int) -> list[str]:
-    """原子领取 n 篇待抽文档并当场盖 kg_extracted_at(SKIP LOCKED → 并发不双抽)。"""
+    """原子领取 n 篇待抽文档并当场盖 kg_extracted_at(SKIP LOCKED → 并发不双抽)。
+    qwen_drain_exclude_sources(默认 x,finnhub)的源不领取——低 SNR 碎片暂停抽取待 triage 预筛。"""
+    excl = _exclude()
+    excl_sql = " AND source <> ALL(%s)" if excl else ""
+    params: tuple = (excl, n) if excl else (n,)
     return [r["id"] for r in db.query(
         "UPDATE documents SET kg_extracted_at=now() WHERE id IN ("
         "  SELECT id FROM documents WHERE kg_extracted_at IS NULL AND permission<>'red'"
+        + excl_sql +
         f"  ORDER BY {priority_order_sql('source')} DESC, published_at DESC NULLS LAST"
-        "  LIMIT %s FOR UPDATE SKIP LOCKED) RETURNING id", (n,))]
+        "  LIMIT %s FOR UPDATE SKIP LOCKED) RETURNING id", params)]
 
 
 def _pending() -> int:
+    """待抽计数(排除被暂停的源,反映 drain 实际可做的量)。"""
+    excl = _exclude()
+    if excl:
+        return db.query("SELECT count(*) c FROM documents WHERE kg_extracted_at IS NULL "
+                        "AND permission<>'red' AND source <> ALL(%s)", (excl,))[0]["c"]
     return db.query("SELECT count(*) c FROM documents WHERE kg_extracted_at IS NULL "
                     "AND permission<>'red'")[0]["c"]
 

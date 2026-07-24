@@ -328,6 +328,10 @@ class Settings(BaseSettings):
     qwen_drain_batch: int = 8             # 每轮原子领取的文档数(= workers*2)
     qwen_drain_idle_seconds: int = 60      # 队列空时的休眠(常驻,吸收后续灌入)
     qwen_drain_model: str = "qwen3-14b-local"  # 本地抽取模型 registry id(换代改 env)
+    # 抽取排除源(CSV):这些源的文档不进 qwen_drain 领取——x/finnhub 是低 SNR 碎片(200-440字
+    # 推文/新闻头条),全量 KG 抽取跑不赢其 firehose 且性价比低;暂停其抽取,待另开 worktree 加
+    # 一道 triage 预筛(只抽高信噪的)后清空本项恢复。价值源(alphapai/aifinmarket/gangtise/wechat…)不受影响。
+    qwen_drain_exclude_sources: str = "x,finnhub"
 
     # --- 云端订阅并行池 (models/subpool.py + orchestration/subpool_worker.py;服务 subpool) ---
     # GLM-5.2 / Minimax-M3 / Kimi-K3 三订阅并行跑重任务(thesis 重建)直到各自额度耗尽(5h 窗)。
