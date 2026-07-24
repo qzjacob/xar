@@ -681,6 +681,56 @@ def ops_earnings_judge(cid: str, bg: BackgroundTasks, force: bool = False):
             "run_id": sched["run_id"]}
 
 
+# ── Phanny(季报多空事件交易:long/short + conviction 1-10 组合正态 + size 1-15%)──
+@app.get("/api/phanny/portfolio")
+def phanny_portfolio():
+    """Phanny 季报多空组合:选中名裁决 + 组合 conviction 正态分布 + 直方图。"""
+    from ..phanny import book
+    try:
+        return book.portfolio()
+    except Exception as e:  # noqa: BLE001
+        return {"error": str(e)[:160]}
+
+
+@app.get("/api/phanny/verdict/{cid}")
+def phanny_verdict(cid: str):
+    """某公司下一次季报的最新 Phanny 裁决(含六维/辩论/sizing;无则 verdict=None)。"""
+    from ..phanny import engine
+    ev = engine._next_earnings(cid)
+    if not ev:
+        return {"company_id": cid, "verdict": None, "note": "观察窗内无临近财报事件。"}
+    return {"company_id": cid, "event_date": str(ev["scheduled_for"]),
+            "verdict": engine.latest_verdict(cid, ev["scheduled_for"])}
+
+
+@app.post("/api/phanny/verdict/{cid}/build")
+def phanny_verdict_build(cid: str, bg: BackgroundTasks, force: bool = False):
+    """后台生成某公司 Phanny 裁决(统一 capability_runs,返回 run_id 可轮询)。"""
+    from ..capabilities import runs
+    sched = runs.schedule("build_phanny_verdict", {"company_id": cid, "force": force}, origin="ui")
+    bg.add_task(runs.execute_run, sched["run_id"])
+    return {**sched, "status": "scheduled", "company_id": cid, "force": force}
+
+
+@app.post("/api/phanny/book/build")
+def phanny_book_build(bg: BackgroundTasks, force: bool = False):
+    """后台生成整本 Phanny book(观察窗内选中名 → 组合正态门 + sizing)。"""
+    from ..capabilities import runs
+    sched = runs.schedule("build_phanny_book", {"force": force}, origin="ui")
+    bg.add_task(runs.execute_run, sched["run_id"])
+    return {**sched, "status": "scheduled", "force": force}
+
+
+@app.get("/api/phanny/calibration")
+def phanny_calibration():
+    """Phanny 按 conviction 分桶回看命中率 × 平均反应。"""
+    from ..phanny import engine
+    try:
+        return engine.calibration()
+    except Exception as e:  # noqa: BLE001
+        return {"error": str(e)[:160]}
+
+
 @app.get("/api/ops/altdata/trackers")
 def ops_alt_trackers():
     """alt 追踪器覆盖 + 每信号库存(ops 面板)。"""

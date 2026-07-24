@@ -4,6 +4,7 @@ import { DataProvider } from "./context";
 
 const FennyApp = lazy(() => import("./pages/fenny/FennyApp"));
 const AndyApp = lazy(() => import("./pages/andy/AndyApp"));
+const PhannyApp = lazy(() => import("./pages/phanny/PhannyApp"));
 import { Layout } from "./components/Layout";
 import { AdminLayout } from "./components/AdminLayout";
 import { ExplorationLayout } from "./components/ExplorationLayout";
@@ -93,6 +94,9 @@ export default function App() {
           {/* legacy path redirects (old bookmarks) */}
           <Route path="/segment/:id" element={<LegacyRedirect to="segment" />} />
           <Route path="/company/:id" element={<LegacyRedirect to="company" />} />
+
+          {/* Phanny — 季报多空事件交易 book(lazy chunk;紧随 Genny) */}
+          <Route path="/phanny/*" element={<Suspense fallback={<LazyFallback name="Phanny" />}><PhannyApp /></Suspense>} />
 
           {/* Andy — macro-indicator terminal (lazy chunk; shares the plotly chunk with Fenny) */}
           <Route path="/andy/*" element={<Suspense fallback={<LazyFallback name="Andy" />}><AndyApp /></Suspense>} />

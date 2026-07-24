@@ -82,6 +82,24 @@ class Settings(BaseSettings):
     earnings_universe_cap: int = 50            # universe 截断帽
     earnings_verdict_host_only: bool = False   # True → docker worker 裁决 deferred,host 专跑
 
+    # --- Phanny (季报多空事件交易:强制 long/short + conviction 1-10 组合正态 + size 1-15%) ---
+    phanny_universe_cap: int = 40              # PHANNY_UNIVERSE ∩ registry 截断帽
+    phanny_watch_days: int = 45                # 观察窗:窗内出财报的选中名进入 book
+    phanny_verdict_lead_days: int = 3          # T-N 生成正式裁决
+    phanny_outcome_max_days: int = 5           # 盘后回验兜底收尾天数
+    phanny_debate_max_rounds: int = 5          # 单名多 critic 辩论收敛上限(到顶补数据,非降 conviction)
+    phanny_convergence_conv_delta: float = 1.0  # 收敛:近轮 conviction 变动阈
+    phanny_convergence_size_delta: float = 1.5  # 收敛:近轮 size 变动阈(pp)
+    phanny_max_book_passes: int = 2            # 组合正态不达标时的 REDEBATE 轮上限
+    phanny_ensemble_mean_lo: float = 4.5       # 组合 conviction 均值下界(禁全低聚集)
+    phanny_ensemble_mean_hi: float = 6.5       # 均值上界(禁全高聚集)
+    phanny_ensemble_sigma_min: float = 1.5     # 组合 conviction 标准差下界(需区分度)
+    phanny_ensemble_high_ratio: float = 0.10   # 高信念(≥7)占比下界(高端非空)
+    phanny_gross_cap_pct: float = 150.0        # 组合总敞口帽(超限按比例缩 size,不动 conviction)
+    phanny_verdict_host_only: bool = False     # True → docker worker 裁决 deferred,host 专跑
+    # 异厂商 critic 钉扎头(每头带 token 兜底,docker/无订阅优雅降级);相邻轮换厂商保证多 LLM 对抗。
+    phanny_challenger_models: str = "glm-5.2-sub,kimi-k3-sub,minimax-m3-sub,deepseek-v4-pro"
+
     # --- Embeddings ---
     # 默认英文 bge-small(turnkey);中英混合部署设 XAR_EMBED_MODEL=
     # sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2(384d,多语含中文)

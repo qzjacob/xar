@@ -775,6 +775,32 @@ CREATE TABLE IF NOT EXISTS earnings_verdicts (
 CREATE INDEX IF NOT EXISTS idx_ev_company ON earnings_verdicts(company_id, event_date DESC);
 CREATE INDEX IF NOT EXISTS idx_ev_pending ON earnings_verdicts(event_date) WHERE outcome IS NULL;
 
+-- ── Phanny:季报多空裁决(强制 long/short,conviction 1-10 组合正态,size 1-15%)。独立表,
+--    与 earnings_verdicts 尺度/存储隔离(尺度不换算)。INSERT 即锁;仅 --force → version+1。──
+CREATE TABLE IF NOT EXISTS phanny_verdicts (
+    id            BIGSERIAL PRIMARY KEY,
+    company_id    TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    event_date    DATE NOT NULL,
+    calendar_id   BIGINT,
+    version       INT  NOT NULL DEFAULT 1,
+    direction     TEXT NOT NULL CHECK (direction IN ('long','short')),  -- 无 neutral/no_trade
+    conviction    REAL NOT NULL CHECK (conviction BETWEEN 1 AND 10),
+    size_pct      REAL CHECK (size_pct BETWEEN 1 AND 15),
+    expected_move REAL,                          -- 裁决时点最新 implied move
+    debate_models TEXT[],                        -- 各角色实际模型(可审计)
+    rounds        INT,                           -- 收敛轮数
+    ensemble_status TEXT,                        -- normal | calibration_incomplete | single | insufficient_sample
+    content       JSONB NOT NULL,                -- PhannyProposal 全量 + debate_trace + sizing_rationale
+    quality       JSONB NOT NULL DEFAULT '{}',   -- 锚数/维度覆盖/接地
+    model         TEXT, run_id TEXT,
+    as_of         DATE NOT NULL,
+    outcome       JSONB, outcome_at TIMESTAMPTZ, -- 盘后回填(direction_hit/reaction/size_weighted_pnl)
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(company_id, event_date, version)
+);
+CREATE INDEX IF NOT EXISTS idx_pv_company ON phanny_verdicts(company_id, event_date DESC);
+CREATE INDEX IF NOT EXISTS idx_pv_pending ON phanny_verdicts(event_date) WHERE outcome IS NULL;
+
 -- ── UA-P1:能力运行表(统一异步触发;修复四种触发风格分裂)。running 去重靠部分唯一索引 ──
 CREATE TABLE IF NOT EXISTS capability_runs (
     id          TEXT PRIMARY KEY,              -- uuid4 hex

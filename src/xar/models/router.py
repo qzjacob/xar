@@ -46,6 +46,8 @@ class TaskClass(str, Enum):
     THESIS_LINK = "thesis_link"   # bulk: claim-relative evidence→debate/pillar classification
     AUDIT = "audit"               # single, strong TOKEN — INDEPENDENT crawl/archival verifier
     EARNINGS_JUDGE = "earnings_judge"  # single, strong TOKEN — pre-earnings long/short verdict
+    PHANNY_VERDICT = "phanny_verdict"  # single, strong TOKEN — Phanny 多空提议/裁决(host 提级订阅)
+    PHANNY_CHALLENGE = "phanny_challenge"  # single, strong TOKEN — Phanny 反方 critic(异厂商钉扎)
 
 
 @dataclass(frozen=True)
@@ -85,6 +87,10 @@ POLICIES: dict[TaskClass, RoutePolicy] = {
     # 季报事件裁决:强 TOKEN 深度研究任务 —— host 上由 build_verdict 内 llm.pinned 提级到
     # 订阅执行器(codex-sub/claude-opus-max,$0);docker/无执行器落 deepseek 强 token,量 1-3 次/天。
     TaskClass.EARNINGS_JUDGE: RoutePolicy(Capability.STRONG, Billing.TOKEN.value, "normal"),
+    # Phanny 提议/裁决 + 反方 critic:强 TOKEN 深度研究任务,host 上由 engine/debate 内 llm.pinned
+    # 提级到订阅执行器($0)并显式 reasoning_effort="high";docker/无执行器落 deepseek 强 token。
+    TaskClass.PHANNY_VERDICT:   RoutePolicy(Capability.STRONG, Billing.TOKEN.value, "normal"),
+    TaskClass.PHANNY_CHALLENGE: RoutePolicy(Capability.STRONG, Billing.TOKEN.value, "normal"),
 }
 
 

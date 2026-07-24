@@ -831,6 +831,72 @@ def earnings_calibration_cmd() -> None:
     print(json.dumps(earnings.calibration(), ensure_ascii=False, indent=2, default=str))
 
 
+phanny_app = typer.Typer(add_completion=False,
+                         help="季报多空交易(Phanny):组合/面板/裁决/整本 book/回验/校准"
+                              "(强制 long/short + 组合 conviction 正态 + size 1-15%)")
+app.add_typer(phanny_app, name="phanny")
+
+
+@phanny_app.command("portfolio")
+def phanny_portfolio_cmd() -> None:
+    """当前 book:每名 方向/conviction/size + 组合 conviction 正态分布。"""
+    from .phanny import book
+
+    print(json.dumps(book.portfolio(), ensure_ascii=False, indent=2, default=str))
+
+
+@phanny_app.command("panel")
+def phanny_panel_cmd(company: str) -> None:
+    """打印某公司下一次财报的六维接地 dossier。"""
+    from .phanny import engine
+
+    ev = engine._next_earnings(company)
+    if not ev:
+        print("[yellow]no upcoming earnings in window[/yellow]")
+        raise typer.Exit(0)
+    d = engine.dossier_phanny(company, ev)
+    if d is None:
+        print("[red]unknown company[/red]")
+        raise typer.Exit(1)
+    print(d["text"])
+    print(f"\n[dim]n_facts={d['n_facts']} implied_move={d.get('implied_move')}[/dim]")
+
+
+@phanny_app.command("judge")
+def phanny_judge_cmd(
+    company: str = typer.Argument(None, help="company id;省略配 --due 跑整本 book"),
+    due: bool = typer.Option(False, "--due", help="整本 book:观察窗内选中名(组合正态门)"),
+    force: bool = typer.Option(False, help="重生成(锁定后仅此可覆盖,version+1)"),
+) -> None:
+    """生成 Phanny 季报多空裁决(多 LLM 辩论;host 择优订阅执行器 codex/claude-max,docker 落 token)。"""
+    from .phanny import engine
+
+    if company:
+        print(json.dumps(engine.build_verdict(company, force=force),
+                         ensure_ascii=False, indent=2, default=str))
+        return
+    if not due:
+        print("[red]give a company id or --due[/red]")
+        raise typer.Exit(1)
+    print(json.dumps(engine.judge_due(force=force), ensure_ascii=False, indent=2, default=str))
+
+
+@phanny_app.command("outcomes")
+def phanny_outcomes_cmd() -> None:
+    """盘后回验:已过财报日的裁决 → 反应 + 方向命中 + size 加权 pnl。"""
+    from .phanny import engine
+
+    print(json.dumps(engine.score_outcomes(), ensure_ascii=False, indent=2, default=str))
+
+
+@phanny_app.command("calibration")
+def phanny_calibration_cmd() -> None:
+    """按 conviction 分桶回看命中率 × 平均反应。"""
+    from .phanny import engine
+
+    print(json.dumps(engine.calibration(), ensure_ascii=False, indent=2, default=str))
+
+
 thesis_app = typer.Typer(add_completion=False,
                          help="投资论点:生成/刷新/健康度(research/thesis.py)")
 app.add_typer(thesis_app, name="thesis")
