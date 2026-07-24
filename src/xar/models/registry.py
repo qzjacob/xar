@@ -87,10 +87,11 @@ PROVIDERS: dict[str, Provider] = {
     "moonshot": Provider("moonshot", "openai/", "KIMI_API_KEY",
                          api_base="https://api.kimi.com/coding/v1",
                          sub_key_env="MOONSHOT_SUB_API_KEY"),
-    # MiniMax Coding Plan —— **Anthropic 兼容**端点(api.minimax.io/anthropic,实测可用),
-    # 故 spec litellm_model 用 anthropic/ 前缀;key(MINIMAX_API_KEY)走 x-api-key(litellm 默认)。
+    # MiniMax Coding Plan —— **Anthropic 兼容**端点(api.minimaxi.com/anthropic —— 注意是 minimaxi.com
+    # 不是 minimax.io;后者会 auth 拒 valid key,实测已证。见 platform.minimaxi.com/docs api-reference/
+    # text-anthropic-api),spec litellm_model 用 anthropic/ 前缀;key(MINIMAX_API_KEY)走 x-api-key。
     "minimax": Provider("minimax", "anthropic/", "MINIMAX_API_KEY",
-                        api_base="https://api.minimax.io/anthropic",
+                        api_base="https://api.minimaxi.com/anthropic",
                         sub_key_env="MINIMAX_SUB_API_KEY"),
     # minis 本地 ollama(RTX 3090)— OpenAI 兼容端点。host.docker.internal 在容器内由
     # compose extra_hosts 提供、在宿主由 /etc/hosts 同名映射,两侧同一 URL;特殊拓扑用
