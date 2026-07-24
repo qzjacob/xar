@@ -18,12 +18,17 @@ log = get_logger("xar.phanny.engine")
 
 
 # ── 数据装配:复用 ET dossier + 补技术/资金/期权结构 section(grounded id tech:/flow:/opt:)──
-def _next_earnings(cid: str):
-    """cid 下一次 earnings 事件(Phanny 观察窗内;比 ET 窗更宽,含更多提前布局的名字)。"""
-    from ..storage import structured
+def _window_days() -> int:
+    """Phanny 观察窗天数(含 lead-days 尾部)。单名 _next_earnings、批量 judge_due、
+    book.portfolio 一律用此口径,保证"能构建的事件一定可见"(修 review M.2.1 口径不一致)。"""
     s = get_settings()
-    days = s.phanny_watch_days + s.phanny_verdict_lead_days + 2
-    rows = structured.upcoming_calendar([cid], days=max(days, 15), limit=20)
+    return max(s.phanny_watch_days + s.phanny_verdict_lead_days + 2, 15)
+
+
+def _next_earnings(cid: str):
+    """cid 下一次 earnings 事件(Phanny 观察窗内)。窗口 = _window_days(),与 judge_due/portfolio 一致。"""
+    from ..storage import structured
+    rows = structured.upcoming_calendar([cid], days=_window_days(), limit=20)
     return next((r for r in rows if r.get("event_type") == "earnings"), None)
 
 
@@ -131,20 +136,24 @@ def propose(cid: str, event: dict, dossier: dict, *, run_id: str | None = None, 
 
     prompt = f"为下述公司生成季报多空 PhannyProposal(as_of={dossier['as_of']}):\n\n{dossier['text']}{extra}"
     pin = _primary_pin()
+    model = (pin[0] if pin else "token")
     problems: list[str] = []
     p = None
     for attempt in (1, 2):
         suffix = ("\n\n上一稿违规,必须修正:\n- " + "\n- ".join(problems)) if problems else ""
         ctx = llm.pinned(pin) if pin else contextlib.nullcontext()
-        with ctx:
-            p = llm.complete_json(prompt + suffix, PhannyProposal, system=_system_phanny(),
-                                  task=TaskClass.PHANNY_VERDICT, node="phanny_propose",
-                                  run_id=run_id, max_tokens=8000, reasoning_effort="high")
+        try:
+            with ctx:
+                p = llm.complete_json(prompt + suffix, PhannyProposal, system=_system_phanny(),
+                                      task=TaskClass.PHANNY_VERDICT, node="phanny_propose",
+                                      run_id=run_id, max_tokens=8000, reasoning_effort="high")
+        except Exception as e:  # noqa: BLE001 — LLM/解析失败隔离为单名拒绝,不炸整批 book(镜像 earnings)
+            return None, [f"llm: {str(e)[:160]}"], model
         problems = validate_proposal(p, known_ids=dossier["known_ids"])
         if not problems:
             break
         log.warning("phanny propose %s attempt %d: %d violations", cid, attempt, len(problems))
-    return p, problems, (pin[0] if pin else "token")
+    return p, problems, model
 
 
 # ── 单名装配(propose + debate;未入库)────────────────────────────────────────────────
@@ -234,8 +243,7 @@ def judge_due(*, force: bool = False, run_id: str | None = None) -> dict:
     from . import book
     from ..ontology.phanny_events import PHANNY_UNIVERSE
     from ..storage import structured
-    s = get_settings()
-    rows = structured.upcoming_calendar(list(PHANNY_UNIVERSE), days=s.phanny_watch_days, limit=100)
+    rows = structured.upcoming_calendar(list(PHANNY_UNIVERSE), days=_window_days(), limit=100)
     cids = [r["company_id"] for r in rows if r.get("event_type") == "earnings"]
     return book.run_book(cids, force=force, run_id=run_id)
 

@@ -39,7 +39,12 @@ def run_book(company_ids: list[str] | None = None, *, force: bool = False,
     plans: dict = {}
     skipped: list[dict] = []
     for cid in company_ids:
-        r = engine.build_one(cid, force=force, run_id=run_id)
+        try:
+            r = engine.build_one(cid, force=force, run_id=run_id)
+        except Exception as e:  # noqa: BLE001 — 单名任何异常隔离(propose/debate/store 兜底),不炸整批
+            log.warning("phanny book %s crashed: %s", cid, str(e)[:120])
+            skipped.append({"company_id": cid, "status": "error", "reason": str(e)[:160]})
+            continue
         if r.get("status") == "converged":
             plans[cid] = r
         else:
@@ -111,10 +116,9 @@ def portfolio() -> dict:
     """当前 book 最新一版每名裁决 + 组合分布(前端/API/CLI 读)。"""
     from ..ontology.phanny_events import PHANNY_UNIVERSE
     from ..storage import db, structured
-    from . import distribution as dist
+    from . import distribution as dist, engine
 
-    s = get_settings()
-    rows = structured.upcoming_calendar(list(PHANNY_UNIVERSE), days=s.phanny_watch_days, limit=100)
+    rows = structured.upcoming_calendar(list(PHANNY_UNIVERSE), days=engine._window_days(), limit=100)
     trades, convs = [], []
     for r in rows:
         if r.get("event_type") != "earnings":

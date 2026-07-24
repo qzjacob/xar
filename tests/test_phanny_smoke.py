@@ -125,3 +125,29 @@ def test_book_all_low_not_faked(isolated_db, monkeypatch):
     assert rows and all(abs(float(r["conviction"]) - 3.0) < 1e-6 for r in rows)
     # 且 REDEBATE 确实尝试过(passes 用满上限)
     assert res["passes"] >= 1
+
+
+def test_book_isolates_single_name_llm_failure(isolated_db, monkeypatch):
+    """单名 propose 的 LLM 调用抛错(网络/解析)→ 只隔离该名(skipped),其余仍入库(review M.1.1)。"""
+    db = isolated_db
+    cids = _existing(db, _CIDS)
+    conv_map = {c: _BELL[i % len(_BELL)] for i, c in enumerate(cids)}
+    dir_map = {c: (i % 3 != 0) for i, c in enumerate(cids)}
+    _install_stubs(monkeypatch, conv_map, dir_map)
+    bad = cids[0]
+    stubbed = llm.complete_json   # = fake_cj(after _install_stubs)
+
+    def flaky(prompt, schema, **kw):
+        m = re.search(r"CID=(\S+)", prompt)
+        if m and m.group(1) == bad and schema is PhannyProposal:
+            raise RuntimeError("simulated LLM provider error")
+        return stubbed(prompt, schema, **kw)
+
+    monkeypatch.setattr(llm, "complete_json", flaky)
+
+    res = book.run_book(cids, force=True, run_id="phanny-smoke-flaky")   # 不抛异常
+    assert bad not in res["plans"]                                       # 坏名被隔离
+    assert any(s["company_id"] == bad for s in res["skipped"])
+    assert res["n"] == len(cids) - 1                                     # 其余全部构建
+    built = {s["company_id"] for s in res["stored"] if s["status"] == "built"}
+    assert bad not in built and len(built) == len(cids) - 1              # 其余全部入库
