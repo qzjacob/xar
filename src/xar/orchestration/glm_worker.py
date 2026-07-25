@@ -577,6 +577,30 @@ def _earnings_step() -> dict:
     return out
 
 
+def _phanny_step() -> dict:
+    """Phanny 整本 book 裁决(24h)+ 盘后回验(12h)。pinned/quota 门之外;host 由 engine 内
+    pinned 提级订阅执行器($0)。模块级便于 glm_worker 单测整体打桩,不发真实辩论 LLM 调用。
+    INSERT 即锁使每日**增量**(只新名跑多 LLM 辩论,已裁决名 skip);host_only=true 时 docker 延后。"""
+    out: dict = {}
+    if _due("phanny_verdicts", 24 * 3600):
+        try:
+            from ..phanny import engine
+            out["verdicts"] = engine.judge_due()
+            _stamp("phanny_verdicts", 24 * 3600, ok=True)
+        except Exception as e:  # noqa: BLE001
+            out["verdicts"] = {"error": str(e)[:160]}
+            _stamp("phanny_verdicts", 24 * 3600, ok=False)
+    if _due("phanny_outcomes", 12 * 3600):
+        try:
+            from ..phanny import engine
+            out["outcomes"] = engine.score_outcomes()
+            _stamp("phanny_outcomes", 12 * 3600, ok=True)
+        except Exception as e:  # noqa: BLE001
+            out["outcomes"] = {"error": str(e)[:160]}
+            _stamp("phanny_outcomes", 12 * 3600, ok=False)
+    return out
+
+
 def _alt_correction(q: dict, rebuilds: int, pin: tuple[str, ...] = GLM_PIN) -> dict:
     """信号→事件(每轮,零 LLM)+ 信号挑战最重的论点在额度 ok 时钉扎重建。"""
     out: dict = {}
@@ -701,6 +725,8 @@ def run_once(*, batch_docs: int | None = None, backfill_units: int | None = None
         out["research_audit"] = _research_audit_step()
     if stages_on.get("earnings", True):
         out["earnings"] = _earnings_step()
+    if stages_on.get("phanny", True):
+        out["phanny"] = _phanny_step()
 
     counters = get_state("counters")
     counters["cycles"] = int(counters.get("cycles", 0)) + 1

@@ -269,6 +269,45 @@ def _report(company_id: str, kind: str = "deep_report", since: str | None = None
     return graph.run_report({"kind": kind, "company_id": company_id, "since": since})
 
 
+# --- Phanny (季报多空事件交易:long/short + conviction 1-10 组合正态 + size 1-15%) --------
+def _phanny_portfolio() -> dict:
+    from ..phanny import book
+    return book.portfolio()
+
+
+def _phanny_verdict(company_id: str, refresh: bool = False, force: bool = False) -> dict:
+    from ..phanny import engine
+    ev = engine._next_earnings(company_id)
+    if not ev:
+        return {"company_id": company_id, "verdict": None, "note": "观察窗内无临近财报事件。"}
+    if refresh:
+        from . import runs
+        sched = runs.launch("build_phanny_verdict", {"company_id": company_id, "force": force}, origin="chathy")
+        return {"scheduled": True, "run_id": sched["run_id"], "status": sched["status"],
+                "note": "Phanny 裁决为分钟级后台任务;用 run_status 查询,勿反复轮询。"}
+    v = engine.latest_verdict(company_id, ev["scheduled_for"])
+    if not v:
+        return {"company_id": company_id, "event_date": str(ev["scheduled_for"]), "verdict": None,
+                "note": "尚无 Phanny 裁决;可 refresh=true 触发(分钟级)。"}
+    content = v.get("content") or {}
+    return {"company_id": company_id, "event_date": str(ev["scheduled_for"]), "version": v["version"],
+            "direction": v["direction"], "conviction": v["conviction"], "size_pct": v.get("size_pct"),
+            "ensemble_status": v.get("ensemble_status"), "expected_move": v.get("expected_move"),
+            "asymmetry_zh": content.get("asymmetry_zh"), "e_return_pct": content.get("e_return_pct"),
+            "dimensions": [{"key": dm.get("key"), "score": dm.get("score")}
+                           for dm in (content.get("dimensions") or [])]}
+
+
+def _build_phanny_verdict(company_id: str, force: bool = False) -> dict:
+    from ..phanny import engine
+    return engine.build_verdict(company_id, force=force)
+
+
+def _build_phanny_book(force: bool = False) -> dict:
+    from ..phanny import engine
+    return engine.judge_due(force=force)
+
+
 CAPABILITIES: list[CapabilitySpec] = [
     CapabilitySpec("find_company", "Resolve a company name or ticker to its platform id + basic profile.",
                    _obj({"query": {"type": "string", "description": "company name or ticker"}}, ["query"]),
@@ -441,6 +480,25 @@ CAPABILITIES: list[CapabilitySpec] = [
                    _obj({"company_id": _CID, "kind": {"type": "string", "default": "deep_report"},
                          "since": {"type": "string"}}, ["company_id"]),
                    _report, kind="build", duration="slow", chathy=False),
+
+    # ── Phanny(季报多空事件交易)读工具 + build 能力 ──
+    CapabilitySpec("phanny_portfolio",
+                   "Phanny 季报多空组合:观察窗内选中名的方向/conviction/size + 组合 conviction 正态分布。",
+                   _obj({}), _phanny_portfolio),
+    CapabilitySpec("phanny_verdict",
+                   "读取(或 refresh=true 触发重跑)某公司季报多空裁决(direction long/short · conviction 1-10 · "
+                   "size 1-15% · 六维 · 赔率)。**触发是分钟级后台任务:立即返回 run_id,用 run_status 查询。**",
+                   _obj({"company_id": _CID, "refresh": {"type": "boolean", "default": False},
+                         "force": {"type": "boolean", "default": False}}, ["company_id"]),
+                   _phanny_verdict),
+    CapabilitySpec("build_phanny_verdict",
+                   "生成/刷新某公司 Phanny 季报多空裁决(分钟级多 LLM 辩论;host 择优订阅执行器,docker 落 token)。",
+                   _obj({"company_id": _CID, "force": {"type": "boolean", "default": False}}, ["company_id"]),
+                   _build_phanny_verdict, kind="build", duration="slow", chathy=False),
+    CapabilitySpec("build_phanny_book",
+                   "生成/刷新整本 Phanny book(观察窗内全部选中名 → 组合正态门 + REDEBATE + sizing;分钟级)。",
+                   _obj({"force": {"type": "boolean", "default": False}}),
+                   _build_phanny_book, kind="build", duration="slow", chathy=False),
 ]
 
 
