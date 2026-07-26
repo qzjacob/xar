@@ -87,10 +87,12 @@ POLICIES: dict[TaskClass, RoutePolicy] = {
     # 季报事件裁决:强 TOKEN 深度研究任务 —— host 上由 build_verdict 内 llm.pinned 提级到
     # 订阅执行器(codex-sub/claude-opus-max,$0);docker/无执行器落 deepseek 强 token,量 1-3 次/天。
     TaskClass.EARNINGS_JUDGE: RoutePolicy(Capability.STRONG, Billing.TOKEN.value, "normal"),
-    # Phanny 提议/裁决 + 反方 critic:强 TOKEN 深度研究任务,host 上由 engine/debate 内 llm.pinned
-    # 提级到订阅执行器($0)并显式 reasoning_effort="high";docker/无执行器落 deepseek 强 token。
-    TaskClass.PHANNY_VERDICT:   RoutePolicy(Capability.STRONG, Billing.TOKEN.value, "normal"),
-    TaskClass.PHANNY_CHALLENGE: RoutePolicy(Capability.STRONG, Billing.TOKEN.value, "normal"),
+    # Phanny 提议/裁决 + 反方 critic:强深度研究任务,**订阅优先**(2026-07-25 裁定:Phanny 只用
+    # 订阅项下 minimax/kimi/glm,移除按 token 计费的 deepseek)。engine/debate 内 llm.pinned 会把链
+    # 钉到 host 订阅执行器或 phanny_primary_models/phanny_challenger_models(均 $0)并显式
+    # reasoning_effort="high";此处 billing_pref=SUBSCRIPTION 保证任何未钉扎路径也不漂回计量模型。
+    TaskClass.PHANNY_VERDICT:   RoutePolicy(Capability.STRONG, Billing.SUBSCRIPTION.value, "normal"),
+    TaskClass.PHANNY_CHALLENGE: RoutePolicy(Capability.STRONG, Billing.SUBSCRIPTION.value, "normal"),
 }
 
 

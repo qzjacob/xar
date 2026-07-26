@@ -2,7 +2,8 @@
 → 校验 → 入库(INSERT 即锁,--force 才 version+1)。复用 earnings 底座,不重写数据装配。
 
 推理一律 `reasoning_effort="high"`;host 上由 `_primary_pin()` 提级订阅执行器(codex/claude-max,$0),
-docker/无执行器落 deepseek 强 token。size 由 phanny.sizing 代码侧算(此处只写回),LLM 不报 size。
+docker/无执行器落**订阅池**(phanny_primary_models:minimax/kimi/glm,usd=0;已移除计量 deepseek)。
+size 由 phanny.sizing 代码侧算(此处只写回),LLM 不报 size。
 """
 from __future__ import annotations
 
@@ -118,14 +119,18 @@ def _host_executor() -> str | None:
 
 
 def _primary_pin():
-    """host 择优深度研究订阅执行器;无 → deepseek 强 token(仍显式 high effort)。"""
+    """host 择优深度研究订阅执行器(codex/claude-max,均订阅计费);无(docker)→ **订阅池**钉扎链
+    (phanny_primary_models:minimax-m3-sub→kimi-k3-sub→glm-5.2-sub,均 usd=0)。
+    2026-07-25 裁定:移除 deepseek-v4-pro —— 它按 token 计费,propose/rebut 曾日烧 ~$7.6,
+    与「订阅额度充分利用、零计量支出」目标冲突。链外无计量回退:全订阅耗尽=本名裁决失败(优雅降级)。"""
     from ..models import llm
     ex = _host_executor()
     if ex == "codex":
         return llm.CODEX_PIN
     if ex == "claude-max":
         return llm.CLAUDE_MAX_PIN
-    return ("deepseek-v4-pro",)
+    ids = tuple(x.strip() for x in (get_settings().phanny_primary_models or "").split(",") if x.strip())
+    return ids or ("glm-5.2-sub", "glm-4.6-sub")
 
 
 def propose(cid: str, event: dict, dossier: dict, *, run_id: str | None = None, extra: str = ""):

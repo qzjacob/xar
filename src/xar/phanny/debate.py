@@ -25,11 +25,13 @@ _CRITIC_SYSTEM = """你是季报事件多空交易的**反方 critic**。给你 
 
 
 def _critic_pins() -> list[tuple[str, ...]]:
-    """异厂商 critic 钉扎链:每个 challenger 头 + 共享 token 兜底(docker/无订阅优雅降级)。"""
+    """异厂商 critic 钉扎链:每个 challenger 头 + **订阅**兜底(GLM 订阅池;链外无计量回退)。
+    2026-07-25 裁定:Phanny 只用订阅模型(minimax/kimi/glm),不再落 deepseek 计费兜底 ——
+    某厂商额度耗尽即由订阅兜底承接,兜底也耗尽则该 critic 本轮失败(优雅降级,绝不花钱)。"""
     ids = [x.strip() for x in (get_settings().phanny_challenger_models or "").split(",") if x.strip()]
     if not ids:
-        ids = ["deepseek-v4-pro"]
-    tail = "deepseek-v4-pro"
+        ids = ["glm-5.2-sub"]
+    tail = "glm-5.2-sub"          # 订阅兜底(非计量);与自身相同时不重复前插
     return [((mid,) if mid == tail else (mid, tail)) for mid in ids]
 
 

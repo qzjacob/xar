@@ -97,8 +97,13 @@ class Settings(BaseSettings):
     phanny_ensemble_high_ratio: float = 0.10   # 高信念(≥7)占比下界(高端非空)
     phanny_gross_cap_pct: float = 150.0        # 组合总敞口帽(超限按比例缩 size,不动 conviction)
     phanny_verdict_host_only: bool = False     # True → docker worker 裁决 deferred,host 专跑
-    # 异厂商 critic 钉扎头(每头带 token 兜底,docker/无订阅优雅降级);相邻轮换厂商保证多 LLM 对抗。
-    phanny_challenger_models: str = "glm-5.2-sub,kimi-k3-sub,minimax-m3-sub,deepseek-v4-pro"
+    # 异厂商 critic 钉扎头;**仅订阅模型**(2026-07-25 用户裁定:Phanny 移除 deepseek,只用订阅项下
+    # minimax/kimi/glm)—— 按 token 计费的 deepseek-v4-pro 曾在 propose/rebut/critic 烧 ~$7.6/天,
+    # 与「订阅额度充分利用、零计量支出」目标冲突。相邻轮换厂商仍保证多 LLM 对抗。
+    phanny_challenger_models: str = "glm-5.2-sub,kimi-k3-sub,minimax-m3-sub"
+    # proposer/rebut(深度研究主力)在无 host 订阅执行器(docker)时的**订阅**钉扎链:
+    # MiniMax-M3(1M 上下文/40k 输出) → Kimi-K3(256k/16k) → GLM-5.2(200k/32k),均 usd=0。
+    phanny_primary_models: str = "minimax-m3-sub,kimi-k3-sub,glm-5.2-sub"
 
     # --- Embeddings ---
     # 默认英文 bge-small(turnkey);中英混合部署设 XAR_EMBED_MODEL=
