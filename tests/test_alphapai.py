@@ -28,6 +28,7 @@ class _S:
     alphapai_backoff_seconds = 900
     alphapai_min_interval_seconds = 0.0      # 离线测试关节流(否则每次 _post 真 sleep 11s)
     alphapai_ratelimit_sleep_seconds = 12
+    alphapai_ratelimit_retries = 2
     alphapai_agent_modes = "2,7"
     enable_alphapai = True
 
@@ -307,8 +308,8 @@ def test_short_ratelimit_42900_retries_then_backs_off(monkeypatch):
                         _counting_post({"code": 42900, "message": "too many requests"}, calls))
     out = alphapai._post("/alpha/open-api/v1/paipai/recall-data", {"query": "x"})
     assert out and out.get("_rate_limited") and out.get("code") == 42900
-    assert len(calls) == 1 + alphapai._RL_RETRIES, f"应重试 {alphapai._RL_RETRIES} 次,实发 {len(calls)}"
-    assert len(slept) == alphapai._RL_RETRIES, "每次重试前须退避等待"
+    assert len(calls) == 1 + _S.alphapai_ratelimit_retries, f"应重试 {_S.alphapai_ratelimit_retries} 次,实发 {len(calls)}"
+    assert len(slept) == _S.alphapai_ratelimit_retries, "每次重试前须退避等待"
     assert alphapai.quota_exhausted() is False, "短窗限流不得被当作当日额度耗尽"
     assert alphapai.quota_backing_off() is True, "重试仍失败应进入短退避"
 

@@ -51,7 +51,6 @@ _RATE_LIMIT_CODES = {203, 204}
 # **静默返回 0**,链路却继续猛打 → alphapai 的量一直被这道看不见的墙压住(每轮只成功几次)。
 # 现在:节流预防(_throttle)+ 识别后原地重试(_RL_RETRIES 次),仍失败才短退避;绝不当作当日耗尽(203)。
 _SHORT_RATE_LIMIT_CODES = {42900, 429}
-_RL_RETRIES = 2
 _throttle_lock = threading.Lock()
 _last_call = [0.0]
 
@@ -195,10 +194,11 @@ def _post(endpoint: str, payload: dict, *, stream: bool = False, timeout: float 
         return None
     code = body.get("code") if isinstance(body, dict) else None
     if code in _SHORT_RATE_LIMIT_CODES:                  # 42900:短窗限流 → 退避重试,不算当日耗尽
-        if _attempt < _RL_RETRIES:
+        retries = get_settings().alphapai_ratelimit_retries
+        if _attempt < retries:
             nap = get_settings().alphapai_ratelimit_sleep_seconds
             log.info("alphapai %s 短窗限流(code=%s)→ 等 %ss 重试(%d/%d)",
-                     endpoint.rsplit("/", 1)[-1], code, nap, _attempt + 1, _RL_RETRIES)
+                     endpoint.rsplit("/", 1)[-1], code, nap, _attempt + 1, retries)
             time.sleep(nap)
             return _post(endpoint, payload, stream=stream, timeout=timeout, _attempt=_attempt + 1)
         _quota_roll()

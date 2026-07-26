@@ -236,8 +236,13 @@ class Settings(BaseSettings):
     # 短窗限流(未文档化 code 42900 ≈ HTTP 429)治理。实测:连打 1~4 次即触发、恢复 ≈10s、4s 间隔
     # 仍失败 → 可持续速率约 1 次/10s。此前该码不被识别,pull_recall 静默返回 0,是 alphapai 量上不去
     # 的真正瓶颈。节流取 11s(留 1s 余量);命中后按 12s 退避重试。
-    alphapai_min_interval_seconds: float = 11.0
-    alphapai_ratelimit_sleep_seconds: int = 12
+    # 节流取 20s(3 次/分)而非贴着 10s 恢复窗:实测密集探测会把限流器推入**持续惩罚**(11s 间隔仍全拒),
+    # 而 3 次/分 × ~7.6 新文档/次 ≈ 23 篇/分 已远超本地 GPU 的 ~4.7 篇/分 —— 保守不影响"吃满 GPU"目标。
+    alphapai_min_interval_seconds: float = 20.0
+    # 命中 42900 后的退避:60s 让令牌桶回满。**只重试 1 次** —— 连打 3 次进已发怒的限流器会阻碍恢复,
+    # 剩下的重试交给链路下一拍(300s 后),那时桶早已回满。
+    alphapai_ratelimit_sleep_seconds: int = 60
+    alphapai_ratelimit_retries: int = 1
 
     # --- 另类语义抓取链 (orchestration/fetch_chain.py) — 相关性×额度紧迫接力调度 --------
     # alphapai纪要 → gangtise → aifinmarket → alphapai agent(尾),每日按序接力:某源当日额度
