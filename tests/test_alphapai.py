@@ -343,3 +343,19 @@ def test_throttle_enforces_min_interval(monkeypatch):
     assert slept == []
     alphapai._throttle()                     # 紧接第二次:须等满间隔
     assert slept and abs(slept[0] - 11.0) < 0.01
+
+
+def test_sse_inband_42900_recognized(monkeypatch):
+    """agent(SSE)端点把「超过流量限制」作为**带内事件**返回(实测 data:{"code":42900,...})。
+    必须识别为限流并退避 —— 否则 answer 为空 → pull_agent 静默返回 0(与 recall 侧同类静默零 bug)。"""
+    class _NoRetry(_S):
+        alphapai_ratelimit_retries = 0
+    monkeypatch.setattr(alphapai, "get_settings", lambda: _NoRetry())
+    monkeypatch.setattr(alphapai, "_throttle", lambda: None)
+    monkeypatch.setattr(alphapai.httpx, "stream", lambda method, url, **k: _Stream(
+        [b'data: {"code":42900,"message":"\xe8\xb6\x85\xe8\xbf\x87\xe6\xb5\x81\xe9\x87\x8f\xe9\x99\x90\xe5\x88\xb6","data":""}\n\n']))
+    out = alphapai._post("/alpha/open-api/v1/paipai/stock/agent", {"agentMode": 2}, stream=True)
+    assert out and out.get("_rate_limited") and out.get("code") == 42900, \
+        f"带内 SSE 限流未被识别: {out}"
+    assert alphapai.quota_exhausted() is False       # 不是当日额度耗尽
+    assert alphapai.quota_backing_off() is True      # 应进入短退避

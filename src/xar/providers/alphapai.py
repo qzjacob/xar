@@ -142,7 +142,9 @@ def _parse_sse_stream(r: httpx.Response) -> dict:
                 c = obj.get("code")                          # 带内限流事件(顶层或 data.code)
                 if c is None and isinstance(obj.get("data"), dict):
                     c = obj["data"].get("code")
-                if c in _RATE_LIMIT_CODES:
+                # 含 42900:agent(SSE)端点把「超过流量限制」作为**带内事件**返回,若不识别则
+                # answer 为空 → pull_agent 静默返回 0(与 recall 侧同一类静默零 bug)。
+                if c in _RATE_LIMIT_CODES or c in _SHORT_RATE_LIMIT_CODES:
                     code = c
                 d = obj.get("data", obj)
                 if isinstance(d, dict):
@@ -176,8 +178,9 @@ def _post(endpoint: str, payload: dict, *, stream: bool = False, timeout: float 
                 r.raise_for_status()
                 if "text/event-stream" in r.headers.get("content-type", ""):
                     sse = _parse_sse_stream(r)
-                    if sse.get("code") in _RATE_LIMIT_CODES:   # 带内 SSE 限流事件 → 走统一 code 判定
-                        body = {"code": sse["code"]}
+                    sc = sse.get("code")
+                    if sc in _RATE_LIMIT_CODES or sc in _SHORT_RATE_LIMIT_CODES:
+                        body = {"code": sc}          # 带内 SSE 限流事件 → 走下方统一 code 判定
                     else:
                         return sse
                 else:                                          # 非 SSE(限流/错误 JSON 体)→ 统一 code 判定
