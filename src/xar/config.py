@@ -224,20 +224,29 @@ class Settings(BaseSettings):
     alphapai_base_url: str = Field(default="https://open-api.rabyte.cn",
                                    validation_alias="ALPHAPAI_BASE_URL")
     enable_alphapai: bool = True
-    # 核心召回类型(信息密度序):内资纪要/美股纪要/研报/外资研报/三方研报/点评/公告/社媒
-    alphapai_recall_types: str = "roadShow,roadShow_us,report,foreign_report,third_report,comment,ann,social_media"
+    # 全召回类型(信息密度序):内资纪要/IR纪要/美股纪要/研报/外资研报/三方研报/点评/公告/社媒/基金报告/问答。
+    # 2026-07-26 补上此前漏抓的 roadShow_ir(IR 纪要)/vps(基金报告)/qa —— provider 的 _DOCTYPE_MAP 全支持。
+    alphapai_recall_types: str = ("roadShow,roadShow_ir,roadShow_us,report,foreign_report,"
+                                  "third_report,comment,ann,social_media,vps,qa")
     alphapai_lookback_days: int = 30            # recall 只取近 N 天(取 FRESH 内容)
     alphapai_company_shards: int = 6            # DEPRECATED(旧 alphapai_research 分片站点;已由 fetch_chain 取代,保留防 env 破裂)
     alphapai_agent_modes: str = "2,7"           # 核心公司拉的 agent 模式:2=公司一页纸 7=投资逻辑
     alphapai_minutes_types: str = "roadShow,roadShow_ir,roadShow_us"  # 纪要专用召回类型(fetch_chain 首要固定任务)
     alphapai_backoff_seconds: int = 900         # 204(系统繁忙)退避秒数(非当日耗尽)
+    # 短窗限流(未文档化 code 42900 ≈ HTTP 429)治理。实测:连打 1~4 次即触发、恢复 ≈10s、4s 间隔
+    # 仍失败 → 可持续速率约 1 次/10s。此前该码不被识别,pull_recall 静默返回 0,是 alphapai 量上不去
+    # 的真正瓶颈。节流取 11s(留 1s 余量);命中后按 12s 退避重试。
+    alphapai_min_interval_seconds: float = 11.0
+    alphapai_ratelimit_sleep_seconds: int = 12
 
     # --- 另类语义抓取链 (orchestration/fetch_chain.py) — 相关性×额度紧迫接力调度 --------
     # alphapai纪要 → gangtise → aifinmarket → alphapai agent(尾),每日按序接力:某源当日额度
     # 耗尽(alphapai 203/aifinmarket 全席位冷却)或清单跑完(gangtise 无额度信号)即 fallback 下一源。
     # 相关性 = universe_priority_order(种子辩题公司 → coverage 综合分降序);新→旧 = recall startTime 窗。
     fetch_chain_enabled: bool = True
-    fetch_chain_order: str = "alphapai,gangtise,aifinmarket,alphapai_agents"  # CSV;未来源追加于此
+    # CSV;未来源追加于此。alphapai_backfill 紧随 fresh alphapai 之后 —— 当日新发布的纪要/研报永远先抓,
+    # 再用过去一年的逐窗回溯把 GPU 填满(目标:alphapai 独占本地算力)。
+    fetch_chain_order: str = ("alphapai,alphapai_backfill,gangtise,aifinmarket,alphapai_agents")
     fetch_chain_step_seconds: int = 300         # 站点节拍(worker cycle=180s → 约每 2 轮一步)
     fetch_chain_slice_seconds: int = 75         # 每步 wall-time 预算(item 之间检查,不抢占单个慢调用)
     fetch_chain_refetch_days: int = 3           # 首轮全扫后 recall 窗口(doc_id upsert 幂等,重叠无害)
@@ -248,6 +257,16 @@ class Settings(BaseSettings):
     fetch_chain_agent_companies: int = 30       # 尾段 agent 合成的公司数(CN A 股)
     fetch_chain_aifin_chunk: int = 25           # 万得公司维每 work-item 公司数
     fetch_chain_gangtise_chunk: int = 10        # gangtise broker/MD&A 每 work-item 公司数
+    # --- alphapai 过去一年逐窗回溯(量的主杠杆;目标:让 alphapai 吃满本地 GPU)---------------
+    # recall 的 startTime/endTime 实测真按窗过滤:不带窗一个 query 只回 ~28 篇(跨整年),按月切窗
+    # 则每窗各回 ~20 篇 → 12 窗 × 全库公司 + 66 条主题词,覆盖量放大一个量级。窗口**新→旧**依次走,
+    # 游标在 kvstate 'alphapai_bf';走完 backfill_days 即自然停(此后由 fresh 段维持日增)。
+    alphapai_backfill_enabled: bool = True
+    alphapai_backfill_days: int = 365           # 回溯深度(过去一年)
+    alphapai_backfill_window_days: int = 30     # 单窗宽度(月窗;越窄回得越多、调用也越多)
+    # 主题维覆盖面(复用 aifin_catalog 词表):行业 32 + 策略 10 + 宏观 12 + 资金流 12 = 66 条。
+    # Andy 宏观/市场策略 与 Moneyflow(北向/两融/ETF申赎/期权情绪…)的**定性研判文本**由此进 documents。
+    alphapai_theme_dims: str = "industry,strategy,macro,moneyflow"
 
     @property
     def aifinmarket_tokens(self) -> list[str]:

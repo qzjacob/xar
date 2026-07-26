@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from ..config import get_settings
 from ..logging import get_logger
 from ..models import llm
-from ..pipeline_priority import priority_order_sql
+from ..pipeline_priority import tier_order_sql
 from ..storage import db
 
 log = get_logger("xar.qwen_drain")
@@ -39,7 +39,8 @@ def _claim(n: int) -> list[str]:
         "UPDATE documents SET kg_extracted_at=now() WHERE id IN ("
         "  SELECT id FROM documents WHERE kg_extracted_at IS NULL AND permission<>'red'"
         + excl_sql +
-        f"  ORDER BY {priority_order_sql('source')} DESC, published_at DESC NULLS LAST"
+        # 三档优先:alphapai/aifinmarket → 常规源 → x/finnhub 碎片(末位,只在前两档空时才抽)
+        f"  ORDER BY {tier_order_sql('source')} ASC, published_at DESC NULLS LAST"
         "  LIMIT %s FOR UPDATE SKIP LOCKED) RETURNING id", params)]
 
 

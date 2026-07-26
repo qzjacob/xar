@@ -95,12 +95,31 @@ def _alphapai_companies(st: dict) -> list[str]:
     return [cid for cid in st.get("pinned_ids", []) if alphapai.has_cjk_name(cid)]
 
 
-def _alphapai_worklist(st: dict) -> list:
+def theme_queries() -> list[tuple[str, str]]:
+    """主题维查询 [(scope, query)]:行业 + 策略 + 宏观 + 资金流(复用 aifin_catalog 词表,
+    与 THEMES 的 nameCn 合并)。scope 落进 documents.meta 供分轨观测。"""
     from ..ingestion.registry import THEMES
+    from ..providers import aifin_catalog as cat
+
+    dims = {d.strip() for d in (get_settings().alphapai_theme_dims or "").split(",") if d.strip()}
+    out: list[tuple[str, str]] = []
+    if "industry" in dims:
+        out += [("industry", (THEMES[t].get("nameCn") or t)) for t in THEMES]
+        out += [("industry", q) for q in cat.INDUSTRY_QUERIES]
+    if "strategy" in dims:
+        out += [("strategy", q) for q in cat.STRATEGY_QUERIES]
+    if "macro" in dims:
+        out += [("macro", q) for q in cat.MACRO_QUERIES]
+    if "moneyflow" in dims:
+        out += [("moneyflow", q) for q in cat.MONEYFLOW_QUERIES]
+    return out
+
+
+def _alphapai_worklist(st: dict) -> list:
     s = get_settings()
     companies = _alphapai_companies(st)
     items: list = [["minutes", cid] for cid in companies]                    # ① 纪要(相关性序)
-    items += [["theme", (THEMES[t].get("nameCn") or t)] for t in THEMES]     # ② 主题
+    items += [["theme", scope, q] for scope, q in theme_queries()]           # ② 主题(行业/策略/宏观/资金流)
     top = s.fetch_chain_alphapai_rest_top                                     # ③ 其余类型(0=全库,尽用额度)
     rest = companies if top <= 0 else companies[:top]
     items += [["rest", cid] for cid in rest]
@@ -113,7 +132,7 @@ def _alphapai_run(item: list, st: dict) -> int:
     if kind == "minutes":
         return alphapai.pull_minutes(item[1], start=st.get("alphapai_start"))
     if kind == "theme":
-        return alphapai.pull_theme(item[1])
+        return alphapai.pull_theme_window(item[2], scope=item[1], start=st.get("alphapai_start"))
     if kind == "rest":
         return alphapai.pull_company(item[1])
     return 0
@@ -124,6 +143,65 @@ def _alphapai_stage() -> Stage:
     return Stage(name="alphapai",
                  available=lambda: alphapai.available() and get_settings().enable_alphapai,
                  build_worklist=_alphapai_worklist, run_item=_alphapai_run,
+                 exhausted=alphapai.quota_exhausted, backing_off=alphapai.quota_backing_off)
+
+
+# --- alphapai_backfill(过去一年逐窗回溯,新→旧;量的主杠杆)---
+BF_KEY = "alphapai_bf"
+
+
+def _bf_windows() -> list[tuple[str, str]]:
+    """过去 backfill_days 切成 window_days 宽的窗,**新→旧**排列 → [(start, end)]。"""
+    s = get_settings()
+    w = max(1, s.alphapai_backfill_window_days)
+    n = max(1, (max(1, s.alphapai_backfill_days) + w - 1) // w)
+    today = datetime.now(_CN_TZ).date()
+    out = []
+    for i in range(n):
+        end = today - timedelta(days=i * w)
+        out.append(((end - timedelta(days=w)).isoformat(), end.isoformat()))
+    return out
+
+
+def _bf_state() -> dict:
+    return get_state(BF_KEY, {"win": 0})
+
+
+def _bf_worklist(st: dict) -> list:
+    """当前窗的工作单元:公司维(相关性序)+ 主题维;末尾一个 advance 标记推进到更旧的窗。
+    每次 chain pass 走完一窗 —— 窗内 cursor 由 chain 持久化,崩溃可续。"""
+    wins = _bf_windows()
+    win = int(_bf_state().get("win", 0))
+    if win >= len(wins):
+        return []                                   # 一年已回完 → 该段自然空转(fresh 段维持日增)
+    start, end = wins[win]
+    items: list = [["bf_co", cid, start, end] for cid in _alphapai_companies(st)]
+    items += [["bf_theme", scope, q, start, end] for scope, q in theme_queries()]
+    items.append(["bf_advance", win])
+    return items
+
+
+def _bf_run(item: list, st: dict) -> int:
+    from ..providers import alphapai
+    kind = item[0]
+    if kind == "bf_co":
+        return alphapai.pull_company_window(item[1], start=item[2], end=item[3])
+    if kind == "bf_theme":
+        return alphapai.pull_theme_window(item[2], scope=item[1], start=item[3], end=item[4])
+    if kind == "bf_advance":
+        nxt = int(item[1]) + 1
+        save_state(BF_KEY, {"win": nxt, "advanced_at": _cn_now_iso()})
+        log.info("alphapai backfill 窗口推进 → %d/%d", nxt, len(_bf_windows()))
+        return 0
+    return 0
+
+
+def _bf_stage() -> Stage:
+    from ..providers import alphapai
+    return Stage(name="alphapai_backfill",
+                 available=lambda: (alphapai.available() and get_settings().enable_alphapai
+                                    and get_settings().alphapai_backfill_enabled),
+                 build_worklist=_bf_worklist, run_item=_bf_run,
                  exhausted=alphapai.quota_exhausted, backing_off=alphapai.quota_backing_off)
 
 
@@ -255,8 +333,9 @@ def _aifin_stage() -> Stage:
 
 def stages() -> dict[str, Stage]:
     """内置阶段注册表。未来新增源 = 加一项 + 在 fetch_chain_order 追加名字。"""
-    return {"alphapai": _alphapai_stage(), "gangtise": _gangtise_stage(),
-            "aifinmarket": _aifin_stage(), "alphapai_agents": _agents_stage()}
+    return {"alphapai": _alphapai_stage(), "alphapai_backfill": _bf_stage(),
+            "gangtise": _gangtise_stage(), "aifinmarket": _aifin_stage(),
+            "alphapai_agents": _agents_stage()}
 
 
 def _resolved_order() -> list[str]:

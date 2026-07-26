@@ -19,6 +19,10 @@ class _S:
     fetch_chain_repoll_seconds = 3600
     alphapai_lookback_days = 30
     fetch_chain_alphapai_rest_top = 60
+    alphapai_theme_dims = "industry"
+    alphapai_backfill_enabled = True
+    alphapai_backfill_days = 365
+    alphapai_backfill_window_days = 30
     fetch_chain_agent_companies = 30
     fetch_chain_aifin_chunk = 25
     fetch_chain_gangtise_chunk = 10
@@ -121,9 +125,15 @@ def test_alphapai_worklist_minutes_theme_rest(monkeypatch):
     monkeypatch.setattr(alphapai, "has_cjk_name", lambda cid: cid in ("c0", "c1"))
     monkeypatch.setattr(reg, "THEMES", {"cpo": {"nameCn": "光模块"}})
     wl = fc._alphapai_worklist({"pinned_ids": ["c0", "c1", "c2"]})
-    assert [it[0] for it in wl] == ["minutes", "minutes", "theme", "rest", "rest"]
+    kinds = [it[0] for it in wl]
+    # 序:纪要(相关性序,只含可寻址公司)→ 主题(THEMES + 策展词表)→ 其余类型
+    assert kinds[:2] == ["minutes", "minutes"], "纪要必须最先"
+    assert kinds[-2:] == ["rest", "rest"], "其余类型排最后"
+    assert set(kinds) == {"minutes", "theme", "rest"}
+    assert kinds.index("theme") == 2 and kinds.index("rest") > max(
+        i for i, k in enumerate(kinds) if k == "theme"), "主题须在纪要之后、rest 之前"
     assert wl[0] == ["minutes", "c0"]
-    assert wl[2] == ["theme", "光模块"]
+    assert wl[2][0] == "theme" and wl[2][2] == "光模块"    # THEMES 的 nameCn 排在策展词表之前
 
 
 def test_order_csv_unknown_names_skipped(monkeypatch):

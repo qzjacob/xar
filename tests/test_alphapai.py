@@ -26,6 +26,8 @@ class _S:
     alphapai_minutes_types = "roadShow,roadShow_ir,roadShow_us"
     alphapai_lookback_days = 30
     alphapai_backoff_seconds = 900
+    alphapai_min_interval_seconds = 0.0      # 离线测试关节流(否则每次 _post 真 sleep 11s)
+    alphapai_ratelimit_sleep_seconds = 12
     alphapai_agent_modes = "2,7"
     enable_alphapai = True
 
@@ -289,3 +291,54 @@ def test_agent_stream_inband_ratelimit_detected(monkeypatch):
     assert alphapai.pull_agent("innolight", 7) == 0
     assert alphapai.quota_backing_off() is True
     assert alphapai.quota_exhausted() is False
+
+
+# ── 短窗限流 42900(未文档化,实测连打即触发、恢复≈10s)────────────────────────────
+def test_short_ratelimit_42900_retries_then_backs_off(monkeypatch):
+    """42900 必须被识别:退避重试 → 仍失败则短退避;**绝不**算当日耗尽(203),也不静默返回 0。
+    回归此前的真 bug:该码不在识别集里 → pull_recall 只看 code!=200000 就静默 0,链路继续猛打,
+    alphapai 的量被这道看不见的墙长期压住。"""
+    monkeypatch.setattr(alphapai, "get_settings", lambda: _S())
+    monkeypatch.setattr(alphapai, "_throttle", lambda: None)
+    slept: list = []
+    monkeypatch.setattr(alphapai.time, "sleep", lambda s: slept.append(s))
+    calls: list = []
+    monkeypatch.setattr(alphapai.httpx, "post",
+                        _counting_post({"code": 42900, "message": "too many requests"}, calls))
+    out = alphapai._post("/alpha/open-api/v1/paipai/recall-data", {"query": "x"})
+    assert out and out.get("_rate_limited") and out.get("code") == 42900
+    assert len(calls) == 1 + alphapai._RL_RETRIES, f"应重试 {alphapai._RL_RETRIES} 次,实发 {len(calls)}"
+    assert len(slept) == alphapai._RL_RETRIES, "每次重试前须退避等待"
+    assert alphapai.quota_exhausted() is False, "短窗限流不得被当作当日额度耗尽"
+    assert alphapai.quota_backing_off() is True, "重试仍失败应进入短退避"
+
+
+def test_short_ratelimit_recovers_on_retry(monkeypatch):
+    """首次 42900、重试成功 → 正常返回数据(不留退避)。"""
+    monkeypatch.setattr(alphapai, "get_settings", lambda: _S())
+    monkeypatch.setattr(alphapai, "_throttle", lambda: None)
+    monkeypatch.setattr(alphapai.time, "sleep", lambda s: None)
+    seq = [{"code": 42900}, {"code": 200000, "data": []}]
+
+    def post(url, headers=None, content=None, timeout=None):   # noqa: A002
+        return _Resp(seq.pop(0))
+    monkeypatch.setattr(alphapai.httpx, "post", post)
+    out = alphapai._post("/alpha/open-api/v1/paipai/recall-data", {"query": "x"})
+    assert out.get("code") == 200000 and not out.get("_rate_limited")
+    assert alphapai.quota_backing_off() is False
+
+
+def test_throttle_enforces_min_interval(monkeypatch):
+    """节流:两次调用之间至少间隔 alphapai_min_interval_seconds(防触 42900)。"""
+    class _Thr(_S):
+        alphapai_min_interval_seconds = 11.0
+    monkeypatch.setattr(alphapai, "get_settings", lambda: _Thr())
+    alphapai._last_call[0] = 0.0
+    now = [1000.0]
+    slept: list = []
+    monkeypatch.setattr(alphapai.time, "time", lambda: now[0])
+    monkeypatch.setattr(alphapai.time, "sleep", lambda s: slept.append(s))
+    alphapai._throttle()                     # 首次:无需等
+    assert slept == []
+    alphapai._throttle()                     # 紧接第二次:须等满间隔
+    assert slept and abs(slept[0] - 11.0) < 0.01

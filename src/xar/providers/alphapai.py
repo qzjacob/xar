@@ -19,6 +19,7 @@ import codecs
 import datetime
 import json
 import re
+import threading
 import time
 from zoneinfo import ZoneInfo
 
@@ -45,6 +46,26 @@ _AGENT_DOCTYPE = {2: "one_pager", 7: "investment_logic", 1: "broker_report",
                   8: "peer_comparison", 11: "one_pager"}
 _AGENT_QTEMPLATE = {2: "{name}（{code}）的公司一页纸", 7: "{name}（{code}）的公司投资逻辑"}
 _RATE_LIMIT_CODES = {203, 204}
+# 42900(≈HTTP 429)= **未文档化的短窗限流**,实测:连打 1~4 次即触发,恢复 ≈10s,4s 间隔仍失败
+# → 可持续速率约 1 次/10s。此前它不在 _RATE_LIMIT_CODES 里,`pull_recall` 只看 code!=200000 就
+# **静默返回 0**,链路却继续猛打 → alphapai 的量一直被这道看不见的墙压住(每轮只成功几次)。
+# 现在:节流预防(_throttle)+ 识别后原地重试(_RL_RETRIES 次),仍失败才短退避;绝不当作当日耗尽(203)。
+_SHORT_RATE_LIMIT_CODES = {42900, 429}
+_RL_RETRIES = 2
+_throttle_lock = threading.Lock()
+_last_call = [0.0]
+
+
+def _throttle() -> None:
+    """全局最小调用间隔(默认 11s > 实测 10s 恢复窗),防触 42900。进程内串行,与 aifinmarket 同型。"""
+    iv = get_settings().alphapai_min_interval_seconds
+    if iv <= 0:
+        return
+    with _throttle_lock:
+        wait = iv - (time.time() - _last_call[0])
+        if wait > 0:
+            time.sleep(wait)
+        _last_call[0] = time.time()
 
 # ── 额度状态(进程内;只有 glmworker 的抓取链驱动本源)────────────────────────────
 # AlphaPai(讯兔/rabyte.cn)按**国内日历日**重置额度 → 日界用 Asia/Shanghai(容器跑 UTC,
@@ -136,14 +157,17 @@ def _parse_sse_stream(r: httpx.Response) -> dict:
     return out
 
 
-def _post(endpoint: str, payload: dict, *, stream: bool = False, timeout: float = 120) -> dict | None:
+def _post(endpoint: str, payload: dict, *, stream: bool = False, timeout: float = 120,
+          _attempt: int = 0) -> dict | None:
     """POST to AlphaPai. Returns the JSON body (non-stream) or the aggregated SSE dict
-    (stream). Detects rate-limit codes (203/204). Never raises — logs + returns None."""
+    (stream). Detects rate-limit codes (203 当日/204 系统/42900 短窗)。Never raises — logs + returns None.
+    短窗限流(42900)先节流预防,命中则退避重试 `_RL_RETRIES` 次(不算当日耗尽)。"""
     if not available():
         return None
     # 当日已耗尽(203)/退避中(204)→ 秒变 no-op,零 HTTP(链读谓词,pull_* 快速返回 0)。
     if quota_exhausted() or quota_backing_off():
         return {"_rate_limited": True, "code": _QUOTA["last_code"] or 203}
+    _throttle()                    # 全局最小间隔:防触 42900(实测 1 次/10s 才可持续)
     url = f"{_base()}{endpoint}"
     try:
         if stream:
@@ -169,8 +193,21 @@ def _post(endpoint: str, payload: dict, *, stream: bool = False, timeout: float 
     except Exception as e:  # noqa: BLE001
         log.warning("alphapai %s failed: %s", endpoint.rsplit("/", 1)[-1], str(e)[:160])
         return None
-    if isinstance(body, dict) and body.get("code") in _RATE_LIMIT_CODES:
-        code = body.get("code")
+    code = body.get("code") if isinstance(body, dict) else None
+    if code in _SHORT_RATE_LIMIT_CODES:                  # 42900:短窗限流 → 退避重试,不算当日耗尽
+        if _attempt < _RL_RETRIES:
+            nap = get_settings().alphapai_ratelimit_sleep_seconds
+            log.info("alphapai %s 短窗限流(code=%s)→ 等 %ss 重试(%d/%d)",
+                     endpoint.rsplit("/", 1)[-1], code, nap, _attempt + 1, _RL_RETRIES)
+            time.sleep(nap)
+            return _post(endpoint, payload, stream=stream, timeout=timeout, _attempt=_attempt + 1)
+        _quota_roll()
+        _QUOTA["last_code"] = code
+        _QUOTA["backoff_until"] = time.time() + get_settings().alphapai_ratelimit_sleep_seconds
+        log.warning("alphapai %s 短窗限流重试仍失败(code=%s)→ 短退避",
+                    endpoint.rsplit("/", 1)[-1], code)
+        return {"_rate_limited": True, "code": code}
+    if code in _RATE_LIMIT_CODES:
         _quota_roll()
         _QUOTA["last_code"] = code
         if code == 203:                                  # 用户当日超限 → 锁死当日
@@ -257,13 +294,18 @@ def _recall_types() -> list[str]:
 
 def pull_recall(query: str, recall_types: list[str] | None = None, *,
                 company_id: str | None = None, scope: str = "company",
-                start: str | None = None) -> int:
+                start: str | None = None, end: str | None = None) -> int:
+    """recall 一次并落库。`start`/`end` = API 的 startTime/endTime(实测**真的按窗过滤**:
+    2025-10-01..2025-11-01 只回该窗内文档)。窗口是量的关键杠杆 —— 不带窗时同一 query 只回 ~28 篇
+    (跨整年),按月切窗则每窗各回 ~20 篇,故「过去一年逐月新→旧」能把覆盖放大一个量级。"""
     if not available():
         return 0
     payload = {"query": query, "isCutOff": True,
                "recallType": recall_types if recall_types is not None else _recall_types()}
     if start:
         payload["startTime"] = start
+    if end:
+        payload["endTime"] = end
     out = _post("/alpha/open-api/v1/paipai/recall-data", payload)
     if not out or out.get("_rate_limited") or out.get("code") != 200000:
         return 0
@@ -287,14 +329,32 @@ def _minutes_types() -> list[str]:
     return [t.strip() for t in csv.split(",") if t.strip()]
 
 
-def pull_minutes(company_id: str, *, start: str | None = None) -> int:
+def pull_minutes(company_id: str, *, start: str | None = None, end: str | None = None) -> int:
     """纪要专用 recall(roadShow/roadShow_ir/roadShow_us → meeting_minutes)。fetch_chain
-    的固定首要任务:相关性高→低逐公司拉纪要,start 控制新→旧窗口。"""
+    的固定首要任务:相关性高→低逐公司拉纪要,start/end 控制新→旧窗口。"""
     name = _name(company_id)
     if not name or not available():
         return 0
     return pull_recall(f"{name} 路演 调研 电话会 交流 纪要", _minutes_types(),
-                       company_id=company_id, scope="company", start=start or _since())
+                       company_id=company_id, scope="company", start=start or _since(), end=end)
+
+
+def pull_company_window(company_id: str, *, start: str, end: str) -> int:
+    """某公司在指定时间窗内的**全类型** recall(研报/纪要/点评/公告/社媒…)。
+    过去一年逐窗回溯的公司维工作单元。"""
+    name = _name(company_id)
+    if not name or not available():
+        return 0
+    return pull_recall(f"{name} 研报 纪要 点评 业绩 观点", company_id=company_id,
+                       scope="company", start=start, end=end)
+
+
+def pull_theme_window(query: str, *, scope: str = "industry",
+                      start: str | None = None, end: str | None = None) -> int:
+    """主题维 recall(行业/宏观/策略/资金流),可带窗。scope 落进 meta 供分轨观测。"""
+    if not available():
+        return 0
+    return pull_recall(query, scope=scope, start=start or _since(), end=end)
 
 
 def pull_company(company_id: str) -> int:
