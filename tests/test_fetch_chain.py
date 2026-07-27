@@ -20,6 +20,7 @@ class _S:
     alphapai_lookback_days = 30
     fetch_chain_alphapai_rest_top = 60
     alphapai_theme_dims = "industry"
+    fetch_chain_alphapai_theme_first = False   # 本文件断言旧序(纪要→主题→rest)
     alphapai_backfill_enabled = True
     alphapai_backfill_days = 365
     alphapai_backfill_window_days = 30

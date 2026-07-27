@@ -118,12 +118,14 @@ def theme_queries() -> list[tuple[str, str]]:
 def _alphapai_worklist(st: dict) -> list:
     s = get_settings()
     companies = _alphapai_companies(st)
-    items: list = [["minutes", cid] for cid in companies]                    # ① 纪要(相关性序)
-    items += [["theme", scope, q] for scope, q in theme_queries()]           # ② 主题(行业/策略/宏观/资金流)
-    top = s.fetch_chain_alphapai_rest_top                                     # ③ 其余类型(0=全库,尽用额度)
-    rest = companies if top <= 0 else companies[:top]
-    items += [["rest", cid] for cid in rest]
-    return items
+    minutes = [["minutes", cid] for cid in companies]                        # 纪要(相关性序)
+    themes = [["theme", scope, q] for scope, q in theme_queries()]           # 主题(行业/策略/宏观/资金流)
+    top = s.fetch_chain_alphapai_rest_top                                     # 其余类型(0=全库)
+    rest = [["rest", cid] for cid in (companies if top <= 0 else companies[:top])]
+    # 主题前置(默认):主题只有 ~76 项却是唯一 0 产出的维度,先跑让宏观/策略/资金流立刻落库;
+    # 纪要仍排在 rest 与回溯段之前,不影响「当日新发布纪要优先」的原则。
+    head = themes + minutes if s.fetch_chain_alphapai_theme_first else minutes + themes
+    return head + rest
 
 
 def _alphapai_run(item: list, st: dict) -> int:

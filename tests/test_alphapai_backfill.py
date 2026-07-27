@@ -19,6 +19,7 @@ class _S:
     alphapai_backfill_window_days = 30
     alphapai_theme_dims = "industry,strategy,macro,moneyflow"
     fetch_chain_alphapai_rest_top = 0
+    fetch_chain_alphapai_theme_first = True
     fetch_chain_order = "alphapai,alphapai_backfill,gangtise,aifinmarket,alphapai_agents"
     fetch_chain_enabled = True
     fetch_chain_slice_seconds = 1000.0
@@ -134,3 +135,41 @@ def test_qwen_drain_claim_uses_tier_order():
     from xar.orchestration import qwen_drain
     src = inspect.getsource(qwen_drain._claim)
     assert "tier_order_sql" in src and "ASC" in src, "drain 未按三档优先序领取"
+
+
+# ── 主题维前置 + fresh 段收窄(2026-07-27 提速处方)──────────────────────────────
+def test_theme_first_puts_themes_before_minutes(st, monkeypatch):
+    """主题前置:76 条主题词排在纪要之前 → 宏观/策略/资金流立刻开始落库。"""
+    from xar.providers import alphapai
+    monkeypatch.setattr(alphapai, "has_cjk_name", lambda cid: True)
+    wl = fc._alphapai_worklist({"pinned_ids": ["c0", "c1"]})
+    kinds = [i[0] for i in wl]
+    assert kinds[0] == "theme", "theme_first=True 时主题必须排最前"
+    assert kinds.index("minutes") > max(i for i, k in enumerate(kinds) if k == "theme"), \
+        "纪要须在全部主题之后"
+    assert kinds[-1] == "rest", "rest 仍排最后"
+
+
+def test_theme_first_can_be_disabled(st, monkeypatch):
+    from xar.providers import alphapai
+
+    class _Off(_S):
+        fetch_chain_alphapai_theme_first = False
+    monkeypatch.setattr(fc, "get_settings", lambda: _Off())
+    monkeypatch.setattr(alphapai, "has_cjk_name", lambda cid: True)
+    kinds = [i[0] for i in fc._alphapai_worklist({"pinned_ids": ["c0"]})]
+    assert kinds[0] == "minutes", "关闭前置时应回到 纪要→主题→rest"
+
+
+def test_rest_top_narrows_fresh_stage(st, monkeypatch):
+    """rest 收窄:fresh 段长度可控,让回溯段更快拿到额度。"""
+    from xar.providers import alphapai
+
+    class _Narrow(_S):
+        fetch_chain_alphapai_rest_top = 2
+    monkeypatch.setattr(fc, "get_settings", lambda: _Narrow())
+    monkeypatch.setattr(alphapai, "has_cjk_name", lambda cid: True)
+    wl = fc._alphapai_worklist({"pinned_ids": ["c0", "c1", "c2", "c3", "c4"]})
+    assert len([i for i in wl if i[0] == "rest"]) == 2, "rest 应被收窄到 rest_top"
+    assert len([i for i in wl if i[0] == "minutes"]) == 5, "纪要仍覆盖全部可寻址公司"
+

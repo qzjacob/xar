@@ -236,9 +236,9 @@ class Settings(BaseSettings):
     # 短窗限流(未文档化 code 42900 ≈ HTTP 429)治理。实测:连打 1~4 次即触发、恢复 ≈10s、4s 间隔
     # 仍失败 → 可持续速率约 1 次/10s。此前该码不被识别,pull_recall 静默返回 0,是 alphapai 量上不去
     # 的真正瓶颈。节流取 11s(留 1s 余量);命中后按 12s 退避重试。
-    # 节流取 20s(3 次/分)而非贴着 10s 恢复窗:实测密集探测会把限流器推入**持续惩罚**(11s 间隔仍全拒),
-    # 而 3 次/分 × ~7.6 新文档/次 ≈ 23 篇/分 已远超本地 GPU 的 ~4.7 篇/分 —— 保守不影响"吃满 GPU"目标。
-    alphapai_min_interval_seconds: float = 20.0
+    # 节流。20s 时实测 42900 仅 6 次/6h(几乎不触限)→ 2026-07-27 下调到 13s(~4.6 次/分)提速 ~50%,
+    # 仍高于实测 ~10s 的短窗恢复期。若 cron 显示 42900 显著上升,回调到 16~20s。
+    alphapai_min_interval_seconds: float = 13.0
     # 命中 42900 后的退避:60s 让令牌桶回满。**只重试 1 次** —— 连打 3 次进已发怒的限流器会阻碍恢复,
     # 剩下的重试交给链路下一拍(300s 后),那时桶早已回满。
     alphapai_ratelimit_sleep_seconds: int = 60
@@ -255,7 +255,14 @@ class Settings(BaseSettings):
     fetch_chain_step_seconds: int = 300         # 站点节拍(worker cycle=180s → 约每 2 轮一步)
     fetch_chain_slice_seconds: int = 75         # 每步 wall-time 预算(item 之间检查,不抢占单个慢调用)
     fetch_chain_refetch_days: int = 3           # 首轮全扫后 recall 窗口(doc_id upsert 幂等,重叠无害)
-    fetch_chain_alphapai_rest_top: int = 0      # tier-3 非纪要 recall 覆盖公司数(0=全库,尽用 alphapai 额度)
+    # tier-3 非纪要 recall 覆盖公司数(0=全库)。2026-07-27 由 0 收到 40:实测 fresh 段 960 项 ×20s
+    # 需 5.3h 才跑完,把真正产新数据的**回溯段**堵在后面(6h 内没轮到);而 rest 扫的"其余类型"与回溯窗
+    # 高度重复(6h 内 ~1000 次调用只落 54 篇新文档 = 绝大多数是幂等重复)。收窄后 fresh ≈ 550 项,
+    # 约 2h 进入回溯段 —— 把额度让给真正有增量的窗口。
+    fetch_chain_alphapai_rest_top: int = 40
+    # 主题维前置:把 76 条主题词(行业/策略/宏观/资金流)排在纪要之前。主题项少(~76×13s≈17min)、
+    # 却是当前唯一 0 产出的维度,前置能让 macro/strategy/moneyflow 立刻开始落库;纪要仍优先于 rest 与回溯。
+    fetch_chain_alphapai_theme_first: bool = True
     # 日内滚动重跑:整条链跑完后隔 N 秒重开一轮,alphapai 全天持续抓白天新发布的纪要(捕捉时效内容),
     # 直到当日额度耗尽(203)后 alphapai 段自动秒跳过。0 = 关闭(跑完即空转到次日)。
     fetch_chain_repoll_seconds: int = 3600
