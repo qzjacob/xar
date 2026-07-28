@@ -37,7 +37,7 @@ log = get_logger("xar.fetch_chain")
 
 STATE_KEY = "fetch_chain"
 _CN_TZ = ZoneInfo("Asia/Shanghai")
-_B204_STRIKES = 3               # 连续 204 退避片数 → 放弃 alphapai 段(病态供应商不能拖死整天)
+_B204_STRIKES_DEFAULT = 6      # 连续退避片数 → 放弃该段(病态供应商不能拖死整天);可由 config 覆盖
 _STAGE_LOG_CAP = 40
 
 
@@ -428,7 +428,7 @@ def step(*, budget_seconds: float | None = None) -> dict:
             continue
         if _safe(stage.backing_off, False):                  # 204 退避:暂停不进位(3 连击弃权)
             st["b204"] = int(st.get("b204", 0)) + 1
-            if st["b204"] >= _B204_STRIKES:
+            if st["b204"] >= getattr(get_settings(), "fetch_chain_backoff_strikes", _B204_STRIKES_DEFAULT):
                 _advance(st, sname, "backoff_giveup")
                 advanced.append({"stage": sname, "ended": "backoff_giveup"})
                 save_state(STATE_KEY, st)
@@ -455,7 +455,7 @@ def step(*, budget_seconds: float | None = None) -> dict:
         if _safe(stage.backing_off, False):                  # 本 item 触发 204 短退避(transient)
             # 不吞该 item:cursor 保持 k,退避到期原地重试(honor 204 自动恢复语义,而非当日丢弃)。
             st["b204"] = int(st.get("b204", 0)) + 1
-            if st["b204"] >= _B204_STRIKES:                  # 病态供应商:弃权进位
+            if st["b204"] >= getattr(get_settings(), "fetch_chain_backoff_strikes", _B204_STRIKES_DEFAULT):                  # 病态供应商:弃权进位
                 _advance(st, sname, "backoff_giveup")
                 advanced.append({"stage": sname, "ended": "backoff_giveup"})
                 save_state(STATE_KEY, st)

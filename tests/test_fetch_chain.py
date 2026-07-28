@@ -17,6 +17,7 @@ class _S:
     fetch_chain_slice_seconds = 1000.0
     fetch_chain_refetch_days = 3
     fetch_chain_repoll_seconds = 3600
+    fetch_chain_backoff_strikes = 3   # 本文件用 3 连击场景(生产默认 6)
     alphapai_lookback_days = 30
     fetch_chain_alphapai_rest_top = 60
     alphapai_theme_dims = "industry"
@@ -227,6 +228,13 @@ def test_204_mid_item_retries_not_skips(mem, monkeypatch):
     o2 = fc.step()
     assert ran == [["m", 0], ["m", 0], ["m", 1]]   # item0 被重试(而非跳过),再到 item1
     assert o2["done"] is True
+
+
+def test_backoff_strikes_threshold_is_configurable(mem, monkeypatch):
+    """弃权阈值来自 config(生产默认 6,放宽后限流期段内暂停而非把额度让给后面的源)。"""
+    from xar.config import Settings
+    assert Settings.model_fields["fetch_chain_backoff_strikes"].default == 6
+    assert fc._B204_STRIKES_DEFAULT == 6
 
 
 def test_204_backoff_pauses_then_gives_up(mem, monkeypatch):

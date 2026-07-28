@@ -236,13 +236,18 @@ class Settings(BaseSettings):
     # 短窗限流(未文档化 code 42900 ≈ HTTP 429)治理。实测:连打 1~4 次即触发、恢复 ≈10s、4s 间隔
     # 仍失败 → 可持续速率约 1 次/10s。此前该码不被识别,pull_recall 静默返回 0,是 alphapai 量上不去
     # 的真正瓶颈。节流取 11s(留 1s 余量);命中后按 12s 退避重试。
-    # 节流。20s 时实测 42900 仅 6 次/6h(几乎不触限)→ 2026-07-27 下调到 13s(~4.6 次/分)提速 ~50%,
-    # 仍高于实测 ~10s 的短窗恢复期。若 cron 显示 42900 显著上升,回调到 16~20s。
-    alphapai_min_interval_seconds: float = 13.0
+    # 节流。**回调到 20s**:13s 实测把 42900 从 6 次/6h 推到 31 次/12h,触发 fetch_chain 的 3 连击
+    # backoff_giveup —— alphapai 与 alphapai_backfill 两段直接被跳过、回溯段一直没机会跑(得不偿失)。
+    # 20s 下 42900 极少,段能跑满,才是真正的"更快"。
+    alphapai_min_interval_seconds: float = 20.0
     # 命中 42900 后的退避:60s 让令牌桶回满。**只重试 1 次** —— 连打 3 次进已发怒的限流器会阻碍恢复,
     # 剩下的重试交给链路下一拍(300s 后),那时桶早已回满。
-    alphapai_ratelimit_sleep_seconds: int = 60
+    # 退避 60s→25s:实测短窗恢复仅 ~10s,60s 过长会让一个时间片空耗、并更快累积弃权连击。
+    alphapai_ratelimit_sleep_seconds: int = 25
     alphapai_ratelimit_retries: int = 1
+    # 弃权连击阈值(原硬编码 3)。alphapai 是本链的**目标源**,偶发限流不该让整段被跳过 →
+    # 放宽到 6:限流期段内暂停等待,而非把额度让给后面的源;仍保留"病态供应商不拖死整天"的保护。
+    fetch_chain_backoff_strikes: int = 6
 
     # --- 另类语义抓取链 (orchestration/fetch_chain.py) — 相关性×额度紧迫接力调度 --------
     # alphapai纪要 → gangtise → aifinmarket → alphapai agent(尾),每日按序接力:某源当日额度
