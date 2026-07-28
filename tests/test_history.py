@@ -23,6 +23,23 @@ requires_db = pytest.mark.skipif(not _db_ok(), reason="no Postgres (docker compo
 
 US = {"id": "fake_us", "tickers": ["FAKE"], "region": "US"}
 CN = {"id": "fake_cn", "tickers": ["300001.SZ"], "cn_code": "300001", "region": "CN"}
+# 回填深度可配(history_backfill_years,生产默认 3 年)。本文件测的是**游标走位机制**
+# (推进/回绕/跳过),与深度无关 —— 故固定为 10 年,让断言稳定、不随生产调参而红。
+import pytest as _pytest  # noqa: E402
+
+from xar.config import get_settings as _gs  # noqa: E402
+
+_PINNED_YEARS = 10
+_NY = _PINNED_YEARS + 1                     # _years() 是 inclusive 窗:n+1 个年份
+
+
+@_pytest.fixture(autouse=True)
+def _pin_backfill_depth(monkeypatch):
+    monkeypatch.setenv("XAR_HISTORY_BACKFILL_YEARS", str(_PINNED_YEARS))
+    _gs.cache_clear()
+    yield
+    _gs.cache_clear()
+
 NEITHER = {"id": "fake_jp", "tickers": ["1234.T"], "region": "JP"}
 
 
@@ -31,16 +48,16 @@ def test_plan_units_us_company():
     units = history.plan_units(US)
     edgar = [u for u in units if u[0] == "edgar"]
     y0 = history._start_year()
-    assert [y for _, _, y in edgar] == list(range(y0, y0 - 11, -1))  # descending, inclusive
+    assert [y for _, _, y in edgar] == list(range(y0, y0 - _NY, -1))  # descending, inclusive
     assert units[-1] == ("finnhub_news", "fake_us", None)
-    assert len(units) == 12  # 11 edgar years + 1 finnhub_news
+    assert len(units) == _NY + 1  # N edgar years + 1 finnhub_news
 
 
 def test_plan_units_cn_company():
     units = history.plan_units(CN)
     y0 = history._start_year()
-    assert all(u == ("cninfo", "fake_cn", y) for u, y in zip(units, range(y0, y0 - 11, -1)))
-    assert len(units) == 11
+    assert all(u == ("cninfo", "fake_cn", y) for u, y in zip(units, range(y0, y0 - _NY, -1)))
+    assert len(units) == _NY
 
 
 def test_plan_units_skips_company_with_neither():
@@ -50,9 +67,9 @@ def test_plan_units_skips_company_with_neither():
 def test_plan_units_dual_listed_gets_both_phases():
     dual = {"id": "dual", "tickers": ["DUAL", "300009.SZ"], "cn_code": "300009"}
     kinds = [u[0] for u in history.plan_units(dual)]
-    assert kinds.count("edgar") == 11
+    assert kinds.count("edgar") == _NY
     assert kinds.count("finnhub_news") == 1
-    assert kinds.count("cninfo") == 11
+    assert kinds.count("cninfo") == _NY
     assert kinds.index("cninfo") == 12  # US units first, then the cn phase
 
 
@@ -142,7 +159,7 @@ def test_reset_and_status_roundtrip(fake_world):
     s0 = history.backfill_status()
     assert not s0["started"] and not s0["finished"]
     assert s0["totals"] == {"docs": 0, "units": 0}
-    assert s0["planned_units"] == 23  # 12 us units + 11 cn units
+    assert s0["planned_units"] == (_NY + 1) + _NY  # us(N年+news) + cn(N年)
 
     history.backfill_step(units=3)
     s1 = history.backfill_status()

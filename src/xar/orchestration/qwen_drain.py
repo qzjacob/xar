@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from ..config import get_settings
 from ..logging import get_logger
 from ..models import llm
-from ..pipeline_priority import DEPRIORITIZED_SOURCES, tier_order_sql
+from ..pipeline_priority import STRICT_PRIORITY_ORDER, tail_weight, tier_order_sql
 from ..storage import db
 
 log = get_logger("xar.qwen_drain")
@@ -29,22 +29,26 @@ def _exclude() -> list[str]:
             if s.strip()]
 
 
-def _claim_where(n: int, *, filler: bool) -> list[str]:
+def _claim_sql(n: int, *, only: list[str] | None = None,
+               exclude_sources: list[str] | None = None) -> list[str]:
     """原子领取 n 篇(SKIP LOCKED + 当场盖戳 → 并发不双抽)。
-    filler=False:只取**非末位**源(tier 0/1),按三档序;filler=True:只取末位源(x/finnhub 存量)。"""
+    only:限定源集合;exclude_sources:排除源集合。按严格档位序 + 新→旧。"""
     if n <= 0:
         return []
-    excl = _exclude()
     where = ["kg_extracted_at IS NULL", "permission<>'red'"]
     params: list = []
+    excl = _exclude()
     if excl:
         where.append("source <> ALL(%s)")
         params.append(excl)
-    if DEPRIORITIZED_SOURCES:
-        where.append("source = ANY(%s)" if filler else "source <> ALL(%s)")
-        params.append(list(DEPRIORITIZED_SOURCES))
-    elif filler:
-        return []
+    if only is not None:
+        if not only:
+            return []
+        where.append("source = ANY(%s)")
+        params.append(list(only))
+    if exclude_sources:
+        where.append("source <> ALL(%s)")
+        params.append(list(exclude_sources))
     params.append(n)
     return [r["id"] for r in db.query(
         "UPDATE documents SET kg_extracted_at=now() WHERE id IN ("
@@ -53,21 +57,68 @@ def _claim_where(n: int, *, filler: bool) -> list[str]:
         "  LIMIT %s FOR UPDATE SKIP LOCKED) RETURNING id", params)]
 
 
-def _claim(n: int) -> list[str]:
-    """一批的领取策略:**高价值源优先 + 末位源保留填充份额**。
+def _tail_sources_pending() -> dict[str, int]:
+    """尾部源(严格头部之外)当前待抽量。"""
+    rows = db.query(
+        "SELECT source, count(*) c FROM documents "
+        "WHERE kg_extracted_at IS NULL AND permission<>'red' AND source <> ALL(%s) "
+        "GROUP BY source", (list(STRICT_PRIORITY_ORDER),))
+    excl = set(_exclude())
+    return {r["source"]: r["c"] for r in rows if r["source"] not in excl and r["c"] > 0}
 
-    严格优先级在本系统里等于"末位源永不执行":tier-1 的 edgar 10 年历史回填持续灌入
-    (实测 6h 灌 1390 / 抽 687,且才走到 168/1062 家),tier 0/1 永远不空 → x/finnhub 的 31.6 万
-    存量拿不到任何 GPU。故按 `qwen_drain_filler_ratio` 给末位源留一小份(默认 25%):
-      · 高价值源仍拿绝大多数产能(75%),优先级次序不变;
-      · 末位存量以稳定小速率消化,不再被无限饿死;
-      · 高价值源不足时,末位源**自动吸收全部剩余产能**(GPU 永不空转)。
-    ratio=0 即退回严格优先级(末位仅在前两档空时才抽)。"""
-    ratio = max(0.0, min(1.0, get_settings().qwen_drain_filler_ratio))
-    n_filler = int(n * ratio) if ratio > 0 else 0
-    main = _claim_where(n - n_filler, filler=False)
-    # 末位取:保留份额 + 高价值源没取满时的剩余产能(两者合一 = n - len(main))
-    return main + _claim_where(n - len(main), filler=True)
+
+def _split_by_quality(n: int, pending: dict[str, int]) -> dict[str, int]:
+    """把 n 个名额按**信息质量权重**(实测 kept_rate)切给尾部各源;某源待抽不足时,
+    其剩余份额自动流给其他源(最大余额法 + 溢出再分配,不浪费产能)。"""
+    quota: dict[str, int] = {}
+    remaining = n
+    pool = dict(pending)
+    while remaining > 0 and pool:
+        total_w = sum(tail_weight(s) for s in pool) or 1.0
+        shares = {s: remaining * tail_weight(s) / total_w for s in pool}
+        # 先按整数份额分,余数按小数大小补足(最大余额法)
+        alloc = {s: min(int(v), pool[s]) for s, v in shares.items()}
+        left = remaining - sum(alloc.values())
+        for s, _ in sorted(shares.items(), key=lambda kv: kv[1] - int(kv[1]), reverse=True):
+            if left <= 0:
+                break
+            if alloc[s] < pool[s]:
+                alloc[s] += 1
+                left -= 1
+        progressed = False
+        for s, k in alloc.items():
+            if k > 0:
+                quota[s] = quota.get(s, 0) + k
+                pool[s] -= k
+                remaining -= k
+                progressed = True
+        pool = {s: c for s, c in pool.items() if c > 0}
+        if not progressed:                      # 无法再分配(全部取满)→ 收尾
+            break
+    return quota
+
+
+def _claim(n: int) -> list[str]:
+    """领取策略(2026-07-28 用户裁定):
+
+    ① **严格头部 100% 抢占**:alphapai > gangtise > aifinmarket。只要靠前的源还有待抽文档,
+       它就吃满整批 —— 后面的源与尾部一律等待(tier_order_sql 保证组内也按此序)。
+    ② **尾部按信息质量比例分配剩余产能**:头部取不满时,剩余名额按 TAIL_QUALITY_WEIGHTS
+       (= 实测 expert kept_rate:wechat 8.5 / edgar 6.0 / finnhub 5.9 / x 3.5 / rss 2.3 …)
+       成比例切分;某源没货时份额自动流给其他源,GPU 不空转。
+    """
+    head = _claim_sql(n, only=list(STRICT_PRIORITY_ORDER))
+    left = n - len(head)
+    if left <= 0:
+        return head                              # 头部有货 → 100% 归头部
+    quota = _split_by_quality(left, _tail_sources_pending())
+    tail: list[str] = []
+    for src, k in quota.items():
+        tail += _claim_sql(k, only=[src])
+    if len(head) + len(tail) < n:                # 配额未用尽(并发抢占等)→ 兜底补齐,不浪费产能
+        tail += _claim_sql(n - len(head) - len(tail),
+                           exclude_sources=list(STRICT_PRIORITY_ORDER))
+    return head + tail
 
 
 def _pending() -> int:

@@ -1,4 +1,4 @@
-"""10-year historical-document backfill planner (2026 -> 2016).
+"""Historical-document backfill planner (深度可配,默认近 3 年;原为 10 年)。
 
 Walks the watched universe BACKWARDS through time, pulling historical filings /
 announcements / news into `documents` so the GLM extraction worker can process
@@ -42,8 +42,13 @@ def _start_year() -> int:
 
 
 def _years() -> tuple[int, ...]:
+    """回填年份窗(新→旧)。深度由 config.history_backfill_years 控制(2026-07-28 由 10 年降到 3 年:
+    edgar 历史回填持续灌入、自身都在积压(实测 6h 灌 1390/抽 687),且 kept_rate 仅 6.0% ——
+    远低于 gangtise 70%/alphapai 38%,占着 GPU 却产出低。缩到 3 年保留近端高价值历史。"""
+    from ..config import get_settings
+    n = max(1, get_settings().history_backfill_years)
     y = _start_year()
-    return tuple(range(y, y - 11, -1))       # 10-year window inclusive
+    return tuple(range(y, y - (n + 1), -1))  # n-year window inclusive
 PHASES: tuple[str, ...] = ("us", "cn")
 
 EDGAR_FORMS = ["10-K", "10-Q", "8-K", "20-F"]

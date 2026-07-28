@@ -10,7 +10,7 @@ import datetime as dt
 import pytest
 
 from xar.orchestration import fetch_chain as fc
-from xar.pipeline_priority import DEPRIORITIZED_SOURCES, PRIORITY_SOURCES, tier_order_sql
+from xar.pipeline_priority import STRICT_PRIORITY_ORDER, tier_order_sql
 
 
 class _S:
@@ -120,23 +120,23 @@ def test_missing_recall_types_now_configured():
 
 
 # ── ⑤ 三档 drain 优先序:x/finnhub 排在 alphapai 之后 ─────────────────────────────
-def test_tier_order_puts_shards_last():
-    assert "alphapai" in PRIORITY_SOURCES and "aifinmarket" in PRIORITY_SOURCES
-    assert set(DEPRIORITIZED_SOURCES) == {"x", "finnhub"}
+def test_tier_order_strict_head_then_tail():
+    """严格头部序 alphapai > gangtise > aifinmarket,其余(含 x/finnhub)同为尾部档。"""
+    assert STRICT_PRIORITY_ORDER == ("alphapai", "gangtise", "aifinmarket")
     sql = tier_order_sql("source")
-    assert "THEN 0" in sql and "THEN 2" in sql and "ELSE 1" in sql
-    assert "'alphapai'" in sql.split("THEN 0")[0]      # 优先流在 0 档
-    assert "'finnhub'" in sql.split("THEN 2")[0].split("THEN 0")[1]   # 碎片在 2 档
+    assert "'alphapai' THEN 0" in sql and "'gangtise' THEN 1" in sql
+    assert "'aifinmarket' THEN 2" in sql and "ELSE 3" in sql
+    assert "finnhub" not in sql, "尾部源不再单列档位,由质量权重在 drain 内切分"
 
 
 def test_qwen_drain_claim_uses_tier_order():
     import inspect
 
     from xar.orchestration import qwen_drain
-    src = inspect.getsource(qwen_drain._claim_where) + inspect.getsource(qwen_drain._claim)
-    assert "tier_order_sql" in src and "ASC" in src, "drain 未按三档优先序领取"
-    # 末位源仍是最低优先(只拿保留份额/剩余产能),不与高价值源平权
-    assert "DEPRIORITIZED_SOURCES" in src and "filler" in src
+    src = inspect.getsource(qwen_drain._claim_sql) + inspect.getsource(qwen_drain._claim)
+    assert "tier_order_sql" in src and "ASC" in src, "drain 未按严格档位序领取"
+    # 头部 100% 抢占 + 尾部按质量权重分剩余
+    assert "STRICT_PRIORITY_ORDER" in src and "_split_by_quality" in src
 
 
 # ── 主题维前置 + fresh 段收窄(2026-07-27 提速处方)──────────────────────────────
