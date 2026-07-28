@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from ..config import get_settings
 from ..logging import get_logger
 from ..models import llm
-from ..pipeline_priority import tier_order_sql
+from ..pipeline_priority import DEPRIORITIZED_SOURCES, tier_order_sql
 from ..storage import db
 
 log = get_logger("xar.qwen_drain")
@@ -29,19 +29,45 @@ def _exclude() -> list[str]:
             if s.strip()]
 
 
-def _claim(n: int) -> list[str]:
-    """原子领取 n 篇待抽文档并当场盖 kg_extracted_at(SKIP LOCKED → 并发不双抽)。
-    qwen_drain_exclude_sources(默认 x,finnhub)的源不领取——低 SNR 碎片暂停抽取待 triage 预筛。"""
+def _claim_where(n: int, *, filler: bool) -> list[str]:
+    """原子领取 n 篇(SKIP LOCKED + 当场盖戳 → 并发不双抽)。
+    filler=False:只取**非末位**源(tier 0/1),按三档序;filler=True:只取末位源(x/finnhub 存量)。"""
+    if n <= 0:
+        return []
     excl = _exclude()
-    excl_sql = " AND source <> ALL(%s)" if excl else ""
-    params: tuple = (excl, n) if excl else (n,)
+    where = ["kg_extracted_at IS NULL", "permission<>'red'"]
+    params: list = []
+    if excl:
+        where.append("source <> ALL(%s)")
+        params.append(excl)
+    if DEPRIORITIZED_SOURCES:
+        where.append("source = ANY(%s)" if filler else "source <> ALL(%s)")
+        params.append(list(DEPRIORITIZED_SOURCES))
+    elif filler:
+        return []
+    params.append(n)
     return [r["id"] for r in db.query(
         "UPDATE documents SET kg_extracted_at=now() WHERE id IN ("
-        "  SELECT id FROM documents WHERE kg_extracted_at IS NULL AND permission<>'red'"
-        + excl_sql +
-        # 三档优先:alphapai/aifinmarket → 常规源 → x/finnhub 碎片(末位,只在前两档空时才抽)
+        f"  SELECT id FROM documents WHERE {' AND '.join(where)}"
         f"  ORDER BY {tier_order_sql('source')} ASC, published_at DESC NULLS LAST"
         "  LIMIT %s FOR UPDATE SKIP LOCKED) RETURNING id", params)]
+
+
+def _claim(n: int) -> list[str]:
+    """一批的领取策略:**高价值源优先 + 末位源保留填充份额**。
+
+    严格优先级在本系统里等于"末位源永不执行":tier-1 的 edgar 10 年历史回填持续灌入
+    (实测 6h 灌 1390 / 抽 687,且才走到 168/1062 家),tier 0/1 永远不空 → x/finnhub 的 31.6 万
+    存量拿不到任何 GPU。故按 `qwen_drain_filler_ratio` 给末位源留一小份(默认 25%):
+      · 高价值源仍拿绝大多数产能(75%),优先级次序不变;
+      · 末位存量以稳定小速率消化,不再被无限饿死;
+      · 高价值源不足时,末位源**自动吸收全部剩余产能**(GPU 永不空转)。
+    ratio=0 即退回严格优先级(末位仅在前两档空时才抽)。"""
+    ratio = max(0.0, min(1.0, get_settings().qwen_drain_filler_ratio))
+    n_filler = int(n * ratio) if ratio > 0 else 0
+    main = _claim_where(n - n_filler, filler=False)
+    # 末位取:保留份额 + 高价值源没取满时的剩余产能(两者合一 = n - len(main))
+    return main + _claim_where(n - len(main), filler=True)
 
 
 def _pending() -> int:

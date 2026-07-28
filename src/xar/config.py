@@ -392,6 +392,11 @@ class Settings(BaseSettings):
     # 保持优先领取,不会被大源饿死)。历史:2026-07-25 曾填 "x,finnhub" 暂停低 SNR 碎片(200-440字
     # 推文/新闻头条)以腾出 GPU 清价值源积压;价值源清空后于 2026-07-26 按用户指示恢复全源抽取。
     qwen_drain_exclude_sources: str = ""
+    # 末位源(x/finnhub 存量)的**保留填充份额**。严格优先级下它们永不执行 —— tier-1 的 edgar
+    # 10 年历史回填持续灌入(实测 6h 灌 1390/抽 687、才走到 168/1062 家),tier 0/1 永不空。
+    # 0.25 = 每批 8 篇里留 2 篇给存量:高价值源仍占 75%,31.6 万存量以稳定小速率消化;
+    # 高价值源不足时末位自动吸收全部剩余产能(GPU 不空转)。设 0 即退回严格优先级。
+    qwen_drain_filler_ratio: float = 0.25
 
     # --- 云端订阅并行池 (models/subpool.py + orchestration/subpool_worker.py;服务 subpool) ---
     # GLM-5.2 / Minimax-M3 / Kimi-K3 三订阅并行跑重任务(thesis 重建)直到各自额度耗尽(5h 窗)。

@@ -133,8 +133,10 @@ def test_qwen_drain_claim_uses_tier_order():
     import inspect
 
     from xar.orchestration import qwen_drain
-    src = inspect.getsource(qwen_drain._claim)
+    src = inspect.getsource(qwen_drain._claim_where) + inspect.getsource(qwen_drain._claim)
     assert "tier_order_sql" in src and "ASC" in src, "drain 未按三档优先序领取"
+    # 末位源仍是最低优先(只拿保留份额/剩余产能),不与高价值源平权
+    assert "DEPRIORITIZED_SOURCES" in src and "filler" in src
 
 
 # ── 主题维前置 + fresh 段收窄(2026-07-27 提速处方)──────────────────────────────
