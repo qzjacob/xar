@@ -101,6 +101,12 @@ class Settings(BaseSettings):
     # 40 次订阅调用 —— 没有这道闸,一次 book 就能把三家订阅额度吃干、饿死 thesis 重建与
     # link 道。worklist 按财报临近度排序,先做最紧迫的,其余下一轮继续(裁决本就幂等加锁)。
     phanny_book_max_per_cycle: int = 12
+    # 整本 book 的**墙钟预算**(秒;0=不限)。2026-07-29 加入:phanny 是 glm_worker.run_once
+    # 的最后一个阶段,而拉取是第一个 —— 单线程下 phanny 超时多久,下一轮拉取就冻结多久
+    # (实测冻结 3.5 小时、全库零新文档)。名次上限(phanny_book_max_per_cycle)挡不住这个:
+    # 订阅模型实测 49~124 秒/次(glm-5.2 101s / k3 124s / minimax 49s),单名 N critic ×
+    # max_rounds 轮就是半小时起。到点不再开新名,其余按既有 cap 的同一套语义顺延下轮。
+    phanny_book_max_seconds: int = 1800
     phanny_watch_days: int = 45                # 观察窗:窗内出财报的选中名进入 book
     phanny_verdict_lead_days: int = 3          # T-N 生成正式裁决
     phanny_outcome_max_days: int = 5           # 盘后回验兜底收尾天数

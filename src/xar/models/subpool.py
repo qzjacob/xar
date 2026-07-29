@@ -100,6 +100,60 @@ def probe(prov: str, pin: tuple[str, ...]) -> bool:
         return False
 
 
+def provider_of(model_id: str) -> str:
+    """registry model id → provider 额度键(zhipu/minimax/moonshot)。查不到就用 id 本身,
+    这样未注册的 spec 至少有个稳定的独立键,不会误并进别家的额度状态。"""
+    spec = reg.get(model_id)
+    return spec.provider if spec else model_id
+
+
+def cooling(prov: str) -> bool:
+    """该 provider 是否处于冷却期(已判耗尽 且 距上次探测未满 subpool_probe_seconds)。
+
+    到期返回 False = **放行一次真实调用**,由那次调用本身充当探针(成功→note_success 复位,
+    再触限→note_failure 重新冷却计时)。比另发 probe() 少一次往返,且不会在调用热路径里
+    插入额外延迟 —— 对 phanny 辩论这种「每轮 N 个 critic」的路径尤其重要。
+
+    **失败开放**:读不到状态(DB 抖动等)一律当作未冷却。这是纯优化信号,拿不到就退回
+    「照常调用」的旧行为,绝不能因为读不到额度状态就把 critic 面板缩空。"""
+    try:
+        p = get_state(STATE_KEY).get(prov, {})
+    except Exception as e:  # noqa: BLE001
+        log.warning("subpool cooling(%s) 状态读取失败,按未冷却放行: %s", prov, str(e)[:120])
+        return False
+    if p.get("status") != "exhausted":
+        return False
+    last = p.get("last_probe_at")
+    if not last:
+        return False
+    try:
+        elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds()
+    except ValueError:
+        return False
+    return elapsed < get_settings().subpool_probe_seconds
+
+
+def note_failure(prov: str, e: Exception) -> bool:
+    """调用失败后上报。是额度类错误才冷却该 provider(供应商 500/网络抖动不该触发冷却)。
+    返回是否判定为额度错误,便于调用方区分「这家没额度了」与「这次调用碰巧失败」。
+
+    调用点通常在别人的 except 块里(如 phanny critic 循环),所以记账自身的失败必须吞掉 ——
+    否则一次 DB 抖动会把「某个 critic 失败」升级成「整名辩论崩掉」。"""
+    if not is_quota_error(e):
+        return False
+    try:
+        _mark(prov, ok=False, reason=str(e))
+    except Exception as e2:  # noqa: BLE001
+        log.warning("subpool note_failure(%s) 记账失败(不影响调用方): %s", prov, str(e2)[:120])
+    return True
+
+
+def note_success(prov: str) -> None:
+    """调用成功后上报:把冷却中的 provider 复位为 ok(记录 resumed_at/resume_count)。"""
+    if get_state(STATE_KEY).get(prov, {}).get("status") == "exhausted":
+        _mark(prov, ok=True)
+
+
 def available_pins() -> list[tuple[str, tuple[str, ...]]]:
     """当前可用的 (provider, pin):ok 的直接用;exhausted 的若 probe 到期则探测,恢复则纳入。"""
     st = get_state(STATE_KEY)

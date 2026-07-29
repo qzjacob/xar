@@ -324,7 +324,8 @@ def judge_due(*, force: bool = False, run_id: str | None = None,
         for dcid in deferred:
             buildlog.record("phanny", dcid, stage="book", status="skipped",
                             reason=f"per-cycle cap {cap} reached — 顺延下一轮", run_id=run_id)
-    out = book.run_book(cids, force=force, run_id=run_id, origin=origin)
+    out = book.run_book(cids, force=force, run_id=run_id, origin=origin,
+                        max_seconds=get_settings().phanny_book_max_seconds or None)
     if deferred:
         out["deferred_to_next_cycle"] = len(deferred)
     return out

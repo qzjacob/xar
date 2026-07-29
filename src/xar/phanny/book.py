@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import time
+
 from ..config import get_settings
 from ..logging import get_logger
 from ..storage import buildlog
@@ -56,7 +58,16 @@ def _book_run_finish(bid: int | None, out: dict) -> None:
 
 
 def run_book(company_ids: list[str] | None = None, *, force: bool = False,
-             run_id: str | None = None, store: bool = True, origin: str = "?") -> dict:
+             run_id: str | None = None, store: bool = True, origin: str = "?",
+             max_seconds: int | None = None) -> dict:
+    """max_seconds:整本 book 的**墙钟预算**(None=不限,给 CLI/单测保留旧语义)。
+
+    为什么需要:单名完整辩论 = N critic × max_rounds 轮,而订阅模型实测均值 49~124 秒/次
+    (glm-5.2 101s、k3 124s、minimax 49s),一名 30 分钟起步;book 又串行跑 12 名。这本身没问题,
+    但 glm_worker.run_once 是**单线程**,phanny 排在最后一个阶段(拉取排第一),所以 phanny
+    超时多久、下一轮拉取就冻结多久 —— 2026-07-29 实测冻结 3.5 小时、全库零新文档。
+    到点后不再开新名(**已开的那名跑完**,避免半截辩论),其余按既有 cap 的同一套语义记
+    buildlog 顺延,下轮继续(裁决幂等加锁,不会重做)。"""
     from ..ingestion.registry import company_by_id
     from ..ontology.phanny_events import phanny_universe
     from . import distribution as dist, engine, sizing as sizing_mod
@@ -66,10 +77,25 @@ def run_book(company_ids: list[str] | None = None, *, force: bool = False,
     if company_ids is None:
         company_ids = [c["id"] for c in phanny_universe()]
 
+    t0 = time.monotonic()
+
+    def _over_budget() -> bool:
+        return max_seconds is not None and (time.monotonic() - t0) >= max_seconds
+
     # 1. build 全部(串行;每名 propose + 多 critic 辩论)
     plans: dict = {}
     skipped: list[dict] = []
-    for cid in company_ids:
+    timed_out: list[str] = []
+    for i, cid in enumerate(company_ids):
+        if _over_budget():
+            timed_out = list(company_ids[i:])
+            log.warning("phanny book: 墙钟预算 %ds 用尽,%d 名顺延下轮(已完成 %d)",
+                        max_seconds, len(timed_out), len(plans))
+            for tcid in timed_out:
+                buildlog.record("phanny", tcid, stage="book", status="skipped",
+                                reason=f"book 墙钟预算 {max_seconds}s 用尽 — 顺延下一轮",
+                                run_id=run_id)
+            break
         try:
             r = engine.build_one(cid, force=force, run_id=run_id)
         except Exception as e:  # noqa: BLE001 — 单名任何异常隔离(propose/debate/store 兜底),不炸整批
@@ -84,6 +110,7 @@ def run_book(company_ids: list[str] | None = None, *, force: bool = False,
             skipped.append({"company_id": cid, "status": r.get("status"), "reason": r.get("reason")})
     if not plans:
         out = {"status": "no_data", "n": 0, "plans": {}, "skipped": skipped,
+               **({"timed_out": len(timed_out)} if timed_out else {}),
                "distribution": _ensemble([])}
         _book_run_finish(book_run, out)
         return out
@@ -91,11 +118,15 @@ def run_book(company_ids: list[str] | None = None, *, force: bool = False,
     # 2. 组合正态门 + REDEBATE(补数据,非重标)
     passes = 0
     en = _ensemble([p["final_conviction"] for p in plans.values()])
-    while (not en["ok"]) and en.get("reason") != "insufficient_sample" and passes < s.phanny_max_book_passes:
+    while ((not en["ok"]) and en.get("reason") != "insufficient_sample"
+           and passes < s.phanny_max_book_passes and not _over_budget()):
         passes += 1
         off = _off_curve(plans)
         log.info("phanny book pass %d: ensemble off (%s) → redebate %s", passes, en["reason"], off)
         for cid in off:
+            if _over_budget():        # REDEBATE 同样吃预算 —— 否则墙钟闸只挡住阶段 1,形同虚设
+                log.warning("phanny book: 预算用尽,REDEBATE pass %d 提前收尾", passes)
+                break
             r = engine.build_one(cid, force=True, run_id=run_id)   # 补数据重跑;conviction 只来自新辩论
             if r.get("status") == "converged":
                 # REDEBATE 谱系:被顶替的那一稿此前直接被覆盖、无从追溯 ——
@@ -143,6 +174,8 @@ def run_book(company_ids: list[str] | None = None, *, force: bool = False,
            "distribution": {**en, "histogram": dist.histogram(convs)}, "portfolio": pf,
            "skipped": skipped, "stored": stored,
            "plans": {cid: _summary(cid, p) for cid, p in plans.items()}}
+    if timed_out:            # 留声:否则「今天只裁决了这几家」会被读成窗内只有这几家
+        out["timed_out"] = len(timed_out)
     _book_run_finish(book_run, out)
     return out
 

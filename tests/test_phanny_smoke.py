@@ -127,6 +127,58 @@ def test_book_all_low_not_faked(isolated_db, monkeypatch):
     assert res["passes"] >= 1
 
 
+def test_book_respects_wall_clock_budget(isolated_db, monkeypatch):
+    """墙钟预算到点 → 不再开新名,余下按既有 cap 的同一套语义顺延下轮并留声。
+
+    2026-07-29 加入:phanny 是 glm_worker.run_once 的最后一个阶段而拉取是第一个,单线程下
+    phanny 超时多久、下一轮拉取就冻结多久(实测冻结 3.5 小时、全库零新文档)。名次上限挡不住
+    ——订阅模型实测 49~124 秒/次,单名 N critic × max_rounds 轮就是半小时起。
+    """
+    db = isolated_db
+    cids = _existing(db, _CIDS)
+    conv_map = {c: _BELL[i % len(_BELL)] for i, c in enumerate(cids)}
+    dir_map = {c: (i % 3 != 0) for i, c in enumerate(cids)}
+    _install_stubs(monkeypatch, conv_map, dir_map)
+
+    # 受控时钟:每次读表推进 10s。t0 取第一次读数,故第 i 名开工前 elapsed = 10*(i+1)。
+    clock = {"t": 0.0}
+
+    def fake_monotonic():
+        clock["t"] += 10.0
+        return clock["t"]
+
+    monkeypatch.setattr(book.time, "monotonic", fake_monotonic)
+    logged: list = []
+    monkeypatch.setattr(book.buildlog, "record",
+                        lambda *a, **k: logged.append((a[1] if len(a) > 1 else k.get("company_id"),
+                                                       k.get("status"), k.get("reason"))))
+
+    res = book.run_book(cids, force=True, run_id="phanny-smoke-budget", max_seconds=25)
+
+    assert res.get("timed_out"), "预算用尽必须留声,否则会被读成「窗内只有这几家」"
+    assert res["n"] + res["timed_out"] == len(cids), (
+        f"完成 {res['n']} + 顺延 {res['timed_out']} 应等于总数 {len(cids)}")
+    assert res["n"] == 2, f"预算 25s / 每步 10s 应恰好放行 2 名: n={res['n']}"
+    # 顺延的名字都进了 buildlog(可用 `xar phanny why <cid>` 查为何没产出)
+    deferred = [c for c, st, _ in logged if st == "skipped"]
+    assert len(deferred) == res["timed_out"]
+    assert all("墙钟预算" in (r or "") for c, st, r in logged if st == "skipped")
+
+
+def test_book_no_budget_runs_all_names(isolated_db, monkeypatch):
+    """max_seconds=None(CLI/单测默认)→ 旧语义不变,不会因新闸少跑名字。"""
+    db = isolated_db
+    cids = _existing(db, _CIDS)
+    conv_map = {c: _BELL[i % len(_BELL)] for i, c in enumerate(cids)}
+    dir_map = {c: (i % 3 != 0) for i, c in enumerate(cids)}
+    _install_stubs(monkeypatch, conv_map, dir_map)
+
+    res = book.run_book(cids, force=True, run_id="phanny-smoke-nobudget")
+
+    assert "timed_out" not in res
+    assert res["n"] == len(cids)
+
+
 def test_book_isolates_single_name_llm_failure(isolated_db, monkeypatch):
     """单名 propose 的 LLM 调用抛错(网络/解析)→ 只隔离该名(skipped),其余仍入库(review M.1.1)。"""
     db = isolated_db

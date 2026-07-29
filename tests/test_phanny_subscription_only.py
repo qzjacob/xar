@@ -45,6 +45,37 @@ def test_critic_pins_cover_three_vendors():
     assert provs >= {"zhipu", "moonshot", "minimax"}, f"critic 厂商覆盖不足: {provs}"
 
 
+# ── 额度冷却(2026-07-29:phanny 拖死 glm_worker 单线程 run_once 的两半修复之一)──────────
+def test_critic_pins_skip_cooling_provider(monkeypatch):
+    """某家订阅触限冷却 → 不再把它排进 critic 面板(此前每轮每名都白烧一发已知无额度的调用)。"""
+    from xar.models import subpool
+    monkeypatch.setattr(subpool, "cooling", lambda prov: prov == "moonshot")
+    pins = debate._critic_pins()
+    flat = [mid for pin in pins for mid in pin]
+    assert "kimi-k3-sub" not in flat, f"冷却中的 moonshot 仍被排进面板: {pins}"
+    provs = {reg.get(pin[0]).provider for pin in pins if reg.get(pin[0])}
+    assert provs >= {"zhipu", "minimax"}, f"未冷却的厂商被误伤: {provs}"
+
+
+def test_critic_pins_dedupe_by_provider_when_head_cools(monkeypatch):
+    """头冷却 → 塌缩到 glm 兜底;但多个头塌缩到同一家只保留一个 ——
+    4 个 critic 全变成同一个 glm 就是单模型自博,失去「异厂商」的意义。"""
+    from xar.models import subpool
+    monkeypatch.setattr(subpool, "cooling", lambda prov: prov in ("moonshot", "minimax"))
+    pins = debate._critic_pins()
+    provs = [reg.get(pin[0]).provider for pin in pins if reg.get(pin[0])]
+    assert len(provs) == len(set(provs)), f"同一 provider 重复占位: {pins}"
+    assert provs == ["zhipu"], f"应只剩未冷却的 zhipu: {pins}"
+
+
+def test_critic_pins_empty_when_all_providers_cool(monkeypatch):
+    """全部订阅厂商冷却 → 面板为空。run_debate 据此跳过辩论,而不是拿空票空跑 max_rounds 轮
+    (`agree_ok = bool(votes)` 决定空票必定不收敛 → 5 轮 × 8000-token rebut 纯浪费)。"""
+    from xar.models import subpool
+    monkeypatch.setattr(subpool, "cooling", lambda prov: True)
+    assert debate._critic_pins() == []
+
+
 def test_phanny_route_policies_prefer_subscription():
     for tc in (TaskClass.PHANNY_VERDICT, TaskClass.PHANNY_CHALLENGE):
         assert POLICIES[tc].prefer_billing == reg.Billing.SUBSCRIPTION.value, (

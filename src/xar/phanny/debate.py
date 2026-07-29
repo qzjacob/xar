@@ -28,12 +28,34 @@ _CRITIC_SYSTEM = _critic_system()
 def _critic_pins() -> list[tuple[str, ...]]:
     """异厂商 critic 钉扎链:每个 challenger 头 + **订阅**兜底(GLM 订阅池;链外无计量回退)。
     2026-07-25 裁定:Phanny 只用订阅模型(minimax/kimi/glm),不再落 deepseek 计费兜底 ——
-    某厂商额度耗尽即由订阅兜底承接,兜底也耗尽则该 critic 本轮失败(优雅降级,绝不花钱)。"""
+    某厂商额度耗尽即由订阅兜底承接,兜底也耗尽则该 critic 本轮失败(优雅降级,绝不花钱)。
+
+    2026-07-29:按 subpool 的 per-provider 额度状态**跳过冷却中的厂商**。此前是静态列表,
+    某家订阅触限后每轮每名照打不误 —— 钉扎链会轮转到兜底并成功,所以多数时候不抛异常,
+    只是每次白烧一发已知无额度的调用(实测一代容器 42 次)。头冷却就直接从兜底起链;
+    头与兜底都冷却则这个 critic 位空缺。按 provider 去重:多个 challenger 塌缩到同一家
+    等于单模型自博,失去「异厂商」的意义,宁可少而不同。"""
+    from ..models import subpool
     ids = [x.strip() for x in (get_settings().phanny_challenger_models or "").split(",") if x.strip()]
     if not ids:
         ids = ["glm-5.2-sub"]
     tail = "glm-5.2-sub"          # 订阅兜底(非计量);与自身相同时不重复前插
-    return [((mid,) if mid == tail else (mid, tail)) for mid in ids]
+    tail_ok = not subpool.cooling(subpool.provider_of(tail))
+    out: list[tuple[str, ...]] = []
+    seen: set[str] = set()
+    for mid in ids:
+        prov = subpool.provider_of(mid)
+        if not subpool.cooling(prov):
+            pin = (mid,) if mid == tail or not tail_ok else (mid, tail)
+        elif tail_ok:
+            prov, pin = subpool.provider_of(tail), (tail,)
+        else:
+            continue
+        if prov in seen:
+            continue
+        seen.add(prov)
+        out.append(pin)
+    return out
 
 
 def _anchors(p) -> int:
@@ -78,10 +100,21 @@ def run_debate(cid: str, event: dict, dossier: dict, proposal, *,
     history = [{"direction": cur.direction, "conviction": float(cur.conviction), "anchors": _anchors(cur)}]
     converged = False
     rnd = 0
+    if not critic_pins:
+        # 全部订阅厂商都在冷却 = 这一名**无法被质疑**。此时若照跑 max_rounds 轮,每轮都是
+        # 「拿空票让 proposer 自我修订」—— 零对抗信息却要烧 5 次 8000-token 的 rebut,且
+        # `agree_ok = bool(votes)` 决定它必定不收敛。直接原样返回 p0 并诚实标 converged=False,
+        # models 里只有 proposer,事后一眼能看出这稿没被辩过。
+        log.warning("phanny debate %s: 无可用 critic(订阅厂商全部冷却)— 跳过辩论,原稿不入辩", cid)
+        trace.append({"round": 0, "role": "debate_skipped", "reason": "all_critic_providers_cooling"})
+        return {"proposal": cur, "round1_conviction": r1_conv, "final_conviction": float(cur.conviction),
+                "round1_anchors": r1_anchor, "final_anchors": r1_anchor, "rounds": 0,
+                "models": sorted(set(models_used)), "debate_trace": trace, "converged": False,
+                "history": history, "build_id": build_id}
     for rnd in range(1, s.phanny_debate_max_rounds + 1):
         votes: list[dict] = []
         critic_failures = 0
-        for pin in critic_pins:
+        for pin in list(critic_pins):     # 迭代副本:额度失败会就地把该 pin 从后续轮摘掉
             cm = pin[0]
             cap: dict = {}
             try:
@@ -109,6 +142,12 @@ def run_debate(cid: str, event: dict, dossier: dict, proposal, *,
                 log.warning("phanny critic %s r%d: %s", cm, rnd, str(e)[:100])
                 trace.append({"round": rnd, "role": "critic", "model": cm, "status": "provider_failed",
                               "error": str(e)[:160]})
+                # 整条链(头+兜底)都失败才会走到这里。若是额度类,冷却该 provider 并把这条
+                # pin 从**后续轮**摘掉 —— 否则 max_rounds 轮会对同一家已耗尽的订阅重复发起
+                # 完全相同的调用。非额度类(供应商 5xx/网络抖动)不冷却,下轮照常重试。
+                from ..models import subpool
+                if subpool.note_failure(subpool.provider_of(cm), e):
+                    critic_pins = [p for p in critic_pins if p[0] != cm]
                 continue
             models_used.append(cm)
             votes.append({"model": cm, **v.model_dump()})

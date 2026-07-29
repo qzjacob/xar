@@ -21,6 +21,7 @@ class _S:
     phanny_universe_mode = "registry"
     phanny_universe_cap = 40
     phanny_book_max_per_cycle = 12
+    phanny_book_max_seconds = 1800
     phanny_watch_days = 45
     phanny_verdict_lead_days = 3
 
