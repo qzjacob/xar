@@ -1,0 +1,39 @@
+# Dagster 实例配置 —— 由 docker-compose 只读挂载到容器内 $DAGSTER_HOME/dagster.yaml。
+#
+# 为什么必须存在(2026-07-29 审计结论):
+#   在此文件之前 DAGSTER_HOME 下没有任何 dagster.yaml,dagster 全部走默认值,其中
+#   **run_monitoring 默认关闭**。配合 DefaultRunLauncher(run worker 是 dagster 容器内的
+#   子进程),后果是:只要容器在有 run 在飞时被重建/停机,run worker 父进程被杀,run 就
+#   **永远停在 STARTED**,没有任何守护会把它判失败。每发生一次就永久泄漏一个并发槽。
+#   实际发生了三次(2026-07-09 dockerd 关停、07-21 与 07-22 两次 compose build && up -d),
+#   累计 10 个僵尸 = QueuedRunCoordinator 的默认 max_concurrent_runs=10,队列被彻底堵死:
+#   2026-07-22 06:00 UTC 起 68 个 run 全卡在 QUEUED,夜间 pull/extract 连续 7 天零执行,
+#   ingest_runs 表也因此 7 天无新行。
+#
+# 注意 DefaultRunLauncher 的 supports_check_run_worker_health == False,所以健康检查那条
+# 路径不会执行;真正回收僵尸的是 run_monitoring 末尾无条件调用的 check_run_timeout()
+# (dagster/_daemon/monitoring/run_monitoring.py),它依赖 max_runtime_seconds —— 因此
+# **max_runtime_seconds 必须显式设置,设 0 等于不回收**。
+#
+# 本文件放在仓库里而非直接写进 dagster_home 卷:卷里的手改会在重建/换机时丢失,且不受
+# 版本控制(同 CLAUDE.md 对 docker update 限额被 compose 冲回的告诫)。
+
+run_coordinator:
+  module: dagster.core.run_coordinator
+  class: QueuedRunCoordinator
+  config:
+    # 保持与既往默认值一致(未改变夜间负载画像)。
+    # ⚠️ 待定权衡:夜间 8 个 pull_shard 同时起,实测 2026-07-21 02:00:49 EDT 有 3 个 step
+    #    子进程被 memcg OOM 杀(各 ~730MB anon,容器限额 8G,见 docker-compose.override.yml)。
+    #    若要内存安全,把这里降到 5 左右;代价是 8 个分片分两波跑,墙钟翻倍(实测单片约 5h,
+    #    其中约 45min 纯耗在已下线的 FMP 端点上——先摘掉 FMP 能显著缩短)。
+    max_concurrent_runs: 10
+
+run_monitoring:
+  enabled: true
+  # 僵尸回收的实际生效开关。观测到的最长正常 run 为 305 分钟(5.08h),这里留到 8h;
+  # 任何超过 8h 仍存活的 run 已属病态,回收掉以释放并发槽。0 = 不回收(退回故障前行为)。
+  max_runtime_seconds: 28800
+  # 进入 STARTING 后多久没起来算失败(默认 180s;dagster dev 冷启动 + 依赖安装可能偏慢)。
+  start_timeout_seconds: 600
+  poll_interval_seconds: 120

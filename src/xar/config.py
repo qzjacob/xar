@@ -420,6 +420,11 @@ class Settings(BaseSettings):
     qwen_drain_batch: int = 8             # 每轮原子领取的文档数(= workers*2)
     qwen_drain_idle_seconds: int = 60      # 队列空时的休眠(常驻,吸收后续灌入)
     qwen_drain_model: str = "qwen3-14b-local"  # 本地抽取模型 registry id(换代改 env)
+    # 尾部配额的**队列深度阻尼指数**(2026-07-29 审计加入):有效权重 = kept_rate × pending^alpha。
+    # 0=退回纯质量权重(逐位兼容旧行为的回滚位,改 env 即可零代码回滚);0.5=平方根阻尼(默认);
+    # 1=按积压总量分配(小源会被饿死)。背景:纯质量下 edgar(占尾部 backlog 1.3%)与
+    # finnhub(64.7%)拿到相同绝对份额,深队列长期收敛不动。详见 pipeline_priority。
+    qwen_drain_depth_alpha: float = 0.5
     # 抽取排除源(CSV;空=不排除,全源皆抽)。留作应急闸:某源灌入过猛/信噪过低压垮本地 GPU 时,
     # 填入源名即暂停其抽取而不影响其余(价值源 alphapai/aifinmarket/gangtise 等由 pipeline_priority
     # 保持优先领取,不会被大源饿死)。历史:2026-07-25 曾填 "x,finnhub" 暂停低 SNR 碎片(200-440字

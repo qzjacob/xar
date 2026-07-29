@@ -116,6 +116,15 @@ services:
       - xar_data:/data
       - xar_models:/root/.cache
       - dagster_home:/dagster
+      # 实例配置从仓库只读挂入(2026-07-29 审计):开 run_monitoring,否则容器重建打死的
+      # run 永远停在 STARTED、永久泄漏并发槽,攒满即全队列锁死(实际锁死过 7 天)。
+      # 挂载点比 dagster_home:/dagster 更深,docker 在卷之后应用,故能覆盖。
+      # 放主 compose 而非 override.yml —— 后者是 gitignored 且由 fix-minis-oom-freeze.sh
+      # 生成会被重写,配置会被静默冲掉。
+      - ./deploy/dagster/dagster.yaml:/dagster/dagster.yaml:ro
+      # 运维脚本免 rebuild 可执行(镜像只 COPY src/,scripts/ 不在里面):
+      #   docker exec main-dagster-1 python3 /opt/xar-ops/unstick_run_queue.py --apply
+      - ./deploy/dagster:/opt/xar-ops:ro
     ports:
       - "3001:3000"   # host 3001 (3000 commonly taken, e.g. Grafana); Dagster UI inside still 3000
 

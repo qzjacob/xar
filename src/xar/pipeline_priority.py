@@ -30,9 +30,29 @@ TAIL_QUALITY_WEIGHTS: dict[str, float] = {
 }
 _TAIL_DEFAULT_WEIGHT = 2.0
 
+# 队列深度阻尼指数(2026-07-29 加入)。纯质量权重对**积压有多深**零感知:实测 edgar 只占尾部
+# backlog 的 1.3% 却与占 64.7% 的 finnhub 拿到相同绝对份额,深队列因此长期收敛不动。
+# 有效权重 = 质量权重 × pending^alpha:
+#   alpha=0   → 完全退回纯质量(**逐位兼容旧行为**,回滚位);
+#   alpha=0.5 → 平方根阻尼(默认):既跟随积压深度,又不让大源彻底吃掉高质量小源;
+#   alpha=1   → 按积压质量加权总量分配(小源会被饿死,不建议)。
+# 取 0.5 的实测效果(每批 8 篇,pending finnhub 271k / x 142k / edgar 5.4k):
+#   旧 edgar 3 / finnhub 3 / x 2  →  新 edgar 1 / finnhub 5 / x 2。
+DEFAULT_TAIL_DEPTH_ALPHA = 0.5
+
 
 def tail_weight(source: str) -> float:
     return TAIL_QUALITY_WEIGHTS.get(source, _TAIL_DEFAULT_WEIGHT)
+
+
+def effective_tail_weight(source: str, pending: int,
+                          alpha: float = DEFAULT_TAIL_DEPTH_ALPHA) -> float:
+    """信息质量 × 队列深度阻尼。alpha<=0 或 pending<=0 时退化为纯质量权重
+    (后者保证空池不会因 0**alpha 抹平权重而拿到异常份额)。纯函数,无 xar 依赖。"""
+    w = tail_weight(source)
+    if alpha <= 0 or pending <= 0:
+        return w
+    return w * (float(pending) ** alpha)
 
 
 def _lit(sources: tuple[str, ...]) -> str:

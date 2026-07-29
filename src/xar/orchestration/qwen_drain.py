@@ -18,7 +18,8 @@ from concurrent.futures import ThreadPoolExecutor
 from ..config import get_settings
 from ..logging import get_logger
 from ..models import llm
-from ..pipeline_priority import STRICT_PRIORITY_ORDER, tail_weight, tier_order_sql
+from ..pipeline_priority import (DEFAULT_TAIL_DEPTH_ALPHA, STRICT_PRIORITY_ORDER,
+                                 effective_tail_weight, tier_order_sql)
 from ..storage import db
 
 log = get_logger("xar.qwen_drain")
@@ -67,15 +68,27 @@ def _tail_sources_pending() -> dict[str, int]:
     return {r["source"]: r["c"] for r in rows if r["source"] not in excl and r["c"] > 0}
 
 
-def _split_by_quality(n: int, pending: dict[str, int]) -> dict[str, int]:
-    """把 n 个名额按**信息质量权重**(实测 kept_rate)切给尾部各源;某源待抽不足时,
-    其剩余份额自动流给其他源(最大余额法 + 溢出再分配,不浪费产能)。"""
+def _depth_alpha() -> float:
+    return float(getattr(get_settings(), "qwen_drain_depth_alpha",
+                         DEFAULT_TAIL_DEPTH_ALPHA))
+
+
+def _split_by_quality(n: int, pending: dict[str, int],
+                      alpha: float | None = None) -> dict[str, int]:
+    """把 n 个名额按**信息质量 × 队列深度**切给尾部各源;某源待抽不足时,
+    其剩余份额自动流给其他源(最大余额法 + 溢出再分配,不浪费产能)。
+
+    深度项(alpha,见 pipeline_priority.effective_tail_weight)防止「纯质量权重对积压深度
+    零感知」——否则占尾部 backlog 1.3% 的 edgar 与占 64.7% 的 finnhub 会拿到相同绝对份额。
+    权重按 pool 里的**剩余**待抽量逐轮重算,溢出再分配时深度自然跟着收缩。"""
+    a = _depth_alpha() if alpha is None else alpha
     quota: dict[str, int] = {}
     remaining = n
     pool = dict(pending)
     while remaining > 0 and pool:
-        total_w = sum(tail_weight(s) for s in pool) or 1.0
-        shares = {s: remaining * tail_weight(s) / total_w for s in pool}
+        w = {s: effective_tail_weight(s, pool[s], a) for s in pool}
+        total_w = sum(w.values()) or 1.0
+        shares = {s: remaining * w[s] / total_w for s in pool}
         # 先按整数份额分,余数按小数大小补足(最大余额法)
         alloc = {s: min(int(v), pool[s]) for s, v in shares.items()}
         left = remaining - sum(alloc.values())
@@ -103,9 +116,11 @@ def _claim(n: int) -> list[str]:
 
     ① **严格头部 100% 抢占**:alphapai > gangtise > aifinmarket。只要靠前的源还有待抽文档,
        它就吃满整批 —— 后面的源与尾部一律等待(tier_order_sql 保证组内也按此序)。
-    ② **尾部按信息质量比例分配剩余产能**:头部取不满时,剩余名额按 TAIL_QUALITY_WEIGHTS
-       (= 实测 expert kept_rate:wechat 8.5 / edgar 6.0 / finnhub 5.9 / x 3.5 / rss 2.3 …)
-       成比例切分;某源没货时份额自动流给其他源,GPU 不空转。
+    ② **尾部按「信息质量 × 队列深度」分配剩余产能**:头部取不满时,剩余名额按
+       TAIL_QUALITY_WEIGHTS(= 实测 expert kept_rate:wechat 8.5 / edgar 6.0 / finnhub 5.9 /
+       x 3.5 / rss 2.3 …)× pending^alpha 成比例切分;某源没货时份额自动流给其他源,
+       GPU 不空转。alpha 由 qwen_drain_depth_alpha 控制(0=退回纯质量,见 2026-07-29 审计:
+       纯质量下 edgar 占 backlog 1.3% 却与占 64.7% 的 finnhub 同额,深队列长期不收敛)。
     """
     head = _claim_sql(n, only=list(STRICT_PRIORITY_ORDER))
     left = n - len(head)

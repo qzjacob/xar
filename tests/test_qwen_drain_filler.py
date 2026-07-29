@@ -1,8 +1,9 @@
-"""GPU 算力分配回归(2026-07-28 用户裁定)。
+"""GPU 算力分配回归(2026-07-28 用户裁定;2026-07-29 审计加入队列深度项)。
 
 ① 严格头部 **100% 抢占**:alphapai > gangtise > aifinmarket —— 靠前的源有货就吃满整批;
-② 尾部(edgar/x/finnhub/…)只分配头部取完后的**剩余产能**,按**信息质量**(实测 kept_rate)成比例切分,
-   某源没货时份额自动流给其他源(GPU 不空转)。
+② 尾部(edgar/x/finnhub/…)只分配头部取完后的**剩余产能**,按**信息质量 × 队列深度**
+   (kept_rate × pending^alpha)成比例切分,某源没货时份额自动流给其他源(GPU 不空转);
+③ 深度项可用 qwen_drain_depth_alpha=0 逐位退回纯质量权重(回滚位,见 ③ 组测试)。
 """
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ class _S:
     qwen_drain_batch = 8
     qwen_drain_workers = 4
     qwen_drain_model = "qwen3-14b-local"
+    qwen_drain_depth_alpha = 0.5
 
 
 @pytest.fixture
@@ -86,9 +88,40 @@ def test_tail_split_proportional_to_quality(claims):
 def test_tail_share_reflows_when_source_empty(claims):
     """某尾部源没货 → 它的份额自动流给其他源,总量不缩水(GPU 不空转)。"""
     quota = qd._split_by_quality(20, {"edgar": 3, "finnhub": 999})
-    assert quota["edgar"] == 3, "有多少取多少"
-    assert quota["finnhub"] == 17, f"剩余份额应流给 finnhub: {quota}"
-    assert sum(quota.values()) == 20
+    assert sum(quota.values()) == 20, f"产能被浪费: {quota}"
+    assert quota["edgar"] >= 1, "浅队列的高质量源不应被完全饿死"
+    assert quota["finnhub"] > quota["edgar"], f"深队列应拿大头: {quota}"
+
+
+def test_tail_takes_everything_when_all_pools_shallow(claims):
+    """所有尾部源加起来都不够一批 → 全部取空,不因权重计算而漏取。"""
+    quota = qd._split_by_quality(20, {"edgar": 3, "finnhub": 5})
+    assert quota == {"edgar": 3, "finnhub": 5}, f"应取尽全部可用: {quota}"
+
+
+# ── ③ 队列深度阻尼(2026-07-29 审计:纯质量权重对积压深度零感知)────────────────────
+def test_tail_quota_follows_queue_depth(claims):
+    """生产实测队列深度下,份额必须跟随积压:finnhub(64.7%)> x(34.0%)> edgar(1.3%)。
+
+    审计前的纯质量权重给出 edgar 3 / finnhub 3 / x 2 —— 占 backlog 1.3% 的 edgar 与
+    占 64.7% 的 finnhub 同额,深队列因此长期收敛不动。
+    """
+    pending = {"finnhub": 271283, "x": 142472, "edgar": 5371}
+    quota = qd._split_by_quality(8, pending)
+    assert sum(quota.values()) == 8
+    assert quota["finnhub"] > quota["x"] > quota["edgar"], f"未跟随队列深度: {quota}"
+    assert quota["finnhub"] >= 5, f"最深队列份额过低: {quota}"
+    assert quota["edgar"] >= 1, "高质量源仍应保底,不被大源彻底吃掉"
+
+
+def test_depth_alpha_zero_restores_pure_quality(claims):
+    """alpha=0 = 逐位兼容旧行为的回滚位(改 env 即可零代码回滚)。"""
+    pending = {"finnhub": 271283, "x": 142472, "edgar": 5371}
+    legacy = qd._split_by_quality(8, pending, alpha=0.0)
+    assert sum(legacy.values()) == 8
+    # 旧行为:质量权重 edgar 6.0 ≈ finnhub 5.9 > x 3.5 → edgar 与 finnhub 同额
+    assert legacy["edgar"] == legacy["finnhub"], f"未退回纯质量: {legacy}"
+    assert legacy["edgar"] > qd._split_by_quality(8, pending)["edgar"], "深度项应压低浅队列份额"
 
 
 def test_head_partial_then_tail_fills_remainder(claims):
