@@ -36,5 +36,7 @@ export type ChathyEvent =
   | { type: "delta"; text: string }
   | { type: "tool_start"; id: string; name: string; args?: Record<string, unknown> }
   | { type: "tool_result"; id: string; name: string; preview?: string }
-  | { type: "done"; usage?: unknown }
+  // `capped`: the turn ran out of tool rounds and landed on a wrap-up answer (still a real
+  // answer — the model was told to flag whatever it could not finish verifying).
+  | { type: "done"; usage?: unknown; capped?: boolean }
   | { type: "error"; message: string };

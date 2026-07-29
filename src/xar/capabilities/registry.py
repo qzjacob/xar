@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import copy
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -554,6 +555,138 @@ def openai_tool_defs() -> list[dict]:
             for c in chathy_specs()]
 
 
+def _lists_in(node: object) -> list[list]:
+    """Every non-empty list anywhere in the payload (depth-first) — the trim loop's targets.
+
+    Must recurse: the old top-level-only scan found nothing to trim in nested payloads
+    (`company_detail.supplyChain.*`, `get_thesis.content`) and dropped straight through to a
+    zero-information "result too large".
+    """
+    out: list[list] = []
+    if isinstance(node, dict):
+        for v in node.values():
+            out.extend(_lists_in(v))
+    elif isinstance(node, list):
+        if node:
+            out.append(node)
+        for v in node:
+            out.extend(_lists_in(v))
+    return out
+
+
+def _clip_strings(node: object, limit: int) -> bool:
+    """Clip over-long strings in place (prose theses/summaries); True if anything changed."""
+    if isinstance(node, dict):
+        items: list = list(node.items())
+    elif isinstance(node, list):
+        items = list(enumerate(node))
+    else:
+        return False
+    hit = False
+    for k, v in items:
+        if isinstance(v, str) and len(v) > limit:
+            node[k] = v[:limit] + "…"          # type: ignore[index]
+            hit = True
+        elif isinstance(v, (dict, list)):
+            hit = _clip_strings(v, limit) or hit
+    return hit
+
+
+def _branches(node: object) -> list[tuple]:
+    """`(parent, key, serialized_size)` for every container-valued entry, any depth."""
+    if isinstance(node, dict):
+        items: list = list(node.items())
+    elif isinstance(node, list):
+        items = list(enumerate(node))
+    else:
+        return []
+    out: list[tuple] = []
+    for k, v in items:
+        if isinstance(v, (dict, list)) and v:
+            out.append((node, k, len(json.dumps(v, ensure_ascii=False, default=str))))
+            out.extend(_branches(v))
+    return out
+
+
+_OMITTED = "<omitted {} chars to fit the tool budget — re-request it with a narrower tool call>"
+_OMIT_FLOOR = 160          # 小于此的分支换成占位符反而更长,不值得砍
+
+
+def _dump(x: object) -> str:
+    return json.dumps(x, ensure_ascii=False, default=str)
+
+
+def _preview(out: str, budget: int) -> str:
+    """Last resort: hand back a valid-JSON *prefix* of the payload rather than nothing. The
+    prefix is shrunk by measurement, not arithmetic — JSON escaping inflates it unpredictably."""
+    text = out
+    while True:
+        cand = _dump({"error": "result too large", "chars": len(out), "preview_json": text})
+        if len(cand) <= budget or len(text) <= 200:
+            return cand
+        text = text[:int(len(text) * 0.75)]
+
+
+def _fit(result: object, budget: int) -> tuple[str, bool]:
+    """JSON-encode `result`, shrinking a **copy** of it until it fits `budget`.
+
+    Three escalating stages, each preserving valid JSON (a blind slice leaves an unterminated
+    string the model then misreads): ① lists lose their tails, widest size band first, so
+    short lists survive longest; ② over-long prose gets clipped; ③ whole branches get named
+    and dropped — deep dict payloads (`company_detail.thesis`) are pure key bulk that neither
+    earlier stage can touch. Returns `(json, truncated)`.
+
+    Degrading beats erroring: a `result too large` payload tells the model *nothing*, so it
+    spends another tool round working around it — which is what pushed wide chat questions
+    into the iteration cap.
+    """
+    out = _dump(result)
+    if len(out) <= budget:
+        return out, False
+    # 深拷贝再削:能力函数可能返回缓存对象(dashboard._load 有 30s TTL 缓存),原地删元素会
+    # 污染其他消费者。拷不动(不可 deepcopy 的对象)就退到只读的 preview —— 绝不原地改。
+    try:
+        trimmed = copy.deepcopy(result)
+    except Exception:  # noqa: BLE001
+        return _preview(out, budget), True
+    target = budget - 100                      # headroom for the `_truncated` note
+
+    while len(out) > target:                                            # ① list tails
+        lists = [x for x in _lists_in(trimmed) if len(x) > 1]
+        if not lists:
+            break
+        band = max(len(x) for x in lists) // 2
+        for x in lists:
+            if len(x) > band:
+                del x[len(x) // 2:]
+        out = _dump(trimmed)
+
+    for limit in (2000, 600, 160):                                      # ② prose
+        if len(out) <= target:
+            break
+        if _clip_strings(trimmed, limit):
+            out = _dump(trimmed)
+
+    while len(out) > target:                                            # ③ whole branches
+        cands = [c for c in _branches(trimmed) if c[2] > _OMIT_FLOOR]
+        if not cands:
+            break
+        need = len(out) - target
+        big_enough = [c for c in cands if c[2] >= need]
+        # 砍「够用的最小分支」,不够就砍最大的再来一轮 —— 尽量少丢信息
+        parent, key, size = (min(big_enough, key=lambda c: c[2]) if big_enough
+                             else max(cands, key=lambda c: c[2]))
+        parent[key] = _OMITTED.format(size)    # type: ignore[index]
+        out = _dump(trimmed)
+
+    if len(out) > budget:
+        return _preview(out, budget), True
+    if isinstance(trimmed, dict):
+        trimmed["_truncated"] = "oversized lists/prose/branches trimmed to fit the tool budget"
+        out = _dump(trimmed)
+    return out, True
+
+
 def execute(name: str, args: dict) -> str:
     """Run capability `name` with `args`; return a JSON string (truncated). Never raises —
     an error becomes a JSON error payload so the agent loop can continue."""
@@ -570,26 +703,11 @@ def execute(name: str, args: dict) -> str:
     except Exception as e:  # noqa: BLE001
         log.warning("capability %s failed: %s", name, e)
         return json.dumps({"error": f"{type(e).__name__}: {e}"})
-    out = json.dumps(result, ensure_ascii=False, default=str)
-    if len(out) > _MAX_RESULT_CHARS:
-        # Degrade list payloads by dropping tail items so the result STAYS valid JSON
-        # (a blind slice leaves an unterminated string the model then misreads).
-        trimmed = result
-        while True:
-            lists = [v for v in (trimmed.values() if isinstance(trimmed, dict) else [trimmed])
-                     if isinstance(v, list) and v]
-            longest = max(lists, key=len, default=None)
-            if longest is None or len(longest) <= 1:
-                break
-            del longest[len(longest) // 2:]
-            out = json.dumps(trimmed, ensure_ascii=False, default=str)
-            if len(out) <= _MAX_RESULT_CHARS - 60:
-                break
-        if len(out) > _MAX_RESULT_CHARS:
-            out = json.dumps({"error": "result too large", "chars": len(out)})
-        else:
-            trimmed_note = json.loads(out)
-            if isinstance(trimmed_note, dict):
-                trimmed_note["_truncated"] = "list tails dropped to fit the tool budget"
-                out = json.dumps(trimmed_note, ensure_ascii=False, default=str)
+    try:
+        out, truncated = _fit(result, _MAX_RESULT_CHARS)
+    except Exception as e:  # noqa: BLE001 - 序列化/裁剪也不得抛(execute 的「永不抛」契约)
+        log.warning("capability %s: result not serialisable: %s", name, e)
+        return json.dumps({"error": f"result not serialisable: {type(e).__name__}: {e}"})
+    if truncated:
+        log.info("capability %s: result trimmed to %d chars", name, len(out))
     return out

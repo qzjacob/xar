@@ -314,8 +314,11 @@ def llm() -> dict:
         return bool(os.environ.get(env))
 
     vendors = registry.configured_providers(_present)
+    # pinnedBy:该链来自 settings 的精确有序配置(如 chat→chat_models)而非能力/计费策略推导 ——
+    # 没有这个字段,运维会以为改 capability/preferBilling 能挪动这条链(挪不动)。
     routing_tasks = {tc.value: {"capability": router.POLICIES[tc].capability.value,
                                 "preferBilling": router.POLICIES[tc].prefer_billing,
+                                "pinnedBy": router.POLICIES[tc].chain_setting or None,
                                 "chain": [m.id for m in router.resolve(tc)]}
                      for tc in router.TaskClass}
     models = [{"id": m.id, "provider": m.provider, "litellm": m.litellm_model,

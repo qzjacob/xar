@@ -153,7 +153,7 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 | **XAR Genny** | `/genny`（+ `/genny/segment/:id` · `/genny/company/:id` · `/genny/dataroom`） | 既有投研终端**改名并下移**至 `/genny`（旧 `/segment/:id`·`/company/:id` 302 重定向）；新增**数据室**上传→摄取→检索；新增 `MacroStrip` 宏观带（反向勾稽 pill 深链回 `/andy`，见 §2.4） |
 | **XAR Fenny** | `/fenny/*`（懒加载） | **新增**结构化票据（FCN/Phoenix/Snowball）+ 期权台：从 `github.com/qzjacob/fenny` **vendored** 的 `fcn` 包（见 `FENNY_UPSTREAM.md`），4 个工作区 |
 
-**Chathy（`src/xar/chathy/` + `api/chathy.py`）**：后端 `models/llm.complete_stream()`（SSE 流式 + function-calling，复用任务管理器回退/计费；新增 `TaskClass.CHAT`=STRONG token）；`chathy/{tools,sessions,agent}.py`（code-as-truth 工具注册表、Postgres `chat_sessions`/`chat_messages`、≤8 轮工具循环）；`api/chathy.py`（SSE `POST /api/chathy/sessions/{sid}/chat` + 会话 CRUD）。前端 `pages/chathy/ChathyPage.tsx` + `components/chathy/*`（react-markdown、工具活动 chip、会话侧栏、fetch+ReadableStream 的 stop/abort）。
+**Chathy（`src/xar/chathy/` + `api/chathy.py`）**：后端 `models/llm.complete_stream()`（SSE 流式 + function-calling，复用任务管理器回退/计费；`TaskClass.CHAT` 由 `settings.chat_models` 钉成**精确有序链** kimi-k3-sub → glm-5.2-sub → minimax-m3-sub → deepseek-v4-pro，registry 候选与 env 默认一律不掺；四席皆思考模型故 `chat_max_tokens=16000`、`reasoning_effort` 拉满）；`chathy/{tools,sessions,agent}.py`（code-as-truth 工具注册表、Postgres `chat_sessions`/`chat_messages`、≤12 轮工具循环 + 收工回合：末轮撤掉 tools 逼模型基于已取证据作答，故撞上限返回答案而非报错）；`api/chathy.py`（SSE `POST /api/chathy/sessions/{sid}/chat` + 会话 CRUD）。前端 `pages/chathy/ChathyPage.tsx` + `components/chathy/*`（react-markdown、工具活动 chip、会话侧栏、fetch+ReadableStream 的 stop/abort）。
 
 **Genny 数据室（`api/dataroom.py` + `pages/genny/DataRoomPage.tsx`）**：上传 PDF/TXT/MD 研报 → 既有 `Doc`/`objects`/`parse_pending` 管线，按主题·细分打标（`documents` **加性列** `theme`/`segment`）→ 分块 + 嵌入 → 可浏览/下载，且**可被 Chathy 检索**。
 
