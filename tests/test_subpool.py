@@ -93,3 +93,33 @@ def test_available_pins_probes_when_due(mem, monkeypatch):
     avail = [p for p, _ in subpool.available_pins()]
     assert "zhipu" in avail                         # 探针成功 → 恢复
     assert subpool.status()["zhipu"]["status"] == "ok"
+
+
+# ── M2:并发冷却的读-改-写竞态(既有 flake 的真因,生产同样中招)────────────────────
+def test_concurrent_cooling_never_loses_an_update(mem):
+    """三个 provider 线程同时冷却时,sub_quota 这张 JSON blob 的读-改-写必须互斥。
+    未加锁时后写覆盖先写 → 被覆盖的那家仍被当作可用,继续派活直到再失败三次。
+    这正是 test_repeated_failure / returns_none 两条断言此前间歇性变红的原因。"""
+    def boom(_x):
+        raise ValueError("auth invalid")
+
+    subpool.run_parallel(list(range(30)), boom)
+    st = subpool.status()
+    assert all(st.get(p, {}).get("status") == "exhausted"
+               for p in ("zhipu", "minimax", "moonshot")), st
+
+
+def test_mark_holds_lock_under_hammering(mem):
+    """直接压 _mark:100 次并发标记后三家状态齐全,一条都不丢。"""
+    import threading
+
+    provs = ["zhipu", "minimax", "moonshot"]
+    threads = [threading.Thread(target=subpool._mark, args=(provs[i % 3],),
+                                kwargs={"ok": False, "reason": "hammer"})
+               for i in range(100)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    st = subpool.status()
+    assert all(st.get(p, {}).get("status") == "exhausted" for p in provs), st

@@ -18,12 +18,14 @@ from __future__ import annotations
 import json
 from datetime import date
 
+from pydantic import ValidationError
+
 from ..config import get_settings
 from ..logging import get_logger
 from ..models import llm
 from ..models.router import TaskClass
 from ..ontology.thesis import CompanyThesis, validate_thesis
-from ..storage import db
+from ..storage import buildlog, db
 
 log = get_logger("xar.thesis")
 
@@ -191,9 +193,11 @@ def _quality(t: CompanyThesis, known: set[str]) -> dict:
             "dossier_facts": len(known)}
 
 
-def _changed_because(prev: dict | None, t: CompanyThesis) -> str:
+def _changed_because(prev: dict | None, t: CompanyThesis, because: str | None = None) -> str:
+    """版本间差异注记。`because` 是**触发原因**(如「季报兑现 2026-07-30」)——
+    没有它,一份因财报而重建的论点看上去与例行刷新毫无区别,复盘时讲不出因果。"""
     if prev is None:
-        return "首版"
+        return f"首版({because})" if because else "首版"
     notes = []
     if prev.get("stance") != t.stance:
         notes.append(f"stance {prev.get('stance')}→{t.stance}")
@@ -210,7 +214,8 @@ def _changed_because(prev: dict | None, t: CompanyThesis) -> str:
         pl = prev_lean.get(dbt.key)
         if pl is not None and abs(dbt.lean - float(pl)) >= 0.2:
             notes.append(f"debate {dbt.key} lean {pl:+.1f}→{dbt.lean:+.1f}")
-    return "; ".join(notes) or "证据刷新,结构未变"
+    body = "; ".join(notes) or "证据刷新,结构未变"
+    return f"触发:{because}; {body}" if because else body
 
 
 def latest(cid: str) -> dict | None:
@@ -228,20 +233,35 @@ def _new_facts_since(cid: str, as_of) -> int:
 
 
 def build(cid: str, *, force: bool = False, quality_tier: bool = False,
-          run_id: str | None = None) -> dict:
-    """生成/刷新一家公司的论点。返回 {status: built|skipped|rejected|no_data, ...}。"""
+          run_id: str | None = None, because: str | None = None) -> dict:
+    """生成/刷新一家公司的论点。返回 {status: built|skipped|rejected|llm_failed|no_data, ...}。
+
+    **`llm_failed` 与 `rejected` 必须分开**(2026-07-29):此前模型压根没吐出可解析 JSON 也被记成
+    "rejected"(`complete_json` 兜底返回 `schema()`,而 CompanyThesis 有 8 个必填字段 → 抛
+    ValidationError → 落进同一个 except),于是 subpool 把「内容不合格」误判成 provider 故障、
+    冷却整家供应商;而真正的「模型不出 JSON」(截断/档位问题)在库里查不出来。
+    - `llm_failed` = 模型没给出可用输出(调用异常 / JSON 不可解析)→ **provider 健康问题**
+    - `rejected`   = 模型答了但违反纪律(validate_thesis)→ **内容问题,provider 是健康的**
+    """
     prev = latest(cid)
     if prev and not force and _new_facts_since(cid, prev["as_of"]) == 0:
+        buildlog.record("thesis", cid, stage="store", status="skipped",
+                        reason="no new facts since last thesis", run_id=run_id)
         return {"status": "skipped", "company_id": cid, "version": prev["version"],
                 "reason": "no new facts since last thesis"}
     d = dossier(cid)
     if d is None:
+        buildlog.record("thesis", cid, stage="dossier", status="no_data",
+                        reason="unknown company", run_id=run_id)
         return {"status": "no_data", "company_id": cid, "reason": "unknown company"}
     if d["n_facts"] < 3:
-        return {"status": "no_data", "company_id": cid,
-                "reason": f"only {d['n_facts']} grounded facts — 宁缺毋滥"}
+        reason = f"only {d['n_facts']} grounded facts — 宁缺毋滥"
+        buildlog.record("thesis", cid, stage="dossier", status="no_data",
+                        reason=reason, run_id=run_id)
+        return {"status": "no_data", "company_id": cid, "reason": reason}
 
     task = TaskClass.EDITOR if quality_tier else TaskClass.THESIS
+    model = "editor-tier" if quality_tier else "thesis-bulk"
     prompt = (f"为下述公司生成完整 CompanyThesis(as_of={d['as_of']}):\n\n{d['text']}")
     problems: list[str] = []
     t: CompanyThesis | None = None
@@ -251,9 +271,14 @@ def build(cid: str, *, force: bool = False, quality_tier: bool = False,
             t = llm.complete_json(prompt + suffix, CompanyThesis, system=_SYSTEM,
                                   task=task, node="thesis", run_id=run_id,
                                   max_tokens=get_settings().thesis_max_tokens,
-                                  reasoning_effort=get_settings().thesis_reasoning_effort)
-        except Exception as e:  # noqa: BLE001
-            return {"status": "rejected", "company_id": cid, "reason": f"llm: {e}"}
+                                  reasoning_effort=get_settings().thesis_reasoning_effort,
+                                  context={"company_id": cid, "attempt": attempt})
+        except Exception as e:  # noqa: BLE001 — 模型没产出可用 JSON:provider 健康问题,非纪律问题
+            kind = ("llm_invalid_json" if isinstance(e, ValidationError) else "llm_error")
+            buildlog.record("thesis", cid, stage="llm", status="llm_failed",
+                            reason=f"{kind}: {str(e)[:400]}", run_id=run_id,
+                            attempt=attempt, model=model)
+            return {"status": "llm_failed", "company_id": cid, "reason": f"{kind}: {str(e)[:160]}"}
         problems = validate_thesis(
             t, known_evidence_ids=d["known_ids"], known_kpis=d["kpis"],
             known_indicators=d.get("indicators"),
@@ -261,8 +286,12 @@ def build(cid: str, *, force: bool = False, quality_tier: bool = False,
         if not problems:
             break
         log.warning("thesis %s attempt %d: %d violations", cid, attempt, len(problems))
+        buildlog.record("thesis", cid, stage="validate", status="rejected",
+                        reason=f"attempt {attempt}: {len(problems)} violations",
+                        problems=problems, run_id=run_id, attempt=attempt, model=model)
     if t is None or problems:
-        return {"status": "rejected", "company_id": cid, "reason": "; ".join(problems[:6])}
+        return {"status": "rejected", "company_id": cid, "reason": "; ".join(problems[:6]),
+                "problems": problems}
 
     q = _quality(t, d["known_ids"])
     version = (prev["version"] + 1) if prev else 1
@@ -272,7 +301,7 @@ def build(cid: str, *, force: bool = False, quality_tier: bool = False,
             "one_liner, content, quality, changed_because, model, run_id) "
             "VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s) RETURNING id",
             (cid, version, d["as_of"], t.stance, t.conviction, t.one_liner_zh,
-             t.model_dump_json(), json.dumps(q), _changed_because(prev, t),
+             t.model_dump_json(), json.dumps(q), _changed_because(prev, t, because),
              "editor-tier" if quality_tier else "thesis-bulk", run_id)).fetchone()
         tid = row[0]
         ev_rows = []

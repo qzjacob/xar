@@ -29,7 +29,13 @@ class Settings(BaseSettings):
     dynamic_routing_enabled: bool = Field(default=True, validation_alias="XAR_DYNAMIC_ROUTING")
     dynamic_routing_chars_high: int = 16_000   # prompt 超此字符 → 判为复杂(升层)
     dynamic_routing_chars_low: int = 1_200     # prompt 短于此 → 判为简单(强任务可降层省成本)
+    # 推理力度。默认**最大化**:强/推理层任务(chat/debate/editor/synth/audit/earnings/phanny)
+    # 一律 "high" —— OpenAI 兼容 reasoning_effort 枚举的最高档。「视任务需求而实际调用」由两处保证:
+    #   ① 调用方显式传 reasoning_effort 压过默认(thesis 量产走 low、phanny 显式 high);
+    #   ② 非强层(bulk/triage:kg_extract/expert/thesis/wechat_triage)吃 model_effort_bulk 的低档
+    #      —— 小 token 预算下思考会烧光 content(Phase 4 实测 k3 30/40 空),不能一刀切拉满。
     model_effort: str = "high"
+    model_effort_bulk: str = "low"
     llm_max_usd_per_run: float = 5.0  # hard budget cap per report run
     llm_max_usd_per_batch: float = 20.0  # cap for batch jobs (build_kg/expert/synthesize)
     # GLM (Zhipu) + Kimi (Moonshot): OpenAI-compatible. A token key plus an optional flat
@@ -84,6 +90,17 @@ class Settings(BaseSettings):
 
     # --- Phanny (季报多空事件交易:强制 long/short + conviction 1-10 组合正态 + size 1-15%) ---
     phanny_universe_cap: int = 40              # PHANNY_UNIVERSE ∩ registry 截断帽
+    # 覆盖范围(2026-07-29 用户裁定:扩到 Genny 全覆盖库)。
+    #   "list"     —— 沿用策展的 EARNINGS_UNIVERSE(~31 只美股旗舰,历史行为);
+    #   "registry" —— **全部注册公司**,由数据可得性自然把关(dossier n_facts<4 → no_data、
+    #                 无财报日历行直接跳过),每次跳过都进 build_rejections 台账,可用
+    #                 `xar phanny why <cid>` 查为何没产出。
+    # ET 的 EARNINGS_UNIVERSE **不动** —— 与 conviction 刻度一样,两个模块的 universe 也隔离。
+    phanny_universe_mode: str = "registry"
+    # 每轮 book 最多裁决多少家。全库模式下财报季会有大量公司同时进窗,而单名完整辩论约
+    # 40 次订阅调用 —— 没有这道闸,一次 book 就能把三家订阅额度吃干、饿死 thesis 重建与
+    # link 道。worklist 按财报临近度排序,先做最紧迫的,其余下一轮继续(裁决本就幂等加锁)。
+    phanny_book_max_per_cycle: int = 12
     phanny_watch_days: int = 45                # 观察窗:窗内出财报的选中名进入 book
     phanny_verdict_lead_days: int = 3          # T-N 生成正式裁决
     phanny_outcome_max_days: int = 5           # 盘后回验兜底收尾天数
@@ -104,6 +121,18 @@ class Settings(BaseSettings):
     # proposer/rebut(深度研究主力)在无 host 订阅执行器(docker)时的**订阅**钉扎链:
     # MiniMax-M3(1M 上下文/40k 输出) → Kimi-K3(256k/16k) → GLM-5.2(200k/32k),均 usd=0。
     phanny_primary_models: str = "minimax-m3-sub,kimi-k3-sub,glm-5.2-sub"
+
+    # --- Chathy(交互式工具调用聊天)---
+    # **精确有序**模型链(csv,registry id;2026-07-29 用户裁定):Kimi-K3 领衔 → GLM-5.2 →
+    # MiniMax-M3 → DeepSeek-V4-Pro。前三席为订阅(usd=0),尾席 deepseek 按 token 计费兜底。
+    # 与 phanny_* 同纪律:链外模型不参与,不掺 registry 候选 → 没有静默漂到计量模型的路径。
+    # 空字符串 = 退回 TaskClass.CHAT 的常规策略路由。换代/回滚 = 改 XAR_CHAT_MODELS,零代码。
+    chat_models: str = "kimi-k3-sub,glm-5.2-sub,minimax-m3-sub,deepseek-v4-pro"
+    # 链上四席**全是思考型模型**,输出预算必须给足:reasoning 与 content 在 /v1 分离计费,
+    # 4000 的旧预算会被思考吃光 → content 空(registry 对 glm-5.2/k3 的注释、Phase 4 实测
+    # 30/40 空)。_build_kwargs 再按 spec.max_output 逐候选钳制(k3 16384 / glm-5.2 32768 /
+    # m3 40960 / deepseek-v4-pro 8192),订阅席零边际成本。
+    chat_max_tokens: int = 16_000
 
     # --- Embeddings ---
     # 默认英文 bge-small(turnkey);中英混合部署设 XAR_EMBED_MODEL=
@@ -406,7 +435,11 @@ class Settings(BaseSettings):
     subpool_batch: int = 12               # 每轮分发到三订阅的 thesis 重建数(消耗额度)
     subpool_idle_seconds: int = 120       # 无待建 thesis 或全 provider 冷却时的休眠
     subpool_thesis_stale_hours: int = 24  # thesis 早于此视为过期、进重建队列(持续吃额度)
-    thesis_max_tokens: int = 16000        # thesis 输出预算(松绑:配 glm-5.2-sub max_output=32768,防推理烧空 content)
+    # thesis 输出预算。2026-07-29 实测:给 16000 时 output_tokens **恰好顶到 16000**(llm_usage
+    # requested.granted=16000/clamped=false),即完整 CompanyThesis(3-6 支柱 × 证据 + 争论 + VP +
+    # 估值)本就写不下 —— 顶格输出正是 JSON 被截断的前兆。链首 glm-5.2-sub 可给 32768,提到 30000
+    # 留足余量;若某候选给不起,llm_usage.requested.clamped 会如实记录(不再是静默截断)。
+    thesis_max_tokens: int = 30000
     thesis_reasoning_effort: str = "low"  # thesis 走低推理力度:reasoning 模型(GLM-5.2/Kimi/Minimax)high-effort
                                           # 会把预算烧在推理致 content 空,thesis 是高量产任务,low 即出内容(治返空)
     # --- 微信多层级挖掘系统 (mining/) ---

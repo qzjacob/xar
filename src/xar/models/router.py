@@ -56,6 +56,9 @@ class RoutePolicy:
     prefer_billing: str            # Billing.value | "any"
     volume: str                    # "bulk" | "normal"
     fallback: tuple[str, ...] = field(default_factory=tuple)  # explicit model ids appended last
+    # Settings 属性名。非空且该 setting 有值 → 它的 csv 就是这个 task 的**精确有序链**,
+    # registry 候选一律不掺(见 `_resolve_policy`)。留空 = 常规能力/计费策略解析。
+    chain_setting: str = ""
 
 
 POLICIES: dict[TaskClass, RoutePolicy] = {
@@ -72,9 +75,12 @@ POLICIES: dict[TaskClass, RoutePolicy] = {
     TaskClass.EVAL:         RoutePolicy(Capability.FAST, "any", "normal"),
     TaskClass.ADHOC_FAST:   RoutePolicy(Capability.FAST, "any", "normal"),
     TaskClass.ADHOC_STRONG: RoutePolicy(Capability.STRONG, "any", "normal"),
-    # interactive chat → strongest TOKEN model (latency + reliable function-calling);
-    # deliberately NOT the subscription bulk pool, which is tuned for nightly volume.
-    TaskClass.CHAT:         RoutePolicy(Capability.STRONG, Billing.TOKEN.value, "normal"),
+    # interactive chat → **精确有序链**(settings.chat_models,2026-07-29 用户裁定):
+    # Kimi-K3 → GLM-5.2 → MiniMax-M3 → DeepSeek-V4-Pro。前三席订阅(usd=0)故 billing_pref
+    # 改 SUBSCRIPTION —— 仅在 chat_models 被清空时才生效(那时退回常规策略解析),保证清空后
+    # 也不会漂回无界 token 池。链上全是思考模型,输出预算见 settings.chat_max_tokens。
+    TaskClass.CHAT:         RoutePolicy(Capability.STRONG, Billing.SUBSCRIPTION.value, "normal",
+                                        chain_setting="chat_models"),
     # 947-name thesis batch → subscription-first bounded cost, same shape as KG_EXTRACT;
     # flagship names get a separate EDITOR-tier quality pass in research/thesis.py.
     TaskClass.THESIS:       RoutePolicy(Capability.CHEAP_BULK, Billing.SUBSCRIPTION.value, "bulk"),
@@ -144,13 +150,54 @@ def _synth(litellm_id: str, capability: Capability) -> ModelSpec:
                      price_in=price[0], price_out=price[1], supports_reasoning=("deepseek" in full))
 
 
+def _chain_from_setting(name: str) -> list[ModelSpec]:
+    """A settings csv of registry ids → an **exactly ordered** chain. Unknown ids are logged and
+    skipped (a typo must not silently re-route); all-unknown/blank → empty, caller falls back to
+    the normal capability/billing resolution."""
+    if not name:
+        return []
+    from ..config import get_settings
+    out: list[ModelSpec] = []
+    for mid in (x.strip() for x in (getattr(get_settings(), name, "") or "").split(",")):
+        if not mid:
+            continue
+        spec = registry.get(mid)
+        if spec is None:
+            log.warning("route chain %s: unknown model id %r — skipped", name, mid)
+            continue
+        out.append(spec)
+    return out
+
+
 def _resolve_policy(task: TaskClass, p: RoutePolicy) -> list[ModelSpec]:
     """Build the ordered chain for a (task, policy). Override > env > registry candidates
-    > explicit fallbacks. `p` may be the static POLICIES[task] or a dynamically-adjusted one."""
+    > explicit fallbacks. `p` may be the static POLICIES[task] or a dynamically-adjusted one.
+
+    **billing 偏好压过 env 默认**(2026-07-29 修):`_env_spec` 曾被无条件插在链首,于是
+    `model_strong` 的默认值 `deepseek-v4-pro`(TOKEN,max_output=8192)会抢在所有订阅模型前面 ——
+    对偏好 SUBSCRIPTION 的任务这有两重破坏:
+      ① 违背 route_plan 写明的安全线「bulk 升级仍走 SUBSCRIPTION 优先,绝不越到无界 token 池」,
+         也违背用户对 Phanny「只用订阅项下模型」的裁定(未钉扎路径会漂回计量模型);
+      ② 实测把 thesis 打废:大 dossier 触发 cheap_bulk→strong 升层后落到 deepseek-v4-pro,
+         16000 的 max_tokens 被 8192 钳断 → JSON 截断 → 「no JSON object found」→ 整批 llm_failed。
+    现在:env 默认若与偏好计费方式不符,降到偏好候选**之后**(仍是可用回退,不被丢弃);
+    ops 的 route_overrides 是人为显式指令,继续排最前。billing_pref='any' 的任务行为不变。"""
+    explicit = _chain_from_setting(p.chain_setting)
+    if explicit:
+        # 精确有序链:ops 的 route_overrides 是人为显式指令,仍排最前;其后严格按配置顺序,
+        # **不掺 registry 候选、不掺 env 默认** —— 否则「kimi 领衔」会被 model_strong 之类抢头,
+        # 也会出现没人要求过的候选静默接住 chat 流量(计费漂移面)。
+        return _dedup([registry.override_for(task.value, p.capability.value), *explicit])
+    env = _env_spec(p.capability)
+    env_matches = (p.prefer_billing == "any" or
+                   (env is not None and env.billing.value == p.prefer_billing))
     chain: list[ModelSpec | None] = []
     chain.append(registry.override_for(task.value, p.capability.value))   # ops runtime switch
-    chain.append(_env_spec(p.capability))                                 # env override
+    if env_matches:
+        chain.append(env)                                                 # env override
     chain += registry.candidates_for(p.capability, billing_pref=p.prefer_billing)  # registry
+    if not env_matches:
+        chain.append(env)                        # 计费方式不符:留作回退,但不许抢在偏好候选前
     chain += [registry.get(m) for m in p.fallback]                        # explicit tail
     return _dedup(chain)
 
@@ -195,7 +242,7 @@ def route_plan(task: TaskClass, *, complexity: str | None = None, relevance: str
         if cap != p.capability:
             log.info("dynamic route %s: %s → %s (complexity=%s relevance=%s)",
                      task.value, p.capability.value, cap.value, comp, relevance)
-    adjusted = RoutePolicy(cap, p.prefer_billing, p.volume, p.fallback)
+    adjusted = RoutePolicy(cap, p.prefer_billing, p.volume, p.fallback, p.chain_setting)
     return RoutePlan(cap, _resolve_policy(task, adjusted))
 
 

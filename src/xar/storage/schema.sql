@@ -183,6 +183,20 @@ ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS task_class TEXT;
 ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS billing    TEXT;
 CREATE INDEX IF NOT EXISTS idx_llm_usage_provider ON llm_usage(provider);
 CREATE INDEX IF NOT EXISTS idx_llm_usage_task     ON llm_usage(task_class);
+-- run_id 是预算帽热路径的谓词(_spent 每次 LLM 调用都按它求和)——无索引即每调用一次全表扫。
+CREATE INDEX IF NOT EXISTS idx_llm_usage_run      ON llm_usage(run_id);
+-- 可审计性增强:此前**只有成功调用**落行,轮转/重试/返空全部不可见 —— 于是「这次为什么换了模型」
+-- 「延迟多少」「实际用了什么参数」「哪家在抖」都无从查起。失败行 usd=0/tokens=0,不影响任何花费聚合。
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS status     TEXT NOT NULL DEFAULT 'ok';  -- ok|error|empty
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS error      TEXT;
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS latency_ms INT;
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS attempt    INT;    -- 该次调用中此候选是第几个
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS requested  JSONB;  -- {task,reasoning_effort,max_tokens,granted,clamped,pin}
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS context    JSONB;  -- 调用方业务上下文 {company_id,event_date,round,role}
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS prompt_sha TEXT;   -- sha256(system+prompt),回放校验位
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS tokens_estimated BOOLEAN NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS idx_llm_usage_created ON llm_usage(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_llm_usage_status  ON llm_usage(status) WHERE status <> 'ok';
 -- Runtime route override: re-point a capability/task to a new model generation live
 -- (ops API) without a redeploy. Strongest layer of override > env > registry preferred.
 CREATE TABLE IF NOT EXISTS route_overrides (
@@ -819,6 +833,114 @@ CREATE TABLE IF NOT EXISTS capability_runs (
 CREATE INDEX IF NOT EXISTS idx_capruns_recent ON capability_runs(capability, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_capruns_active ON capability_runs(capability, args_hash)
     WHERE status IN ('queued','running');
+
+-- ── 构建拒绝/跳过台账(phanny / thesis / earnings 共用)──────────────────────────────
+-- 回答「这家公司今天为何没有产出」。此前拒因只进 stdout(且 validate 违规被截断到前 6 条),
+-- 于是「上周论点为何停产」在库里根本查不到 —— 这正是 thesis build 停摆时无法诊断的原因。
+-- 关键区分:`llm_failed`(模型没给出可解析 JSON / 调用异常)vs `rejected`(纪律违规,模型答了但不合格)。
+-- 二者混同会让 subpool 把内容拒绝误判成 provider 故障而冷却整家供应商(误诊闭环)。
+CREATE TABLE IF NOT EXISTS build_rejections (
+    id          BIGSERIAL PRIMARY KEY,
+    domain      TEXT NOT NULL,               -- phanny | thesis | earnings
+    company_id  TEXT,                        -- 不设 FK:unknown-company 本身就是要记录的拒因
+    event_date  DATE,
+    run_id      TEXT,
+    stage       TEXT NOT NULL,               -- dossier | propose | validate | debate | store | llm | book
+    status      TEXT NOT NULL,               -- rejected | llm_failed | no_data | skipped | deferred_host | error | raced
+    reason      TEXT,
+    problems    JSONB NOT NULL DEFAULT '[]', -- 完整违规清单(不截断)
+    attempt     INT,
+    model       TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_brej_company ON build_rejections(domain, company_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_brej_run     ON build_rejections(run_id);
+CREATE INDEX IF NOT EXISTS idx_brej_recent  ON build_rejections(created_at DESC);
+
+-- ── 内容寻址工件(dossier 全文 / 渲染后的提示词 / 模型原始回复)───────────────────────
+-- 同内容只存一份:一次 build 里 ~20 次调用共享同一份 dossier,寻址后只占一行。
+CREATE TABLE IF NOT EXISTS artifacts (
+    sha        TEXT PRIMARY KEY,            -- sha256(body)
+    kind       TEXT NOT NULL,               -- dossier_text | prompt | system | response_raw
+    body       TEXT NOT NULL,
+    meta       JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_artifacts_kind ON artifacts(kind, created_at DESC);
+
+-- ── Phanny 逐阶段构建快照:**回放的字节级输入** ────────────────────────────────────
+-- 没有它,一条已入库裁决的输入无法复原:dossier 用完即弃、as_of 只是构建日期而底层表一直在变,
+-- 于是「同样代码同样日期重跑一遍」得到的 dossier 与当初并不相同 —— 回放无从谈起。
+-- 被拒的构建同样留痕(verdict_id 为 NULL),否则最该复盘的那些反而没有记录。
+CREATE TABLE IF NOT EXISTS phanny_build_snapshots (
+    id           BIGSERIAL PRIMARY KEY,
+    build_id     TEXT NOT NULL,              -- 每次 build_one 铸一个(REDEBATE 谱系锚点)
+    run_id       TEXT,
+    company_id   TEXT NOT NULL,
+    event_date   DATE,
+    verdict_id   BIGINT,                     -- _store 之后回填
+    stage        TEXT NOT NULL,              -- dossier | propose | critic | rebut
+    round        INT,
+    attempt      INT,
+    model        TEXT,
+    dossier_sha  TEXT,                       -- → artifacts.sha
+    prompt_sha   TEXT,                       -- 渲染后完整提示词的 sha(回放校验位)
+    response_sha TEXT,                       -- → artifacts.sha(模型原文,解析前)
+    prompt_template TEXT,                    -- 提示词注册表 key
+    template_ver INT,
+    schema_sha   TEXT,                       -- pydantic model_json_schema 指纹(它也是提示词的一部分)
+    params       JSONB NOT NULL DEFAULT '{}',
+    known_ids    JSONB,                      -- dossier 阶段:模型**被允许引用**的接地 id 全集
+    panel        JSONB,                      -- dossier 阶段:面板数值(tech:/flow:/opt: 实际所指的值)
+    meta         JSONB NOT NULL DEFAULT '{}',-- n_facts / implied_move / problems / superseded_by …
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_pbs_build   ON phanny_build_snapshots(build_id);
+CREATE INDEX IF NOT EXISTS idx_pbs_company ON phanny_build_snapshots(company_id, event_date, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pbs_verdict ON phanny_build_snapshots(verdict_id);
+ALTER TABLE phanny_verdicts ADD COLUMN IF NOT EXISTS build_id TEXT;
+
+-- ── 整本 book 的运行记录 ─────────────────────────────────────────────────────────
+-- run_book 的返回值(组合正态分布/shapiro_p/gross-net/主题集中度/逐名跳过原因)此前只被
+-- log.info 截断到 200 字符,从不入库 —— 于是「那天这本 book 为什么标 calibration_incomplete」
+-- 「哪些名字被跳过、各因为什么」事后全查不到。写在 run_book 内部,所有调用方(worker/CLI/
+-- capability/replay)一体受益。
+CREATE TABLE IF NOT EXISTS phanny_book_runs (
+    id          BIGSERIAL PRIMARY KEY,
+    run_id      TEXT,
+    origin      TEXT,                        -- glm_worker | cli | capability | replay | ?
+    started_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at TIMESTAMPTZ,
+    status      TEXT,                        -- running|normal|calibration_incomplete|insufficient_sample|no_data|error
+    passes      INT,
+    n           INT,
+    result      JSONB NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_pbr_run    ON phanny_book_runs(run_id);
+CREATE INDEX IF NOT EXISTS idx_pbr_recent ON phanny_book_runs(started_at DESC);
+
+-- ── 回放与 A/B 评测 ─────────────────────────────────────────────────────────────
+-- 回放产生的裁决必须与生产裁决**同表但可分辨**:它要能被同一套回验打分(回放也是可证伪的
+-- 预测,这正是 A/B 的意义),但绝不能混进 book/最新裁决的读路径。
+ALTER TABLE phanny_verdicts ADD COLUMN IF NOT EXISTS variant   TEXT NOT NULL DEFAULT 'prod';
+ALTER TABLE phanny_verdicts ADD COLUMN IF NOT EXISTS replay_of BIGINT;
+CREATE INDEX IF NOT EXISTS idx_pv_variant ON phanny_verdicts(variant, company_id, event_date);
+
+-- 多 horizon 回验史(**不覆盖**)。旧的 outcome JSONB 是单 horizon 且每次 UPDATE 覆盖 ——
+-- 「当时怎么判的、后来又怎么改判」没有任何痕迹。legacy outcome 继续为 reaction 打戳,读侧不破。
+CREATE TABLE IF NOT EXISTS phanny_outcomes (
+    id           BIGSERIAL PRIMARY KEY,
+    verdict_id   BIGINT NOT NULL REFERENCES phanny_verdicts(id) ON DELETE CASCADE,
+    horizon      TEXT NOT NULL,               -- reaction | T+5 | T+20
+    status       TEXT NOT NULL,               -- scored | event_moved | price_missing
+    reaction_pct REAL,
+    direction_hit BOOLEAN,
+    size_weighted_pnl_pct REAL,
+    details      JSONB NOT NULL DEFAULT '{}',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(verdict_id, horizon)
+);
+CREATE INDEX IF NOT EXISTS idx_po_verdict ON phanny_outcomes(verdict_id);
 
 -- Chathy 通讯软件通道映射(TG-P1):外部聊天(如 Telegram chat_id)↔ chat_sessions 会话,
 -- 使 bot 对话与前端页面共用同一份会话/消息存储(记录与日志完全同源)。

@@ -23,6 +23,7 @@ log = get_logger("xar.subpool")
 
 STATE_KEY = "sub_quota"
 _MAX_PROVIDER_FAILS = 3    # 连续失败(额度/鉴权失效/持续返空)达此数 → 冷却该 provider 退出,不再抢单
+_STATE_LOCK = threading.Lock()   # sub_quota 是单个 JSON blob:读-改-写必须互斥(见 _mark)
 # 额度/限流标记(与 glm_worker._QUOTA_MARKERS 同族;刻意不含 exceed/429 之类 —— 预算帽≠订阅额度)。
 _QUOTA_MARKERS = ("余额不足", "无可用资源包", "rate limit", "ratelimit", "too many requests",
                   "quota", "额度", "配额", "限额", "超限", "insufficient")
@@ -60,23 +61,27 @@ def status() -> dict:
 
 
 def _mark(prov: str, *, ok: bool, reason: str = "") -> None:
-    st = get_state(STATE_KEY)
-    p = st.setdefault(prov, {})
-    if ok:
-        if p.get("status") == "exhausted":
-            p["resumed_at"] = _now()
-            p["resume_count"] = int(p.get("resume_count", 0)) + 1
-            log.info("subpool provider %s quota RECOVERED", prov)
-        p["status"] = "ok"
-    else:
-        if p.get("status") != "exhausted":
-            p["status"] = "exhausted"
-            p["exhausted_at"] = _now()
-            p["exhaust_count"] = int(p.get("exhaust_count", 0)) + 1
-            p["last_reason"] = reason[:160]
-            log.warning("subpool provider %s quota EXHAUSTED — cooling (%s)", prov, reason[:100])
-    p["last_probe_at"] = _now()
-    save_state(STATE_KEY, st)
+    """标记某 provider 的额度状态。**必须持锁**:整张状态表是一个 JSON blob,
+    读-改-写没有互斥时,两个 worker 线程同时冷却会丢一次更新 —— 被丢掉的那家仍被当作可用,
+    继续派活直到再失败三次。run_parallel 里三个 provider 线程恰恰会同时触发这条路径。"""
+    with _STATE_LOCK:
+        st = get_state(STATE_KEY)
+        p = st.setdefault(prov, {})
+        if ok:
+            if p.get("status") == "exhausted":
+                p["resumed_at"] = _now()
+                p["resume_count"] = int(p.get("resume_count", 0)) + 1
+                log.info("subpool provider %s quota RECOVERED", prov)
+            p["status"] = "ok"
+        else:
+            if p.get("status") != "exhausted":
+                p["status"] = "exhausted"
+                p["exhausted_at"] = _now()
+                p["exhaust_count"] = int(p.get("exhaust_count", 0)) + 1
+                p["last_reason"] = reason[:160]
+                log.warning("subpool provider %s quota EXHAUSTED — cooling (%s)", prov, reason[:100])
+        p["last_probe_at"] = _now()
+        save_state(STATE_KEY, st)
 
 
 def probe(prov: str, pin: tuple[str, ...]) -> bool:

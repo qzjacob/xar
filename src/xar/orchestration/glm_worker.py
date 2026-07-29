@@ -561,7 +561,7 @@ def _earnings_step() -> dict:
     if _due("earnings_verdicts", 24 * 3600):
         try:
             from ..research import earnings
-            out["verdicts"] = earnings.judge_due()
+            out["verdicts"] = earnings.judge_due(run_id=llm.new_batch_run_id("earn"))
             _stamp("earnings_verdicts", 24 * 3600, ok=True)
         except Exception as e:  # noqa: BLE001
             out["verdicts"] = {"error": str(e)[:160]}
@@ -585,7 +585,8 @@ def _phanny_step() -> dict:
     if _due("phanny_verdicts", 24 * 3600):
         try:
             from ..phanny import engine
-            out["verdicts"] = engine.judge_due()
+            out["verdicts"] = engine.judge_due(run_id=llm.new_batch_run_id("phanny"),
+                                              origin="glm_worker")
             _stamp("phanny_verdicts", 24 * 3600, ok=True)
         except Exception as e:  # noqa: BLE001
             out["verdicts"] = {"error": str(e)[:160]}
@@ -623,11 +624,19 @@ def _alt_correction(q: dict, rebuilds: int, pin: tuple[str, ...] = GLM_PIN) -> d
             from ..research import thesis, thesis_health
 
             # 信号面 + 争论翻转面挑战最重的论点 → 钉扎重写(天平翻转闭环)
-            cids = thesis_health.challenged_companies_v2(limit=rebuilds)
+            # 非 subpool 兜底道:同样让财报参与重建候选(与 subpool_worker._pick_companies 同序)
+            picks: list[tuple[str, str | None]] = [
+                (c, "信号/争论挑战") for c in thesis_health.challenged_companies_v2(limit=rebuilds)]
+            if len(picks) < rebuilds:
+                from ..research import quarterly_feedback
+                have = {c for c, _ in picks}
+                picks += [(c, b) for c, b in quarterly_feedback.recent_print_companies(limit=rebuilds)
+                          if c not in have]
             rebuilt = []
+            rid = llm.new_batch_run_id("thesis")   # 本轮重建共用一个 run:花费可归因 + 受批量帽约束
             with llm.pinned(pin):
-                for cid in cids:
-                    r = thesis.build(cid, force=True)
+                for cid, because in picks[:rebuilds]:
+                    r = thesis.build(cid, force=True, run_id=rid, because=because)
                     rebuilt.append({"cid": cid, "status": r.get("status")})
             out["rebuilt"] = rebuilt
         except Exception as e:  # noqa: BLE001

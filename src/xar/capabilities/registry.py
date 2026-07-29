@@ -243,14 +243,15 @@ def _start_report(company_id: str, since: str | None = None) -> dict:
 
 
 # --- build-capability implementations (kind=build; run via capabilities/runs.py) --------
-def _build_earnings_verdict(company_id: str, force: bool = False) -> dict:
+def _build_earnings_verdict(company_id: str, force: bool = False,
+                            run_id: str | None = None) -> dict:
     from ..research import earnings
-    return earnings.build_verdict(company_id, force=force)
+    return earnings.build_verdict(company_id, force=force, run_id=run_id)
 
 
-def _build_thesis(company_id: str, force: bool = False) -> dict:
+def _build_thesis(company_id: str, force: bool = False, run_id: str | None = None) -> dict:
     from ..research import thesis
-    return thesis.build(company_id, force=force)
+    return thesis.build(company_id, force=force, run_id=run_id)
 
 
 def _refresh_exploration(domain: str | None = None) -> dict:
@@ -298,14 +299,42 @@ def _phanny_verdict(company_id: str, refresh: bool = False, force: bool = False)
                            for dm in (content.get("dimensions") or [])]}
 
 
-def _build_phanny_verdict(company_id: str, force: bool = False) -> dict:
+def _build_phanny_verdict(company_id: str, force: bool = False,
+                          run_id: str | None = None) -> dict:
     from ..phanny import engine
-    return engine.build_verdict(company_id, force=force)
+    return engine.build_verdict(company_id, force=force, run_id=run_id)
 
 
-def _build_phanny_book(force: bool = False) -> dict:
+def _build_phanny_book(force: bool = False, run_id: str | None = None) -> dict:
     from ..phanny import engine
-    return engine.judge_due(force=force)
+    return engine.judge_due(force=force, run_id=run_id, origin="capability")
+
+
+def _quarterly_review(company_id: str) -> dict:
+    """一次调用回答「这只股票的季报体系表现如何、它如何改写了长期观点」。
+
+    把三样东西并到一起(纯读、零 LLM):Phanny 块(1-10 刻度)+ ET 块(0-10 刻度)+
+    **反哺血缘**(季报兑现事实 → 证实/证伪了论点里的哪条争论)+ 论点近期版本注记。
+    刻度隔离:三个 conviction 域各自独立,响应里显式标注,不得互换或做算术。"""
+    from ..api import dashboard
+    from ..research import quarterly_feedback
+    from ..storage import db
+
+    out: dict = {"company_id": company_id,
+                 "scales": {"phanny": "1-10", "earnings_verdict": "0-10", "thesis": "1-5",
+                            "note": "三个 conviction 域互不换算"}}
+    out["phanny"] = dashboard._phanny_block(company_id)
+    out["earnings"] = dashboard._earnings_block(company_id)
+    out["thesisFeedback"] = quarterly_feedback.lineage(company_id, limit=8)
+    try:
+        out["thesisVersions"] = db.query(
+            "SELECT version, as_of, stance, conviction, changed_because FROM company_thesis "
+            "WHERE company_id=%s ORDER BY version DESC LIMIT 5", (company_id,))
+    except Exception:  # noqa: BLE001
+        out["thesisVersions"] = []
+    if out["phanny"] is None and out["earnings"] is None:
+        out["note"] = "该公司不在季报裁决 universe;但只要它有论点,季报兑现仍会经 sweep 反哺(见 thesisFeedback)。"
+    return out
 
 
 CAPABILITIES: list[CapabilitySpec] = [
@@ -439,6 +468,11 @@ CAPABILITIES: list[CapabilitySpec] = [
                    _obj({"company_id": _CID, "refresh": {"type": "boolean", "default": False},
                          "force": {"type": "boolean", "default": False}}, ["company_id"]),
                    _earnings_verdict),
+    CapabilitySpec("quarterly_review",
+                   "某公司的季报投研全景:Phanny 多空裁决(conviction 1-10)+ ET 裁决(0-10)+ "
+                   "近期命中率 + **季报兑现如何改写了长期投资论点**的血缘 + 论点版本注记。"
+                   "纯读、即答。三个 conviction 刻度互不换算,勿混用。",
+                   _obj({"company_id": _CID}, ["company_id"]), _quarterly_review),
     CapabilitySpec("run_status",
                    "查询后台分析任务状态与结果(build_earnings_verdict / report 等,拿 run_id 后用)。",
                    _obj({"run_id": {"type": "string"}}, ["run_id"]), _run_status),

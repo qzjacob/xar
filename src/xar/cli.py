@@ -803,16 +803,20 @@ def earnings_judge_cmd(
     force: bool = typer.Option(False, help="重生成(锁定后仅此可覆盖,version+1)"),
 ) -> None:
     """生成季报裁决(host 上择优订阅执行器 codex/claude-max;docker 落 token 强模型)。"""
+    from .models import llm
     from .research import earnings
 
+    run_id = llm.new_batch_run_id("earn")
+    print(f"[dim]run_id={run_id}(用它在 llm_usage / earnings_verdicts 里查这次的花费与产出)[/dim]")
     if company:
-        print(json.dumps(earnings.build_verdict(company, force=force),
+        print(json.dumps(earnings.build_verdict(company, force=force, run_id=run_id),
                          ensure_ascii=False, indent=2, default=str))
         return
     if not due:
         print("[red]give a company id or --due[/red]")
         raise typer.Exit(1)
-    print(json.dumps(earnings.judge_due(force=force), ensure_ascii=False, indent=2, default=str))
+    print(json.dumps(earnings.judge_due(force=force, run_id=run_id),
+                     ensure_ascii=False, indent=2, default=str))
 
 
 @earnings_app.command("outcomes")
@@ -869,16 +873,20 @@ def phanny_judge_cmd(
     force: bool = typer.Option(False, help="重生成(锁定后仅此可覆盖,version+1)"),
 ) -> None:
     """生成 Phanny 季报多空裁决(多 LLM 辩论;host 择优订阅执行器 codex/claude-max,docker 落 token)。"""
+    from .models import llm
     from .phanny import engine
 
+    run_id = llm.new_batch_run_id("phanny")
+    print(f"[dim]run_id={run_id}(用它在 llm_usage / phanny_verdicts 里查这次的花费与产出)[/dim]")
     if company:
-        print(json.dumps(engine.build_verdict(company, force=force),
+        print(json.dumps(engine.build_verdict(company, force=force, run_id=run_id),
                          ensure_ascii=False, indent=2, default=str))
         return
     if not due:
         print("[red]give a company id or --due[/red]")
         raise typer.Exit(1)
-    print(json.dumps(engine.judge_due(force=force), ensure_ascii=False, indent=2, default=str))
+    print(json.dumps(engine.judge_due(force=force, run_id=run_id, origin="cli"),
+                     ensure_ascii=False, indent=2, default=str))
 
 
 @phanny_app.command("outcomes")
@@ -895,6 +903,79 @@ def phanny_calibration_cmd() -> None:
     from .phanny import engine
 
     print(json.dumps(engine.calibration(), ensure_ascii=False, indent=2, default=str))
+
+
+@phanny_app.command("replay")
+def phanny_replay_cmd(
+    verdict_id: int = typer.Argument(..., help="phanny_verdicts.id"),
+    model: str = typer.Option(None, "--model", help="换个模型重判(如 kimi-k3-sub)"),
+    store: bool = typer.Option(True, help="存为 variant='replay'(不影响生产组合)"),
+) -> None:
+    """用**当初定格的证据**重跑一条裁决 —— 换模型/换提示词看它会不会判得不同。
+
+    `bit_exact=true` 表示提示词逐字节还原(差异只可能来自模型);`false` 说明模板此后
+    漂移过,结果照样返回但显式标记 —— 悄悄吸收漂移比报错更危险。
+    """
+    from .phanny import replay
+
+    print(json.dumps(replay.replay_verdict(verdict_id, model=model, store=store),
+                     ensure_ascii=False, indent=2, default=str))
+
+
+@phanny_app.command("eval")
+def phanny_eval_cmd(
+    by: str = typer.Option("model", "--by", help="model | template | variant"),
+) -> None:
+    """按模型/提示词版本/回放对照分组看校准(命中率 × conviction 桶)。刻度:Phanny 1-10。"""
+    from .phanny import evaluate
+
+    print(json.dumps(evaluate.compare(by), ensure_ascii=False, indent=2, default=str))
+
+
+@phanny_app.command("feedback")
+def phanny_feedback_cmd(
+    days: int = typer.Option(5, "--days", help="回看窗口(天);首次回填存量可给 90"),
+    company: str = typer.Argument(None, help="只跑一家(需同时给 --event-date)"),
+    event_date: str = typer.Option(None, "--event-date", help="ISO 日期,配合单公司使用"),
+) -> None:
+    """季报兑现 → 个股论点反哺(零 LLM、幂等)。
+
+    合成 quarterly_print 接地事实 + 定向跑季度级 VerificationPoint 校验;下游的
+    link 道/health_v3/重建队列**零改动**即可看见 —— 这是 Genny 个股观点持续更新的动力源。
+    覆盖**所有持有论点的公司**(不止季报裁决 universe 的那几十家)。
+    """
+    import datetime as _dt
+
+    from .research import quarterly_feedback
+
+    if company:
+        if not event_date:
+            print("[red]单公司模式需要 --event-date[/red]")
+            raise typer.Exit(1)
+        out = quarterly_feedback.on_outcome(company, _dt.date.fromisoformat(event_date))
+    else:
+        out = quarterly_feedback.sweep(days=days)
+    print(json.dumps(out, ensure_ascii=False, indent=2, default=str))
+
+
+@phanny_app.command("why")
+def phanny_why_cmd(
+    company: str = typer.Argument(None, help="company id;省略则看全域近况汇总"),
+    domain: str = typer.Option(None, "--domain", help="phanny | thesis | earnings(省略=全部)"),
+    hours: int = typer.Option(24, "--hours", help="汇总窗口小时数"),
+    limit: int = typer.Option(15, "--limit", help="明细条数"),
+) -> None:
+    """「这家公司(或整个系统)为何没有产出」—— 读构建拒因台账。
+
+    看 status 分布即可定位:`llm_failed` 多 = 模型没吐出可用 JSON(档位/截断/供应商问题);
+    `rejected` 多 = 模型答了但违反纪律(看 problems 找系统性模式,该修 prompt/seed 而非放松校验)。
+    """
+    from .storage import buildlog
+
+    print(json.dumps({
+        "summary": buildlog.summary(domain, hours=hours),
+        "recent": buildlog.recent(domain, company, limit=limit),
+    }, ensure_ascii=False, indent=2, default=str))
 
 
 thesis_app = typer.Typer(add_completion=False,

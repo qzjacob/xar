@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from ..config import get_settings
 from ..logging import get_logger
+from ..storage import buildlog
 
 log = get_logger("xar.phanny.book")
 
@@ -25,13 +26,43 @@ def _off_curve(plans: dict, limit: int = 3) -> list[str]:
     return [cid for cid, _ in items[:limit]]
 
 
+def _book_run_start(run_id: str | None, origin: str) -> int | None:
+    """开一条 book 运行记录(never-raise)。返回行 id 供收尾更新。"""
+    from ..storage import db
+    try:
+        rows = db.query("INSERT INTO phanny_book_runs(run_id, origin, status) "
+                        "VALUES(%s,%s,'running') RETURNING id", (run_id, origin))
+        return rows[0]["id"] if rows else None
+    except Exception as e:  # noqa: BLE001
+        log.warning("book run start failed: %s", str(e)[:120])
+        return None
+
+
+def _book_run_finish(bid: int | None, out: dict) -> None:
+    """收尾:整份返回值入库(分布/组合/跳过原因全留),不再只剩一行被截断的日志。"""
+    if not bid:
+        return
+    import json as _json
+
+    from ..storage import db
+    try:
+        payload = {k: v for k, v in out.items() if k != "plans"}   # plans 含 pydantic 对象,略去
+        db.execute("UPDATE phanny_book_runs SET status=%s, passes=%s, n=%s, result=%s::jsonb, "
+                   "finished_at=now() WHERE id=%s",
+                   (out.get("status"), out.get("passes"), out.get("n"),
+                    _json.dumps(payload, ensure_ascii=False, default=str), bid))
+    except Exception as e:  # noqa: BLE001
+        log.warning("book run finish failed: %s", str(e)[:120])
+
+
 def run_book(company_ids: list[str] | None = None, *, force: bool = False,
-             run_id: str | None = None, store: bool = True) -> dict:
+             run_id: str | None = None, store: bool = True, origin: str = "?") -> dict:
     from ..ingestion.registry import company_by_id
     from ..ontology.phanny_events import phanny_universe
     from . import distribution as dist, engine, sizing as sizing_mod
 
     s = get_settings()
+    book_run = _book_run_start(run_id, origin)
     if company_ids is None:
         company_ids = [c["id"] for c in phanny_universe()]
 
@@ -43,6 +74,8 @@ def run_book(company_ids: list[str] | None = None, *, force: bool = False,
             r = engine.build_one(cid, force=force, run_id=run_id)
         except Exception as e:  # noqa: BLE001 — 单名任何异常隔离(propose/debate/store 兜底),不炸整批
             log.warning("phanny book %s crashed: %s", cid, str(e)[:120])
+            buildlog.record("phanny", cid, stage="book", status="error",
+                            reason=f"{type(e).__name__}: {str(e)[:400]}", run_id=run_id)
             skipped.append({"company_id": cid, "status": "error", "reason": str(e)[:160]})
             continue
         if r.get("status") == "converged":
@@ -50,8 +83,10 @@ def run_book(company_ids: list[str] | None = None, *, force: bool = False,
         else:
             skipped.append({"company_id": cid, "status": r.get("status"), "reason": r.get("reason")})
     if not plans:
-        return {"status": "no_data", "n": 0, "plans": {}, "skipped": skipped,
-                "distribution": _ensemble([])}
+        out = {"status": "no_data", "n": 0, "plans": {}, "skipped": skipped,
+               "distribution": _ensemble([])}
+        _book_run_finish(book_run, out)
+        return out
 
     # 2. 组合正态门 + REDEBATE(补数据,非重标)
     passes = 0
@@ -63,6 +98,13 @@ def run_book(company_ids: list[str] | None = None, *, force: bool = False,
         for cid in off:
             r = engine.build_one(cid, force=True, run_id=run_id)   # 补数据重跑;conviction 只来自新辩论
             if r.get("status") == "converged":
+                # REDEBATE 谱系:被顶替的那一稿此前直接被覆盖、无从追溯 ——
+                # 于是「这名字重跑过、原来是什么样」在事后彻底消失。
+                old_bid = (plans.get(cid) or {}).get("build_id")
+                if old_bid and r.get("build_id"):
+                    from . import snapshots
+                    snapshots.mark_superseded(old_bid, r["build_id"])
+                    r["redebate_of"] = old_bid
                 plans[cid] = r
         en = _ensemble([p["final_conviction"] for p in plans.values()])
 
@@ -97,10 +139,12 @@ def run_book(company_ids: list[str] | None = None, *, force: bool = False,
             stored.append(engine._store(cid, p, status, run_id=run_id, force=force))
 
     convs = [p["final_conviction"] for p in plans.values()]
-    return {"status": status, "passes": passes, "integrity_violations": integrity, "n": len(plans),
-            "distribution": {**en, "histogram": dist.histogram(convs)}, "portfolio": pf,
-            "skipped": skipped, "stored": stored,
-            "plans": {cid: _summary(cid, p) for cid, p in plans.items()}}
+    out = {"status": status, "passes": passes, "integrity_violations": integrity, "n": len(plans),
+           "distribution": {**en, "histogram": dist.histogram(convs)}, "portfolio": pf,
+           "skipped": skipped, "stored": stored,
+           "plans": {cid: _summary(cid, p) for cid, p in plans.items()}}
+    _book_run_finish(book_run, out)
+    return out
 
 
 def _summary(cid: str, p: dict) -> dict:

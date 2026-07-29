@@ -15,13 +15,14 @@ from ..logging import get_logger
 
 log = get_logger("xar.phanny.debate")
 
-_CRITIC_SYSTEM = """你是季报事件多空交易的**反方 critic**。给你 dossier 与一份 PhannyProposal(某方向 + conviction)。
-你的职责是构建**最强反方**:攻击最弱的维度、列举证伪证据、提出替代叙事。铁律:
-- attack_zh 里每条论据尽量引用 dossier 的接地 id;禁止空喊;
-- direction_vote ∈ {agree, disagree, abstain}:证据不足或 dossier 太薄(事实<4)→ abstain;真同意才 agree;
-  **禁止反射式同意**——若 agree 也要在 attack_zh 指出至少一个残留风险;
-- conviction_delta(-2..+2)、size_delta(-3..+3)给你认为应调整的方向与幅度(signed);
-- rebuttal_zh:即便你反对,也把原方向的最强钢人版写出来(供裁决权衡)。"""
+def _critic_system() -> str:
+    """反方 critic 的 system prompt(正文在 models/prompts 注册表,带 version + 源码 sha)。"""
+    from ..models import prompts
+    return prompts.get("phanny.critic.system").render()
+
+
+# 兼容既有引用点(测试/其他模块按名字取用);求值一次即可,模板本身无参数。
+_CRITIC_SYSTEM = _critic_system()
 
 
 def _critic_pins() -> list[tuple[str, ...]]:
@@ -41,77 +42,126 @@ def _anchors(p) -> int:
 
 
 def _critic_prompt(cid: str, dossier: dict, prop) -> str:
+    from ..models import prompts
     dims = "\n".join(f"- {d.key}: score={d.score} {d.note_zh}" for d in prop.dimensions)
-    return (f"公司 {cid} · dossier(接地事实):\n{dossier['text']}\n\n"
-            f"待挑战的 PhannyProposal:方向={prop.direction} conviction={prop.conviction}\n"
-            f"维度:\n{dims}\n赔率不对称:{prop.asymmetry_zh or '(未给)'}\n"
-            f"给出你的 signed-Δ 反方 CriticVote。")
+    return prompts.get("phanny.critic.user").render(
+        cid, dossier["text"], prop.direction, prop.conviction, dims, prop.asymmetry_zh)
 
 
 def _rebut_prompt(cid: str, dossier: dict, prop, votes: list[dict]) -> str:
+    from ..models import prompts
     vt = "\n".join(f"- [{v['model']}] vote={v['direction_vote']} Δconv={v['conviction_delta']} "
                    f"Δsize={v['size_delta']}: {v['attack_zh']}" for v in votes)
-    return (f"公司 {cid} · dossier:\n{dossier['text']}\n\n"
-            f"你上一稿:方向={prop.direction} conviction={prop.conviction}。\n"
-            f"多位异厂商 critic 的反方意见:\n{vt}\n\n"
-            f"据此**修正并重出一个完整 PhannyProposal**(仍六维齐全、仍 long/short、evidence 接地)。"
-            f"若被说服则改方向/降信念;若能反驳则维持并强化 asymmetry_zh;"
-            f"**严禁仅靠降低 conviction 来平息分歧**——要么补强证据维持,要么因证据真的转向而改判。")
+    return prompts.get("phanny.rebut.user").render(
+        cid, dossier["text"], prop.direction, prop.conviction, vt)
 
 
 def run_debate(cid: str, event: dict, dossier: dict, proposal, *,
-               run_id: str | None = None, primary_model: str = "token") -> dict:
+               run_id: str | None = None, primary_model: str = "token",
+               build_id: str | None = None) -> dict:
     from ..models import llm
     from ..models.router import TaskClass
     from ..ontology.phanny_events import CriticVote, PhannyProposal, validate_proposal
-    from . import distribution as dist
+    from . import distribution as dist, snapshots
 
     s = get_settings()
+    ed = event.get("scheduled_for") if event else None
     critic_pins = _critic_pins()
     cur = proposal
     r1_conv, r1_anchor = float(cur.conviction), _anchors(cur)
-    trace: list[dict] = []
+    # 第 0 轮 = 原始提案 p0。此前**从不入痕**,于是「辩论到底改变了什么」事后无从对比,
+    # book 的反作弊守卫(禁止靠降 conviction 凑收敛)也无法被复核。
+    trace: list[dict] = [{"round": 0, "role": "proposer", "direction": cur.direction,
+                          "conviction": float(cur.conviction), "anchors": r1_anchor,
+                          "model": primary_model}]
     models_used = [primary_model]
     history = [{"direction": cur.direction, "conviction": float(cur.conviction), "anchors": _anchors(cur)}]
     converged = False
     rnd = 0
     for rnd in range(1, s.phanny_debate_max_rounds + 1):
         votes: list[dict] = []
+        critic_failures = 0
         for pin in critic_pins:
             cm = pin[0]
+            cap: dict = {}
             try:
                 with llm.pinned(pin):
                     v = llm.complete_json(_critic_prompt(cid, dossier, cur), CriticVote, system=_CRITIC_SYSTEM,
                                           task=TaskClass.PHANNY_CHALLENGE, node=f"phanny_critic:{cm}:{rnd}",
-                                          run_id=run_id, max_tokens=3000, reasoning_effort="high")
-            except Exception as e:  # noqa: BLE001 — 某厂商额度耗尽/失败:跳过,余下 critic 继续
+                                          run_id=run_id, max_tokens=3000, reasoning_effort="high",
+                                          context={"company_id": cid, "role": "critic",
+                                                   "round": rnd, "model": cm},
+                                          capture=cap, on_fail="raise")
+            except llm.StructuredOutputError as e:
+                # 模型答了但不是可解析 JSON —— **不是弃权**。默认兜底会返回一张全默认的
+                # CriticVote(direction_vote="abstain"),把解析失败伪装成真实弃权票。
+                critic_failures += 1
+                log.warning("phanny critic %s r%d parse_failed: %s", cm, rnd, str(e)[:100])
+                trace.append({"round": rnd, "role": "critic", "model": cm, "status": "parse_failed"})
+                if build_id:
+                    snapshots.snap_call(build_id, cid, stage="critic", run_id=run_id, event_date=ed,
+                                        round=rnd, model=cm, capture=cap,
+                                        template="phanny.critic.user", template_ver=1,
+                                        meta={"status": "parse_failed"})
+                continue
+            except Exception as e:  # noqa: BLE001 — 额度耗尽/供应商故障:跳过,余下 critic 继续
+                critic_failures += 1
                 log.warning("phanny critic %s r%d: %s", cm, rnd, str(e)[:100])
+                trace.append({"round": rnd, "role": "critic", "model": cm, "status": "provider_failed",
+                              "error": str(e)[:160]})
                 continue
             models_used.append(cm)
             votes.append({"model": cm, **v.model_dump()})
-            trace.append({"round": rnd, "role": "critic", "model": cm, "vote": v.model_dump()})
+            trace.append({"round": rnd, "role": "critic", "model": cm, "status": "ok",
+                          "vote": v.model_dump()})
+            if build_id:
+                snapshots.snap_call(build_id, cid, stage="critic", run_id=run_id, event_date=ed,
+                                    round=rnd, model=cm, capture=cap,
+                                    template="phanny.critic.user", template_ver=1,
+                                    meta={"status": "ok", "vote": v.direction_vote})
 
         prev = {"direction": cur.direction, "conviction": float(cur.conviction), "anchors": _anchors(cur)}
         # proposer 据反方修正(pinned 回原方模型)
         from . import engine
+        cap_r: dict = {}
         try:
             with llm.pinned(engine._primary_pin()):
                 nxt = llm.complete_json(_rebut_prompt(cid, dossier, cur, votes), PhannyProposal,
                                         system=engine._system_phanny(), task=TaskClass.PHANNY_VERDICT,
                                         node=f"phanny_rebut:{rnd}", run_id=run_id, max_tokens=8000,
-                                        reasoning_effort="high")
-            if not validate_proposal(nxt, known_ids=dossier["known_ids"]):
+                                        reasoning_effort="high",
+                                        context={"company_id": cid, "role": "rebut", "round": rnd},
+                                        capture=cap_r)
+            rebut_problems = validate_proposal(nxt, known_ids=dossier["known_ids"])
+            if not rebut_problems:
                 cur = nxt
+            else:
+                # 被拒的修正稿此前**无声丢弃**,痕迹里却记着旧状态当作本轮 proposer 输出 ——
+                # 事后看不出这一轮其实提了一稿、因何被否。
+                log.warning("phanny rebut %s r%d rejected: %d violations",
+                            cid, rnd, len(rebut_problems))
+                trace.append({"round": rnd, "role": "proposer_rejected",
+                              "problems": rebut_problems[:10],
+                              "direction": nxt.direction, "conviction": float(nxt.conviction)})
         except Exception as e:  # noqa: BLE001
             log.warning("phanny rebut %s r%d: %s", cid, rnd, str(e)[:100])
+            trace.append({"round": rnd, "role": "rebut_failed", "error": str(e)[:160]})
+        if build_id:
+            snapshots.snap_call(build_id, cid, stage="rebut", run_id=run_id, event_date=ed,
+                                round=rnd, model=(engine._primary_pin() or ("token",))[0],
+                                capture=cap_r, template="phanny.rebut.user", template_ver=1)
         cur_state = {"direction": cur.direction, "conviction": float(cur.conviction), "anchors": _anchors(cur)}
         trace.append({"round": rnd, "role": "proposer", "direction": cur.direction,
-                      "conviction": float(cur.conviction), "anchors": cur_state["anchors"]})
+                      "conviction": float(cur.conviction), "anchors": cur_state["anchors"],
+                      "critic_failures": critic_failures})
         history.append(cur_state)
 
         active = [v for v in votes if v["direction_vote"] in ("agree", "disagree")]
         agree = sum(1 for v in votes if v["direction_vote"] == "agree")
-        agree_ok = (not active) or (agree / len(active) >= 2 / 3)
+        # `bool(votes)` 是关键:全体 critic 崩掉时 active 为空,旧式 `(not active)` 会判 True ——
+        # 于是「零对抗压力」被当成「一致通过」,第 1 轮即收敛。真正的全体弃权(有票但都 abstain)
+        # 仍照旧收敛,因为那是模型的真实表态。
+        agree_ok = bool(votes) and ((not active) or (agree / len(active) >= 2 / 3))
         recent = [h["conviction"] for h in history[-3:]]
         conv_stable = (statistics.pstdev(recent) <= s.phanny_convergence_conv_delta) if len(recent) >= 2 else True
         dir_stable = len({h["direction"] for h in history[-2:]}) == 1
@@ -122,4 +172,5 @@ def run_debate(cid: str, event: dict, dossier: dict, proposal, *,
 
     return {"proposal": cur, "round1_conviction": r1_conv, "final_conviction": float(cur.conviction),
             "round1_anchors": r1_anchor, "final_anchors": _anchors(cur), "rounds": rnd,
-            "models": sorted(set(models_used)), "debate_trace": trace, "converged": converged, "history": history}
+            "models": sorted(set(models_used)), "debate_trace": trace, "converged": converged,
+            "history": history, "build_id": build_id}

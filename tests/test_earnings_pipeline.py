@@ -19,19 +19,21 @@ def _clean(seeded_db):
     wipe()
 
 
-def test_upcoming_calendar_includes_meta_session(seeded_db):
-    # 评审 #1:upcoming_calendar 必须带 meta,否则前瞻路径 session(amc/bmo)恒 None
-    fut = dt.date.today() + dt.timedelta(days=40)     # 独特远期,避开真实 'now' 财报聚簇
-    db.execute("DELETE FROM event_calendar WHERE company_id='now' AND scheduled_for=%s", (fut,))
-    try:
-        structured.upsert_calendar("now", "earnings", fut, title="ET meta test", status="scheduled",
-                                   source="test", meta={"session": "amc"})
-        rows = structured.upcoming_calendar(["now"], days=60)
-        r = next((x for x in rows if x["scheduled_for"] == fut), None)
-        assert r is not None and "meta" in r
-        assert (r["meta"] or {}).get("session") == "amc"
-    finally:
-        db.execute("DELETE FROM event_calendar WHERE company_id='now' AND scheduled_for=%s", (fut,))
+def test_upcoming_calendar_includes_meta_session(isolated_db):
+    """评审 #1:upcoming_calendar 必须带 meta,否则前瞻路径 session(amc/bmo)恒 None。
+
+    用 isolated_db(事务内写、结束整体回滚):`upcoming_calendar` 按「每公司每季度只留一行」
+    折叠择优(幽灵财报日修复),所以只要库里另有一条同季度 'now' 财报行(别的测试或生产数据留下的,
+    且 source 权威度更高),本测试插的行就会被挤掉 —— 断言与外部状态耦合即间歇性变红。
+    事务内先清掉同公司的日历行,校验干净聚合,回滚后原样复原。"""
+    fut = dt.date.today() + dt.timedelta(days=40)
+    db.execute("DELETE FROM event_calendar WHERE company_id='now'")   # 事务内,teardown 回滚
+    structured.upsert_calendar("now", "earnings", fut, title="ET meta test", status="scheduled",
+                               source="test", meta={"session": "amc"})
+    rows = structured.upcoming_calendar(["now"], days=60)
+    r = next((x for x in rows if x["scheduled_for"] == fut), None)
+    assert r is not None and "meta" in r
+    assert (r["meta"] or {}).get("session") == "amc"
 
 
 def test_upsert_calendar_meta_merges(_clean):

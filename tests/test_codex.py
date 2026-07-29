@@ -94,13 +94,16 @@ def test_llm_routes_codex_and_bills_subscription(monkeypatch):
     monkeypatch.setattr(codex_cli, "complete", fake_complete)
     recorded = {}
     monkeypatch.setattr(llm, "_record",
-                        lambda run_id, node, spec, usage, task_class, used_sub:
-                        recorded.update({"spec": spec.id, "used_sub": used_sub}))
+                        lambda run_id, node, spec, usage, task_class, used_sub, **kw:
+                        recorded.update({"spec": spec.id, "used_sub": used_sub, **kw}))
     with llm.pinned(("codex-sub",)):
         out = llm.complete("hi", task="audit", node="t", max_tokens=100)
     assert out == "CODEX SAYS HELLO"
     assert calls["spec"] == "codex-sub"
     assert recorded["used_sub"] is True                       # billed subscription (usd=0)
+    # 订阅执行器的 token 数是 len//4 估算,不是计量值 —— 必须标出来
+    assert recorded["tokens_estimated"] is True
+    assert recorded["latency_ms"] is not None and recorded["attempt"] == 1
 
 
 def test_llm_skips_codex_when_unavailable(monkeypatch):

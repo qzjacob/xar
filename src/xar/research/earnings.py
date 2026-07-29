@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from ..logging import get_logger
-from ..storage import db, structured
+from ..storage import buildlog, db, structured
 
 log = get_logger("xar.earnings")
 
@@ -489,28 +489,36 @@ def build_verdict(cid: str, *, event: dict | None = None, force: bool = False,
     from ..models.router import TaskClass
     from ..ontology.earnings_events import EarningsVerdict, validate_verdict
 
+    def _no(status: str, reason: str, *, stage: str, ed=None) -> dict:
+        buildlog.record("earnings", cid, stage=stage, status=status, reason=reason,
+                        run_id=run_id, event_date=ed)
+        out = {"status": status, "company_id": cid, "reason": reason}
+        if ed is not None:
+            out["event_date"] = str(ed)
+        return out
+
     if event is None:
         event = _next_earnings(cid)
     if not event:
-        return {"status": "no_data", "company_id": cid, "reason": "no upcoming earnings"}
+        return _no("no_data", "no upcoming earnings", stage="dossier")
     event_date = event.get("scheduled_for")
     prev = latest_verdict(cid, event_date)
     if prev and not force:
-        return {"status": "skipped", "company_id": cid, "event_date": str(event_date),
-                "version": prev["version"], "reason": "verdict locked (use force)"}
+        return {**_no("skipped", "verdict locked (use force)", stage="store", ed=event_date),
+                "version": prev["version"]}
 
     pin = _preferred_pin()
     from ..config import get_settings
     if get_settings().earnings_verdict_host_only and pin is None:
-        return {"status": "deferred_host", "company_id": cid, "event_date": str(event_date),
-                "reason": "no subscription executor (host-only)"}
+        return _no("deferred_host", "no subscription executor (host-only)",
+                   stage="dossier", ed=event_date)
 
     d = dossier_earnings(cid, event)
     if d is None:
-        return {"status": "no_data", "company_id": cid, "reason": "unknown company"}
+        return _no("no_data", "unknown company", stage="dossier", ed=event_date)
     if d["n_facts"] < 4:
-        return {"status": "no_data", "company_id": cid,
-                "reason": f"only {d['n_facts']} grounded facts — 宁缺毋滥"}
+        return _no("no_data", f"only {d['n_facts']} grounded facts — 宁缺毋滥",
+                   stage="dossier", ed=event_date)
 
     prompt = f"为下述公司生成季报事件 EarningsVerdict(as_of={d['as_of']}):\n\n{d['text']}"
     problems: list[str] = []
@@ -523,14 +531,22 @@ def build_verdict(cid: str, *, event: dict | None = None, force: bool = False,
                 v = llm.complete_json(prompt + suffix, EarningsVerdict, system=_system_earnings(),
                                       task=TaskClass.EARNINGS_JUDGE, node="earnings_judge",
                                       run_id=run_id, max_tokens=6000)
-        except Exception as e:  # noqa: BLE001
-            return {"status": "rejected", "company_id": cid, "reason": f"llm: {str(e)[:160]}"}
+        except Exception as e:  # noqa: BLE001 — 模型没产出可用 JSON:provider 问题,非纪律问题
+            buildlog.record("earnings", cid, stage="llm", status="llm_failed",
+                            reason=f"llm: {str(e)[:400]}", run_id=run_id, attempt=attempt,
+                            model=(pin[0] if pin else "token"), event_date=event_date)
+            return {"status": "llm_failed", "company_id": cid, "reason": f"llm: {str(e)[:160]}"}
         problems = validate_verdict(v, known_ids=d["known_ids"])
         if not problems:
             break
         log.warning("verdict %s attempt %d: %d violations", cid, attempt, len(problems))
+        buildlog.record("earnings", cid, stage="validate", status="rejected",
+                        reason=f"attempt {attempt}: {len(problems)} violations", problems=problems,
+                        run_id=run_id, attempt=attempt, model=(pin[0] if pin else "token"),
+                        event_date=event_date)
     if v is None or problems:
-        return {"status": "rejected", "company_id": cid, "reason": "; ".join(problems[:6])}
+        return {"status": "rejected", "company_id": cid, "reason": "; ".join(problems[:6]),
+                "problems": problems}
 
     # expected_move = 裁决时点本事件最新 implied move
     ser = _implied_series_for(cid, event_date)
@@ -568,11 +584,14 @@ def _json_quality(q: dict) -> str:
     return json.dumps(q, ensure_ascii=False)
 
 
-def judge_due(*, force: bool = False) -> dict:
-    """观察窗 [today, today+lead] 内、尚无裁决的 universe 事件逐个 build。返回统计。"""
+def judge_due(*, force: bool = False, run_id: str | None = None) -> dict:
+    """观察窗 [today, today+lead] 内、尚无裁决的 universe 事件逐个 build。返回统计。
+    run_id 贯穿本批全部裁决 —— 花费经 llm_usage.run_id 可归因,且受批量预算帽约束。"""
     from ..config import get_settings
+    from ..models import llm
     from ..ontology.earnings_events import EARNINGS_UNIVERSE
 
+    run_id = run_id or llm.new_batch_run_id("earn")
     s = get_settings()
     rows = structured.upcoming_calendar(list(EARNINGS_UNIVERSE),
                                         days=s.earnings_verdict_lead_days, limit=100)
@@ -580,7 +599,7 @@ def judge_due(*, force: bool = False) -> dict:
     for r in rows:
         if r.get("event_type") != "earnings":
             continue
-        res = build_verdict(r["company_id"], event=r, force=force)
+        res = build_verdict(r["company_id"], event=r, force=force, run_id=run_id)
         st = res.get("status", "no_data")
         out[st] = out.get(st, 0) + 1
         out["events"].append({"cid": r["company_id"], "status": st,
@@ -646,6 +665,12 @@ def score_outcomes() -> dict:
                                  "actual_surprise_pct": surprise, "reaction_pct": reaction,
                                  "realized_vs_implied": realized_vs_implied, "direction_hit": hit})
         out["scored"] += 1
+        # 兑现即反哺个股论点。与 Phanny 的 12h 节拍共用同一条 dedup —— 谁先跑都只写一条事实。
+        try:
+            from . import quarterly_feedback
+            quarterly_feedback.on_outcome(v["company_id"], v["event_date"])
+        except Exception as e:  # noqa: BLE001 — fail-soft,绝不拖垮回验批
+            log.warning("earnings feedback %s: %s", v["company_id"], str(e)[:120])
     return out
 
 

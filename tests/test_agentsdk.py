@@ -96,8 +96,8 @@ def test_llm_routes_agent_sdk_and_bills_subscription(monkeypatch):
     monkeypatch.setattr(agentsdk, "complete", fake_complete)
     recorded = {}
 
-    def fake_record(run_id, node, spec, usage, task_class, used_sub):
-        recorded.update({"spec": spec.id, "used_sub": used_sub})
+    def fake_record(run_id, node, spec, usage, task_class, used_sub, **kw):
+        recorded.update({"spec": spec.id, "used_sub": used_sub, **kw})
 
     monkeypatch.setattr(llm, "_record", fake_record)
     with llm.pinned(("claude-opus-max",)):
@@ -105,6 +105,9 @@ def test_llm_routes_agent_sdk_and_bills_subscription(monkeypatch):
     assert out == "OPUS SAYS HELLO"
     assert calls["spec"] == "claude-opus-max"
     assert recorded["used_sub"] is True                     # billed subscription (usd=0)
+    # 订阅执行器的 token 数是 len//4 估算,不是计量值 —— 必须标出来,免得被当真实用量做额度推算
+    assert recorded["tokens_estimated"] is True
+    assert recorded["latency_ms"] is not None and recorded["attempt"] == 1
 
 
 def test_llm_skips_agent_sdk_when_unavailable(monkeypatch):

@@ -147,3 +147,65 @@ def test_judge_shim_returns_run_id(seeded_db, monkeypatch):
     r = client.post("/api/ops/earnings/now/judge?force=false")
     assert r.status_code == 200 and "run_id" in r.json() and r.json()["status"] == "scheduled"
     db.execute("DELETE FROM capability_runs WHERE capability='build_earnings_verdict'")
+
+
+# ── M1:run_id 注入(执行时注入,不入 args_hash)────────────────────────────────────
+def test_run_id_injected_when_fn_accepts(seeded_db, monkeypatch):
+    """能力实现声明了 run_id → execute_run 把 capability_runs.id 注进去(花费可归因)。"""
+    seen: dict = {}
+
+    def _fn(x: int = 1, run_id: str | None = None):
+        seen["run_id"] = run_id
+        return {"ok": True}
+
+    spec = registry.CapabilitySpec("ua_rid_cap", "t", registry._obj({"x": {"type": "integer"}}),
+                                   _fn, kind="build", duration="slow", chathy=False)
+    monkeypatch.setitem(registry._BY_NAME, "ua_rid_cap", spec)
+    db.execute("DELETE FROM capability_runs WHERE capability='ua_rid_cap'")
+    s = runs.schedule("ua_rid_cap", {"x": 1})
+    runs.execute_run(s["run_id"])
+    assert seen["run_id"] == s["run_id"]
+    db.execute("DELETE FROM capability_runs WHERE capability='ua_rid_cap'")
+
+
+def test_run_id_not_injected_when_fn_rejects(seeded_db, monkeypatch):
+    """不接受 run_id 的能力照常执行 —— 注入是可选的,不能变成 TypeError。"""
+    def _fn(x: int = 1):
+        return {"doubled": x * 2}
+
+    spec = registry.CapabilitySpec("ua_norid_cap", "t", registry._obj({"x": {"type": "integer"}}),
+                                   _fn, kind="build", duration="slow", chathy=False)
+    monkeypatch.setitem(registry._BY_NAME, "ua_norid_cap", spec)
+    db.execute("DELETE FROM capability_runs WHERE capability='ua_norid_cap'")
+    s = runs.schedule("ua_norid_cap", {"x": 4})
+    out = runs.execute_run(s["run_id"])
+    assert out["status"] == "done" and out["result"]["doubled"] == 8
+    db.execute("DELETE FROM capability_runs WHERE capability='ua_norid_cap'")
+
+
+def test_run_id_injection_does_not_break_dedup(seeded_db, monkeypatch):
+    """关键不变量:run_id 只在**执行时**注入。若它进了入库 args,每次哈希都不同 →
+    uq_capruns_active 活跃去重彻底失效(同一逻辑 run 会被反复排队)。"""
+    def _fn(x: int = 1, run_id: str | None = None):
+        return {"ok": True}
+
+    spec = registry.CapabilitySpec("ua_dedup_cap", "t", registry._obj({"x": {"type": "integer"}}),
+                                   _fn, kind="build", duration="slow", chathy=False)
+    monkeypatch.setitem(registry._BY_NAME, "ua_dedup_cap", spec)
+    db.execute("DELETE FROM capability_runs WHERE capability='ua_dedup_cap'")
+    s1 = runs.schedule("ua_dedup_cap", {"x": 7})
+    s2 = runs.schedule("ua_dedup_cap", {"x": 7})
+    assert s2["run_id"] == s1["run_id"] and s2.get("dedup") is True
+    stored = db.query("SELECT args FROM capability_runs WHERE id=%s", (s1["run_id"],))[0]["args"]
+    assert "run_id" not in (stored or {})
+    db.execute("DELETE FROM capability_runs WHERE capability='ua_dedup_cap'")
+
+
+def test_phanny_thesis_build_caps_accept_run_id():
+    """四条 build 能力必须都收 run_id,否则注入形同虚设(生产道回到 run_id=NULL)。"""
+    import inspect
+    for name in ("build_phanny_verdict", "build_phanny_book",
+                 "build_earnings_verdict", "build_thesis"):
+        spec = registry.by_name(name)
+        assert spec is not None, name
+        assert "run_id" in inspect.signature(spec.fn).parameters, name

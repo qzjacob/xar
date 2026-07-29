@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import threading
 from uuid import uuid4
@@ -39,6 +40,19 @@ def _normalize_args(name: str, args: dict) -> dict:
 
 def _args_hash(args: dict) -> str:
     return hashlib.sha256(json.dumps(args or {}, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _with_run_id(fn, args: dict | None, run_id: str) -> dict:
+    """执行时注入 run_id(仅当能力实现接受该参数)。**执行时**注入而非入库参数 —— 若进了
+    `args` 就会进 `_args_hash`,同一逻辑 run 每次哈希不同、`uq_capruns_active` 去重失效。
+    有了它,能力触发的 LLM 花费才能经 `llm_usage.run_id` 归因回这一次 run(并受预算帽约束)。"""
+    out = dict(args or {})
+    try:
+        if "run_id" in inspect.signature(fn).parameters:
+            out.setdefault("run_id", run_id)
+    except (ValueError, TypeError):     # 内建/C 实现取不到签名 —— 不注入即可,不影响执行
+        pass
+    return out
 
 
 def _active(name: str, h: str) -> dict | None:
@@ -101,7 +115,7 @@ def execute_run(run_id: str) -> dict:
         log.warning("capability run %s claim failed: %s", run_id, str(e)[:160])
         return {"status": "error", "error": f"claim: {str(e)[:120]}"}
     try:
-        result = spec.fn(**(cargs or {}))
+        result = spec.fn(**_with_run_id(spec.fn, cargs, run_id))
         db.execute("UPDATE capability_runs SET status='done', result=%s::jsonb, finished_at=now() "
                    "WHERE id=%s AND status='running'",
                    (json.dumps(result, ensure_ascii=False, default=str), run_id))

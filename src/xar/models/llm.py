@@ -16,9 +16,11 @@ LiteLLM-supported model works — edit `registry.MODELS`."""
 from __future__ import annotations
 
 import contextvars
+import hashlib
 import json
 import os
 import re
+import time
 import uuid
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -51,9 +53,19 @@ class BudgetExceeded(RuntimeError):
     pass
 
 
-# Batch jobs (build_kg / expert.process / synthesize_all) attribute spend to a run_id with
-# one of these prefixes so the (larger) batch budget cap actually bounds them.
-_BATCH_PREFIXES = ("kg", "expert", "synth", "batch")
+class StructuredOutputError(RuntimeError):
+    """模型**没能产出可解析的结构化输出**(与「供应商调用失败」是两回事)。
+
+    默认路径下 `complete_json` 用空 `schema()` 兜底,这对可选字段全带默认值的模型是灾难性的:
+    一个全默认的 CriticVote 构造得干干净净,于是「解析失败」在辩论痕迹里伪装成一张真实的
+    abstain 票 —— 全体 critic 崩掉会被判成「一致同意」。`on_fail="raise"` 让调用方拿到这个
+    异常,把「模型没答」与「模型弃权」分开。"""
+
+
+# Batch jobs (build_kg / expert.process / synthesize_all / thesis / phanny …) attribute spend to
+# a run_id with one of these prefixes so the (larger) batch budget cap actually bounds them.
+# 漏一个前缀 = 那条批量道悄悄掉回 per-run 小帽(subpool 的 "thesis-"、flow_extract 的 "flow-" 曾如此)。
+_BATCH_PREFIXES = ("kg", "expert", "synth", "batch", "thesis", "flow", "phanny", "earn")
 
 
 def new_batch_run_id(prefix: str = "batch") -> str:
@@ -168,7 +180,14 @@ def _executor_module(name: str):
     return None
 
 
-def _record(run_id, node, spec, usage, task_class: str, used_sub: bool) -> None:
+def _record(run_id, node, spec, usage, task_class: str, used_sub: bool, *,
+            status: str = "ok", error: str | None = None, latency_ms: int | None = None,
+            attempt: int | None = None, requested: dict | None = None,
+            context: dict | None = None, prompt_sha: str | None = None,
+            tokens_estimated: bool = False) -> None:
+    """记一次 LLM 调用。**成功与失败都记** —— 只记成功时,轮转/重试/返空全部不可见,
+    「这次为什么换了模型」「哪家在抖」「实际用了什么参数」都无从查起。
+    失败行 usd=0/tokens=0,故任何既有花费聚合(ops 面板)口径不变。"""
     in_tok = getattr(usage, "prompt_tokens", 0) or 0
     out_tok = getattr(usage, "completion_tokens", 0) or 0
     # EFFECTIVE billing, not the spec's nominal billing: a SUBSCRIPTION model that fell back
@@ -176,16 +195,36 @@ def _record(run_id, node, spec, usage, task_class: str, used_sub: bool) -> None:
     # record its real cost — otherwise that spend is invisible to the budget cap. usd=0 only
     # when the flat subscription endpoint was actually used.
     billing = "subscription" if used_sub else "token"
-    usd = 0.0 if used_sub else _price(spec.litellm_model, in_tok, out_tok)
+    usd = 0.0 if (used_sub or status != "ok") else _price(spec.litellm_model, in_tok, out_tok)
     try:
         db.execute(
             "INSERT INTO llm_usage(run_id,node,model,input_tokens,output_tokens,usd,"
-            "provider,task_class,billing) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            "provider,task_class,billing,status,error,latency_ms,attempt,requested,context,"
+            "prompt_sha,tokens_estimated) "
+            "VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s)",
             (run_id, node, spec.litellm_model, in_tok, out_tok, usd,
-             spec.provider, task_class, billing),
+             spec.provider, task_class, billing, status, (error or None) and error[:500],
+             latency_ms, attempt,
+             json.dumps(requested, ensure_ascii=False, default=str) if requested else None,
+             json.dumps(context, ensure_ascii=False, default=str) if context else None,
+             prompt_sha, tokens_estimated),
         )
-    except Exception:  # noqa: BLE001 — usage logging must never break a run
-        pass
+    except Exception as e:  # noqa: BLE001 — usage logging must never break a run(但要留声)
+        log.warning("llm_usage record failed (%s/%s): %s", node, spec.id, str(e)[:120])
+
+
+def _sha(system: str | None, prompt: str) -> str:
+    """实际发出去的提示词指纹(system + user)。回放时重渲染再比对此值即可发现漂移。"""
+    return hashlib.sha256(((system or "") + "\x00" + (prompt or "")).encode()).hexdigest()
+
+
+class _NoUsage:
+    """失败候选没有 usage 对象;给 0 值占位,失败行的 tokens/usd 恒为 0(花费聚合口径不变)。"""
+    prompt_tokens = 0
+    completion_tokens = 0
+
+
+_NO_USAGE = _NoUsage()
 
 
 def _retryable(e: Exception) -> bool:
@@ -225,8 +264,12 @@ def _build_kwargs(spec, messages, max_tokens, want_strong, json_mode, s, base, k
     out = max_tokens if not spec.max_output else min(max_tokens, spec.max_output)
     kwargs: dict = dict(model=spec.litellm_model, messages=messages, max_tokens=out)
     if spec.supports_reasoning:  # let strong tasks think; cap the general/bulk tier's thinking
-        # 显式 reasoning_effort 覆盖(如 thesis 高量产任务:low 力度,防 reasoning 烧空 content)。
-        kwargs["reasoning_effort"] = reasoning_effort or (s.model_effort if want_strong else "low")
+        # 力度三级优先:①调用方显式(thesis 量产 low / phanny high)> ②强、推理层默认拉满
+        # (s.model_effort="high")> ③非强层(bulk/triage)的低档上限(s.model_effort_bulk)——
+        # 小 token 预算下思考会烧光 content,bulk 不能一刀切拉满。这就是「默认最大化、
+        # 视任务需求而实际调用」的落点。
+        kwargs["reasoning_effort"] = (reasoning_effort or
+                                      (s.model_effort if want_strong else s.model_effort_bulk))
     if json_mode and spec.supports_json:
         kwargs["response_format"] = {"type": "json_object"}
     if base:                      # OpenAI-compatible / subscription endpoint, per candidate
@@ -261,10 +304,14 @@ def complete(
     complexity: str | None = None,
     relevance: str | None = None,
     reasoning_effort: str | None = None,
+    context: dict | None = None,
 ) -> str:
     """Plain-text completion, task-routed with cross-provider fallback. `complexity`
     ("low"/"medium"/"high") and `relevance` ("high") drive dynamic layer selection; when
-    unset, complexity is auto-derived from prompt size (router.route)."""
+    unset, complexity is auto-derived from prompt size (router.route).
+
+    `context` 是调用方的业务坐标({company_id, event_date, round, role}),原样写进
+    `llm_usage.context` —— 没有它,一行花费无法归属到任何一家公司/一次裁决,只能按时间猜。"""
     _ensure_keys()
     s = get_settings()
     tc = router.as_task(task, tier)
@@ -281,6 +328,17 @@ def complete(
     cap = _budget_cap(run_id, s)
     spent = _spent(run_id) if run_id else 0.0
     last_err: Exception | None = None
+    psha = _sha(system, prompt)
+    pin_now = _PIN.get()
+    attempt = 0
+
+    def _req(spec) -> dict:
+        """本次实际请求参数(含 max_tokens 被 spec.max_output 钳制的事实)。
+        `clamped=true` 就是「我们要 16000、模型只给 8192」—— 结构化输出被截断的直接证据。"""
+        granted = max_tokens if not spec.max_output else min(max_tokens, spec.max_output)
+        return {"task": tc.value, "max_tokens": max_tokens, "granted": granted,
+                "clamped": granted < max_tokens, "want_strong": want_strong,
+                "reasoning_effort": reasoning_effort, "pin": list(pin_now) if pin_now else None}
 
     # Fallback is resilience, not free insurance: during a partial provider outage a quality
     # task can rotate down its chain to a pricier model (e.g. deepseek-pro → sonnet → opus),
@@ -291,20 +349,30 @@ def complete(
         # Subscription executors (Claude Max via Agent SDK, ChatGPT via Codex CLI): distinct
         # subprocess-on-subscription paths, never litellm/metered. Host-only → skip when
         # unavailable so the chain rotates to GLM/DeepSeek (e.g. in docker). Billing: usd=0.
+        attempt += 1
         executor = getattr(spec, "executor", "litellm")
         mod = _executor_module(executor)
         if mod is not None:
             if not mod.available():
                 last_err = RuntimeError(f"{spec.id}: {executor} unavailable (host-only)")
                 continue
+            t0 = time.monotonic()
             try:
                 text, usage = mod.complete(spec, system=system, prompt=prompt,
                                            max_tokens=max_tokens, want_strong=want_strong)
             except Exception as e:  # noqa: BLE001 — quota/timeout/failure → rotate to next candidate
                 last_err = e
                 log.warning("llm %s %s %s failed: %s", node, executor, spec.id, str(e)[:160])
+                _record(run_id, node, spec, _NO_USAGE, tc.value, used_sub=True, status="error",
+                        error=f"{type(e).__name__}: {e}", attempt=attempt, context=context,
+                        prompt_sha=psha, requested=_req(spec),
+                        latency_ms=int((time.monotonic() - t0) * 1000))
                 continue
-            _record(run_id, node, spec, usage, tc.value, used_sub=True)   # subscription, usd=0
+            # 订阅执行器(codex/agent-sdk)的 token 数是 len//4 估算,不是计量值 —— 标出来,
+            # 免得下游把它当真实用量做额度推算。
+            _record(run_id, node, spec, usage, tc.value, used_sub=True, attempt=attempt,
+                    context=context, prompt_sha=psha, requested=_req(spec), tokens_estimated=True,
+                    latency_ms=int((time.monotonic() - t0) * 1000))
             log.info("route %s -> %s [subscription/%s]", tc.value, spec.id, executor)
             return text
         base, key_env, used_sub = _endpoint(spec, s)
@@ -319,12 +387,21 @@ def complete(
             continue
         kwargs = _build_kwargs(spec, messages, max_tokens, want_strong, json_mode, s, base, key_env,
                                reasoning_effort)
+
+        def _fail(e: Exception, t_start: float) -> None:
+            _record(run_id, node, spec, _NO_USAGE, tc.value, used_sub, status="error",
+                    error=f"{type(e).__name__}: {e}", attempt=attempt, context=context,
+                    prompt_sha=psha, requested=_req(spec),
+                    latency_ms=int((time.monotonic() - t_start) * 1000))
+
+        t0 = time.monotonic()
         try:
             resp = litellm.completion(**kwargs)
         except Exception as e:  # noqa: BLE001
             last_err = e
             if not _retryable(e):                     # auth / bad-request / deterministic → rotate now
                 log.warning("llm %s candidate %s failed: %s", node, spec.id, e)
+                _fail(e, t0)
                 continue
             kwargs.pop("reasoning_effort", None)       # one in-candidate retry (some providers reject it)
             try:
@@ -332,13 +409,21 @@ def complete(
             except Exception as e2:  # noqa: BLE001
                 last_err = e2
                 log.warning("llm %s candidate %s failed: %s", node, spec.id, e2)
+                _fail(e2, t0)
                 continue
+        latency = int((time.monotonic() - t0) * 1000)
         content = resp.choices[0].message.content or ""
         if not content.strip():
             last_err = ValueError("empty completion")
             log.warning("llm %s candidate %s returned empty; rotating", node, spec.id)
+            # 返空是 GLM-5.2 高推理力度下的招牌故障(推理烧光输出预算)。记下来 + requested.clamped,
+            # 才能事后区分「模型不行」与「我们给的预算不够」。
+            _record(run_id, node, spec, getattr(resp, "usage", _NO_USAGE), tc.value, used_sub,
+                    status="empty", error="empty completion", attempt=attempt, context=context,
+                    prompt_sha=psha, requested=_req(spec), latency_ms=latency)
             continue
-        _record(run_id, node, spec, resp.usage, tc.value, used_sub)
+        _record(run_id, node, spec, resp.usage, tc.value, used_sub, attempt=attempt,
+                context=context, prompt_sha=psha, requested=_req(spec), latency_ms=latency)
         log.info("route %s -> %s [%s]", tc.value, spec.id, spec.billing.value)
         return content
 
@@ -362,6 +447,7 @@ def complete_stream(
     node: str = "chathy",
     run_id: str | None = None,
     max_tokens: int = 4000,
+    reasoning_effort: str | None = None,
 ) -> Iterator[dict]:
     """Streaming, tool-calling completion for the Chathy chat agent.
 
@@ -377,11 +463,14 @@ def complete_stream(
     _ensure_keys()
     s = get_settings()
     tc = router.as_task(task, "strong")
-    chain = _apply_pin(router.resolve(tc))
+    # want_strong 取**调整后**能力(route_plan),与 complete() 一致(J.1.3):此前读静态
+    # POLICIES[tc].capability,动态升/降层后会与实际所选层错配、给错推理力度。
+    plan = router.route_plan(tc)
+    chain = _apply_pin(plan.chain)
     if not chain:
         yield {"type": "error", "message": f"no model candidates for task {tc.value}"}
         return
-    want_strong = router.POLICIES[tc].capability in (Capability.STRONG, Capability.REASONING)
+    want_strong = plan.capability in (Capability.STRONG, Capability.REASONING)
     cap = _budget_cap(run_id, s)
     spent = _spent(run_id) if run_id else 0.0
     last_err: Exception | None = None
@@ -400,7 +489,8 @@ def complete_stream(
         if run_id and not used_sub and spent >= cap:
             last_err = BudgetExceeded(f"run {run_id} exceeded ${cap}")
             continue
-        kwargs = _build_kwargs(spec, messages, max_tokens, want_strong, False, s, base, key_env)
+        kwargs = _build_kwargs(spec, messages, max_tokens, want_strong, False, s, base, key_env,
+                               reasoning_effort)
         kwargs["stream"] = True
         kwargs["stream_options"] = {"include_usage": True}
         if tools:
@@ -469,19 +559,35 @@ def complete_json(
     complexity: str | None = None,
     relevance: str | None = None,
     reasoning_effort: str | None = None,
+    context: dict | None = None,
+    capture: dict | None = None,
+    on_fail: str = "empty",
 ) -> T:
     """Structured output: prompt for JSON matching `schema`, parse + validate, retry once.
     Provider-agnostic; a hard provider failure rotates providers (see complete), and the
-    empty schema is only the final safety net. `complexity`/`relevance` → dynamic routing."""
+    empty schema is only the final safety net. `complexity`/`relevance` → dynamic routing.
+
+    `capture`(可选,给传入的 dict 填字段):留下这次调用的**可回放痕迹** ——
+    `raw`(模型原文,解析前)/`instruction`(含 schema 子句的完整提示词)/`prompt_sha`/
+    `schema_sha`/`attempts`。默认不传 = 零开销,正文不进热表 `llm_usage`。"""
     instruction = json_instruction(prompt, schema)
+    if capture is not None:
+        capture["instruction"] = instruction
+        capture["prompt_sha"] = _sha(system, instruction)
+        capture["schema_sha"] = hashlib.sha256(
+            json.dumps(schema.model_json_schema(), sort_keys=True,
+                       ensure_ascii=False).encode()).hexdigest()
     last_err = None
     for attempt in range(2):
         raw = complete(
             instruction if attempt == 0 else instruction + "\n\nYour previous reply was not valid JSON. Return only the JSON object.",
             system=system, tier=tier, task=task, node=node, run_id=run_id, max_tokens=max_tokens,
             json_mode=True, complexity=complexity, relevance=relevance,
-            reasoning_effort=reasoning_effort,
+            reasoning_effort=reasoning_effort, context=context,
         )
+        if capture is not None:
+            capture["raw"] = raw
+            capture["attempts"] = attempt + 1
         obj = _extract_json(raw)
         if obj is not None:
             try:
@@ -491,6 +597,10 @@ def complete_json(
         else:
             last_err = ValueError("no JSON object found")
     log.warning("structured output failed for %s: %s", node, last_err)
+    if capture is not None:
+        capture["fallback"] = True          # 兜底 schema() —— 调用方据此区分「真产出」与「空壳」
+    if on_fail == "raise":
+        raise StructuredOutputError(f"{node}: no valid JSON after 2 attempts ({last_err})")
     return schema()  # safe empty default
 
 

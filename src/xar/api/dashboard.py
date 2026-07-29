@@ -615,7 +615,8 @@ def company_detail(cid: str, theme: str | None = None) -> dict | None:
             "estimates": _estimates_block(cid), "holdings": _holdings_block(cid),
             "calendar": _calendar_block(cid), "alt": _alt_block(cid),
             "flow": _flow_block_company(cid),
-            "earnings": _earnings_block(cid)}
+            "earnings": _earnings_block(cid),
+            "phanny": _phanny_block(cid)}
 
 
 def _earnings_block(cid: str) -> dict | None:
@@ -655,6 +656,64 @@ def _earnings_block(cid: str) -> dict | None:
         return block
     except Exception as e:  # noqa: BLE001
         log.warning("earnings_block %s: %s", cid, e)
+        return None
+
+
+def _phanny_block(cid: str) -> dict | None:
+    """Genny 个股页的季报多空块:下一事件 + 最新裁决 + 命中率 + **季报如何改写了论点**的血缘。
+    结构镜像 `_earnings_block`(universe 门 → None、整体 try/except、零 LLM)。
+
+    ⚠️ 刻度隔离:这里的 conviction 是 **Phanny 1-10**,与同页 thesis 块的 1-5、ET 块的 0-10
+    互不换算;字段名带 Scale 后缀提醒前端不要混用或做算术。"""
+    from ..ontology.phanny_events import PHANNY_UNIVERSE
+    from ..phanny import engine
+
+    if cid not in PHANNY_UNIVERSE:
+        return None                      # 非覆盖名优雅降级(前端据 None 隐藏该块)
+    try:
+        from ..research import earnings, quarterly_feedback
+
+        block: dict = {"convictionScale": "phanny_1_10"}
+        ev = engine._next_earnings(cid)
+        if ev:
+            ed = ev["scheduled_for"]
+            ser = earnings._implied_series_for(cid, ed)
+            v = engine.latest_verdict(cid, ed)
+            block["event"] = {"date": str(ed), "session": (ev.get("meta") or {}).get("session"),
+                              "daysTo": (ed - _today_date()).days}
+            block["impliedMove"] = (float(ser[0]["value"]) if ser else None)
+            if v:
+                drift = None
+                if ser and v.get("expected_move"):
+                    drift = round((float(ser[0]["value"]) - float(v["expected_move"])) * 100, 2)
+                content = v.get("content") or {}
+                block["verdict"] = {
+                    "direction": v["direction"], "conviction": v["conviction"],
+                    "sizePct": v.get("size_pct"), "version": v["version"], "asOf": str(v["as_of"]),
+                    "ensembleStatus": v.get("ensemble_status"), "impliedDriftPp": drift,
+                    "rounds": content.get("rounds"), "models": content.get("models"),
+                    "converged": content.get("converged"), "buildId": content.get("build_id")}
+        outs = db.query(
+            "SELECT event_date, direction, conviction, size_pct, outcome FROM phanny_verdicts "
+            "WHERE company_id=%s AND outcome->>'status'='scored' ORDER BY event_date DESC LIMIT 4",
+            (cid,))
+        block["recentOutcomes"] = [
+            {"date": str(o["event_date"]), "direction": o["direction"],
+             "conviction": o["conviction"], "sizePct": o.get("size_pct"),
+             "hit": (o["outcome"] or {}).get("direction_hit"),
+             "reactionPct": (o["outcome"] or {}).get("reaction_pct"),
+             "pnlPct": (o["outcome"] or {}).get("size_weighted_pnl_pct")} for o in outs]
+        hits = [o["hit"] for o in block["recentOutcomes"] if o["hit"] is not None]
+        block["hitRate"] = {"n": len(hits), "hits": sum(1 for h in hits if h)}
+        # 反哺血缘:这些季报兑现事实各自证实/证伪了论点里的哪条争论或支柱
+        block["thesisFeedback"] = [
+            {"eventDate": str(r["event_date"]), "summary": r["summary"],
+             "targetKind": r.get("target_kind"), "targetKey": r.get("target_key"),
+             "verdict": r.get("verdict"), "rationale": r.get("rationale_zh")}
+            for r in quarterly_feedback.lineage(cid, limit=6)]
+        return block
+    except Exception as e:  # noqa: BLE001 — 单块故障不许拖垮整页(镜像 _earnings_block)
+        log.warning("phanny_block %s: %s", cid, e)
         return None
 
 

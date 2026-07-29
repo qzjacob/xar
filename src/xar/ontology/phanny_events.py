@@ -122,8 +122,23 @@ from .earnings_events import EARNINGS_UNIVERSE as _ET_UNIVERSE  # noqa: E402
 PHANNY_UNIVERSE: tuple[str, ...] = _ET_UNIVERSE
 
 
+def universe_ids() -> tuple[str, ...]:
+    """当前生效的 Phanny 覆盖名单(config.phanny_universe_mode 驱动)。
+
+    `registry` 模式返回**全部注册公司**——「够不够格做季报裁决」不再靠一张硬编码名单预判,
+    而由数据可得性在管线里自然把关:无财报日历行的公司走不到 dossier;接地事实 <4 直接
+    no_data。两种跳过都会进 build_rejections 台账,可逐家追问原因,而不是被名单静默排除。
+    ET 的 EARNINGS_UNIVERSE 保持不动(两个模块的 universe 与 conviction 刻度一样彼此隔离)。"""
+    from ..config import get_settings
+
+    if (get_settings().phanny_universe_mode or "list").lower() != "registry":
+        return PHANNY_UNIVERSE
+    from ..ingestion.registry import COMPANIES
+    return tuple(c["id"] for c in COMPANIES)
+
+
 def phanny_universe(cap: int | None = None) -> list[dict]:
-    """PHANNY_UNIVERSE ∩ registry → company dict 列表(cap 截断,默认 config.phanny_universe_cap)。"""
+    """生效 universe ∩ registry → company dict 列表(cap 截断,默认 config.phanny_universe_cap)。"""
     from ..ingestion.registry import company_by_id
 
     if cap is None:
@@ -131,7 +146,7 @@ def phanny_universe(cap: int | None = None) -> list[dict]:
 
         cap = get_settings().phanny_universe_cap
     out: list[dict] = []
-    for cid in PHANNY_UNIVERSE:
+    for cid in universe_ids():
         c = company_by_id(cid)
         if c:
             out.append(c)

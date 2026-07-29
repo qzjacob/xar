@@ -20,14 +20,36 @@ from ..models import subpool
 log = get_logger("xar.subpool_worker")
 
 
-def _pick_companies(limit: int) -> list[str]:
-    """待重建 thesis 的公司:challenged(信号/争论挑战)优先,补 stale(thesis 过期/缺失),去重。"""
-    out: list[str] = []
+def _pick_companies(limit: int) -> list[tuple[str, str | None]]:
+    """待重建 thesis 的公司 → [(cid, because)]。优先级:
+
+      ① challenged —— 信号/争论天平挑战最重(既有);
+      ② **刚出过财报且论点比这次财报旧**(2026-07-29 新增)—— 此前财报完全不参与重建
+         候选,一家公司刚出完季报、论点还停在上季度,系统对此毫无反应;
+      ③ stale —— 论点过期/缺失兜底。
+
+    `because` 会写进新版本的 `changed_because`,让「这版因何重建」在库里留下因果。"""
+    out: list[tuple[str, str | None]] = []
+    seen: set[str] = set()
+
+    def _add(cid: str, because: str | None) -> None:
+        if cid not in seen:
+            seen.add(cid)
+            out.append((cid, because))
+
     try:
         from ..research import thesis_health
-        out += list(thesis_health.challenged_companies_v2(limit=limit))
+        for cid in thesis_health.challenged_companies_v2(limit=limit):
+            _add(cid, "信号/争论挑战")
     except Exception as e:  # noqa: BLE001
         log.warning("challenged pick failed: %s", str(e)[:120])
+    if len(out) < limit:
+        try:
+            from ..research import quarterly_feedback
+            for cid, because in quarterly_feedback.recent_print_companies(limit=limit):
+                _add(cid, because)
+        except Exception as e:  # noqa: BLE001
+            log.warning("recent-print pick failed: %s", str(e)[:120])
     if len(out) < limit:
         stale_h = get_settings().subpool_thesis_stale_hours
         try:
@@ -39,8 +61,7 @@ def _pick_companies(limit: int) -> list[str]:
                 "WHERE th.mx IS NULL OR th.mx < now() - (%s || ' hours')::interval "
                 "ORDER BY th.mx ASC NULLS FIRST LIMIT %s", (stale_h, limit * 4))
             for r in rows:
-                if r["id"] not in out:
-                    out.append(r["id"])
+                _add(r["id"], None)
                 if len(out) >= limit:
                     break
         except Exception as e:  # noqa: BLE001
@@ -58,19 +79,30 @@ def run_once() -> dict:
     pins = subpool.available_pins()
     if not pins:
         return {"idle": "all providers cooling", "quota": subpool.status()}
-    cids = _pick_companies(s.subpool_batch)
-    if not cids:
+    picks = _pick_companies(s.subpool_batch)
+    if not picks:
         return {"idle": "no theses to rebuild"}
+    cids = [c for c, _ in picks]
+    because_by = dict(picks)
     run_id = llm.new_batch_run_id("thesis")
 
     def _build(cid: str):
-        # 返回 "built" 视为成功;rejected/no_data/None → 返 None(provider 健康信号,连续失败即冷却)。
-        st = thesis.build(cid, force=True, run_id=run_id).get("status")
-        return st if st in ("built", "skipped") else None
+        """返回值 = **provider 健康信号**(None 表示这家供应商有问题,连续 N 次即冷却)。
+
+        2026-07-29 修正误诊闭环:`rejected`(模型答了但违反纪律)与 `no_data`(证据不足)
+        都说明 **provider 是健康的** —— 它按时给出了可解析的结构化输出,只是内容不合格。
+        把它们当成 provider 故障会冷却整家供应商,于是「论点纪律严」被翻译成「三家订阅全挂」,
+        这正是 thesis 停摆期间看到的假象。只有 `llm_failed`(没吐出可用 JSON / 调用异常)
+        与未知异常才是真的 provider 故障。"""
+        st = thesis.build(cid, force=True, run_id=run_id,
+                          because=because_by.get(cid)).get("status")
+        return st if st in ("built", "skipped", "rejected", "no_data") else None
 
     res = subpool.run_parallel(cids, _build)
-    built = sum(1 for _, r in res if r)
-    return {"attempted": len(cids), "built": built,
+    stats: dict[str, int] = {}
+    for _, r in res:
+        stats[r or "llm_failed"] = stats.get(r or "llm_failed", 0) + 1
+    return {"attempted": len(cids), "built": stats.get("built", 0), "statuses": stats,
             "providers": [p for p, _ in pins], "quota": subpool.status()}
 
 
