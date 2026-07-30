@@ -59,6 +59,11 @@ def _clean(seeded_db):
     def wipe():
         db.execute("DELETE FROM alt_signals WHERE signal_key='alt.options_implied_move' "
                    "AND period_end >= '2099-01-01'")
+        # 本文件的测试还会写 period_end=date.today() 的**真实日期**行(快照日语义),2099 哨兵
+        # 清不到它 —— 于是残留跨天累积,次日 SELECT 先读到昨天那行,断言必红(实测 07-29→07-30)。
+        # 按 (signal_key, company_id) 清干净,与日期无关。
+        db.execute("DELETE FROM alt_signals WHERE signal_key='alt.options_implied_move' "
+                   "AND company_id='now'")
         db.execute("DELETE FROM event_calendar WHERE company_id='now' AND scheduled_for >= '2099-01-01'")
         kvstate.save_state("earnings_watch", {})
     wipe()
@@ -76,8 +81,10 @@ def test_pull_writes_signal_period_end_today(_clean, monkeypatch):
     monkeypatch.setattr("xar.providers.yahoo._handle", lambda cid, tk: ("NOW", _FakeTk()))
     out = im.pull()
     assert out["written"] >= 1
+    # 读取限定到当天快照:即便库里另有历史行,断言也只看本次写入的那条
     r = db.query("SELECT value, period_end, meta FROM alt_signals "
-                 "WHERE signal_key='alt.options_implied_move' AND company_id='now'")
+                 "WHERE signal_key='alt.options_implied_move' AND company_id='now' "
+                 "AND period_end=%s", (dt.date.today(),))
     assert r and abs(float(r[0]["value"]) - 0.07) < 1e-6     # straddle 7 / spot 100
     assert r[0]["period_end"] == dt.date.today()             # 快照日,非财报日
     assert r[0]["meta"]["earnings_date"] == str(fut)

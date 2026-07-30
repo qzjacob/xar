@@ -4,6 +4,22 @@ from __future__ import annotations
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _model_keys_present(monkeypatch):
+    """`save_fetchy` 会用 `model_usable()` 校验模型可用性,而它**只看密钥在场性**。
+
+    本文件多处会写回 `fetchy_defaults()`(其默认模型是 `GLM_PIN[0]` = glm-5.2-sub)——
+    在没有真实密钥的测试容器里,那行"复原"自己就抛
+    `ValueError: glm-5.2-sub 的密钥(GLM_API_KEY 或 GLM_SUB_API_KEY)未配置`,
+    于是这 4 个测试**长期为红**、掩盖真实回归。这里按 provider 的 key_env 名注入占位值,
+    让校验通得过(不发任何真实调用;`llm._ensure_keys` 只在 env 未设时写入,不会覆盖它们)。
+    """
+    for var in ("GLM_API_KEY", "GLM_SUB_API_KEY", "DEEPSEEK_API_KEY",
+                "KIMI_API_KEY", "MOONSHOT_SUB_API_KEY",
+                "MINIMAX_API_KEY", "MINIMAX_SUB_API_KEY"):
+        monkeypatch.setenv(var, "test-key-presence-only")
+
+
 def test_defaults_everything_on(seeded_db):
     """默认全开 —— 唯 twitter 例外:计量外部 API,默认关(2026-07-20 裁定),
     需运营显式开启且受月度限额闸(providers/twitter.py)封顶。"""
