@@ -264,12 +264,8 @@ def _build_kwargs(spec, messages, max_tokens, want_strong, json_mode, s, base, k
     out = max_tokens if not spec.max_output else min(max_tokens, spec.max_output)
     kwargs: dict = dict(model=spec.litellm_model, messages=messages, max_tokens=out)
     if spec.supports_reasoning:  # let strong tasks think; cap the general/bulk tier's thinking
-        # 力度三级优先:①调用方显式(thesis 量产 low / phanny high)> ②强、推理层默认拉满
-        # (s.model_effort="high")> ③非强层(bulk/triage)的低档上限(s.model_effort_bulk)——
-        # 小 token 预算下思考会烧光 content,bulk 不能一刀切拉满。这就是「默认最大化、
-        # 视任务需求而实际调用」的落点。
-        kwargs["reasoning_effort"] = (reasoning_effort or
-                                      (s.model_effort if want_strong else s.model_effort_bulk))
+        # 显式 reasoning_effort 覆盖(如 thesis 高量产任务:low 力度,防 reasoning 烧空 content)。
+        kwargs["reasoning_effort"] = reasoning_effort or (s.model_effort if want_strong else "low")
     if json_mode and spec.supports_json:
         kwargs["response_format"] = {"type": "json_object"}
     if base:                      # OpenAI-compatible / subscription endpoint, per candidate
@@ -456,26 +452,41 @@ def complete_stream(
     terminal event — `{"type":"final","message":<assistant dict incl. tool_calls>,
     "usage":{...}}` on success, or `{"type":"error","message":...}`.
 
-    Candidate rotation happens ONLY before the first content delta (a mid-stream failure
-    surfaces as an error event, not a silent model switch). Usage + tool_calls are
-    reconstructed once via `litellm.stream_chunk_builder` and billed through `_record`.
+    `reasoning_effort` 与 `complete()` 同义,显式覆盖档位默认值。CHAT 链清一色是思考模型
+    (kimi-k3 / glm-5.2 / minimax-m3 / deepseek),reasoning 与 content **共吃** max_tokens ——
+    预算给小了拿到的就是空回复,所以调用方需要能同时指定力度与足够的输出预算。
+
+    Candidate rotation happens ONLY before the first content delta — **any** failure there
+    rotates (mirroring `complete()`), because nothing has reached the user yet and the next
+    candidate is a free upgrade. Once content has streamed, a failure must surface as an error
+    event: the partial text is already on the user's screen and silently switching models would
+    splice two different answers together. Usage + tool_calls are reconstructed once via
+    `litellm.stream_chunk_builder` and billed through `_record`.
     """
     _ensure_keys()
     s = get_settings()
     tc = router.as_task(task, "strong")
-    # want_strong 取**调整后**能力(route_plan),与 complete() 一致(J.1.3):此前读静态
-    # POLICIES[tc].capability,动态升/降层后会与实际所选层错配、给错推理力度。
-    plan = router.route_plan(tc)
-    chain = _apply_pin(plan.chain)
+    chain = _apply_pin(router.resolve(tc))
     if not chain:
         yield {"type": "error", "message": f"no model candidates for task {tc.value}"}
         return
-    want_strong = plan.capability in (Capability.STRONG, Capability.REASONING)
+    want_strong = router.POLICIES[tc].capability in (Capability.STRONG, Capability.REASONING)
     cap = _budget_cap(run_id, s)
     spent = _spent(run_id) if run_id else 0.0
     last_err: Exception | None = None
+    psha = _sha(None, json.dumps(messages, ensure_ascii=False, default=str))
+    pin_now = _PIN.get()
+    attempt = 0
+
+    def _req(spec) -> dict:
+        granted = max_tokens if not spec.max_output else min(max_tokens, spec.max_output)
+        return {"task": tc.value, "max_tokens": max_tokens, "granted": granted,
+                "clamped": granted < max_tokens, "want_strong": want_strong,
+                "reasoning_effort": reasoning_effort, "stream": True,
+                "pin": list(pin_now) if pin_now else None}
 
     for spec in chain:
+        attempt += 1
         executor = getattr(spec, "executor", "litellm")
         if executor != "litellm":
             # Subscription executors (agent_sdk/codex_cli) are single-shot (no streaming/tool
@@ -498,6 +509,7 @@ def complete_stream(
             kwargs["tool_choice"] = "auto"
         chunks: list = []
         started = False
+        t0 = time.monotonic()
         try:
             for chunk in litellm.completion(**kwargs):
                 chunks.append(chunk)
@@ -507,10 +519,22 @@ def complete_stream(
                     started = True
                     yield {"type": "delta", "text": text}
         except Exception as e:  # noqa: BLE001
-            if not started and _retryable(e):        # rotate only before the first delta
+            _record(run_id, node, spec, _NO_USAGE, tc.value, used_sub, status="error",
+                    error=f"{type(e).__name__}: {e}", attempt=attempt, prompt_sha=psha,
+                    requested=_req(spec), latency_ms=int((time.monotonic() - t0) * 1000),
+                    context={"streamed": started})
+            if not started:
+                # 未产出任何内容 → **一律轮转**,不看是否「可重试」。此前这里额外要求
+                # `_retryable(e)`,而额度耗尽抛的是 litellm.APIError(不在该名单里)——
+                # 于是链上明明还有健康候选,一次订阅额度用尽就把整轮对话打成
+                # 「服务暂时不可用」。非流式的 complete() 本来就是「不可重试即刻轮转」,
+                # 流式反而更脆,属逻辑写反。
                 last_err = e
-                log.warning("stream %s candidate %s failed pre-delta: %s", node, spec.id, e)
+                log.warning("stream %s candidate %s failed pre-delta (rotating): %s",
+                            node, spec.id, str(e)[:200])
                 continue
+            # 已经吐过内容:必须报错收场 —— 局部文本已在用户屏幕上,静默换模型会把
+            # 两个不同的回答拼在一起。
             log.warning("stream %s candidate %s failed mid-stream: %s", node, spec.id, e)
             yield {"type": "error", "message": str(e)}
             return
@@ -523,9 +547,15 @@ def complete_stream(
         if not msg.get("content", "").strip() and not msg.get("tool_calls"):
             last_err = ValueError("empty completion")            # rotate: nothing yielded yet
             if not started:
+                _record(run_id, node, spec, getattr(full, "usage", None) if full else _NO_USAGE,
+                        tc.value, used_sub, status="empty", error="empty completion",
+                        attempt=attempt, prompt_sha=psha, requested=_req(spec),
+                        latency_ms=int((time.monotonic() - t0) * 1000))
                 continue
         usage = getattr(full, "usage", None) if full else None
-        _record(run_id, node, spec, usage, tc.value, used_sub)
+        _record(run_id, node, spec, usage, tc.value, used_sub, attempt=attempt,
+                prompt_sha=psha, requested=_req(spec),
+                latency_ms=int((time.monotonic() - t0) * 1000))
         log.info("route %s -> %s [%s] (stream)", tc.value, spec.id, spec.billing.value)
         yield {"type": "final", "message": msg,
                "usage": _usage_dict(usage)}
