@@ -66,6 +66,17 @@ services:
   qwendrain:
     build: .
     restart: unless-stopped
+    # ⚠️ 必须给足停机宽限期(2026-07-29 审计:每次 `compose up -d` 都在静默丢文档)。
+    # 本服务是全栈唯一「**领取即盖戳**」的消费者:_claim_sql 在同一条 UPDATE 里
+    # `SET kg_extracted_at=now() … FOR UPDATE SKIP LOCKED`(为了并发不双抽),
+    # 且刻意无回滚、无重试(毒文档语义)。于是被 SIGKILL 时,已领取未抽完的那批文档
+    # kg_extracted_at 已非 NULL —— **永久跳过,静默丢失**。
+    # (对比 flow_extract/triage:它们「事件落库才盖戳」,中途被杀下一轮自然重来,无此风险。)
+    # SIGTERM 时的干净路径:signal → KeyboardInterrupt → return,而 ThreadPoolExecutor
+    # 的 __exit__ 会 wait 在飞线程跑完 —— 实测一批约 74s(8 篇 / 4 worker),
+    # 取 180s 与 llm_local_timeout_s=180 对齐:即使本批最慢那次调用一路走到超时,
+    # 也来得及收尾退出。残余风险:病态卡死超过 180s 仍会被杀(那种情况本就需要监控介入)。
+    stop_grace_period: 180s
     env_file: .env
     environment:
       XAR_DATABASE_URL: postgresql://xar:xar@db:5432/xar

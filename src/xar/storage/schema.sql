@@ -959,3 +959,39 @@ CREATE TABLE IF NOT EXISTS channel_state (
     next_offset BIGINT NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ── 任务监控(2026-07-29 审计产物:「停摆不可见」的解药)──────────────────────────────
+-- 背景:Dagster 队列死锁 7 天零执行无人察觉;wechat/futu 静默哑火 6.5/24 天而 cadence 戳仍绿
+-- (_stamp 记「尝试过」不记「有产出」)。这两张表让停摆可见、可报警、可事后复盘。
+
+-- 任务状态历史:只写**状态跃迁**行,外加每任务每 6h 一条 anchor 行保证时间线连续
+-- (否则每轮一行 = 每天数万行)。事后复盘「昨晚几点断的、断了多久」靠这张表。
+CREATE TABLE IF NOT EXISTS task_status_history (
+    id         BIGSERIAL PRIMARY KEY,
+    task_id    TEXT NOT NULL,                        -- catalog 里的 Task.id,如 worker.glmworker
+    state      TEXT NOT NULL,                        -- ok|stale|down|unknown|unconfigured
+    prev_state TEXT,                                 -- 跃迁前状态(anchor 行为 NULL)
+    kind       TEXT NOT NULL DEFAULT 'transition',   -- transition|anchor
+    detail     JSONB NOT NULL DEFAULT '{}',          -- 判定时刻的探针值/年龄/阈值,便于复盘
+    at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_tsh_task_at ON task_status_history(task_id, at DESC);
+CREATE INDEX IF NOT EXISTS idx_tsh_at ON task_status_history(at DESC);
+
+-- 告警台账:open→acked→resolved。部分唯一索引保证「每任务至多一条未解决告警」——
+-- 这是去重的结构性保证,不靠应用层记账(否则 sweep 每轮都会重开一条)。
+CREATE TABLE IF NOT EXISTS monitor_alerts (
+    id          BIGSERIAL PRIMARY KEY,
+    task_id     TEXT NOT NULL,
+    severity    TEXT NOT NULL,                       -- warn|critical
+    state       TEXT NOT NULL DEFAULT 'open',        -- open|acked|resolved
+    title       TEXT NOT NULL,
+    detail      JSONB NOT NULL DEFAULT '{}',
+    opened_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    acked_at    TIMESTAMPTZ,
+    resolved_at TIMESTAMPTZ,
+    last_notified_at TIMESTAMPTZ                     -- 驱动 24h 提醒节流
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_one_open
+    ON monitor_alerts(task_id) WHERE state <> 'resolved';
+CREATE INDEX IF NOT EXISTS idx_alerts_opened ON monitor_alerts(opened_at DESC);

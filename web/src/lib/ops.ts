@@ -10,6 +10,10 @@ import type {
   LakeDocsPage,
   LlmInfo,
   LlmTestResult,
+  MonitorAlert,
+  MonitorHistoryRow,
+  MonitorInfo,
+  MonitorSummary,
   OntologyInfo,
   OpsCoverageInfo,
   SelfTest,
@@ -74,4 +78,25 @@ export const ops = {
   altTrackers: () => get<AltTrackers>("/api/ops/altdata/trackers"),
   selftest: () => get<SelfTest>("/api/ops/selftest"),
   coverage: () => get<OpsCoverageInfo>("/api/ops/coverage"),
+  // 任务监控。monitor() 读的是巡检持久化的快照(与告警判定同源);fresh 仅供排障。
+  monitor: (fresh = false) => get<MonitorInfo>(`/api/ops/monitor${fresh ? "?fresh=1" : ""}`),
+  monitorSummary: () => get<MonitorSummary>("/api/ops/monitor/summary"),
+  monitorAlerts: (scope: "open" | "recent" = "open") =>
+    get<{ alerts: MonitorAlert[]; openAlerts: number; openCritical: number }>(
+      `/api/ops/monitor/alerts?scope=${scope}`),
+  monitorHistory: (p: { task?: string; hours?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (p.task) qs.set("task", p.task);
+    if (p.hours != null) qs.set("hours", String(p.hours));
+    return get<{ rows: MonitorHistoryRow[]; task: string | null; hours: number }>(
+      `/api/ops/monitor/history?${qs.toString()}`);
+  },
+  monitorAck: (id: number) => post<{ alert: MonitorAlert }>(`/api/ops/monitor/alerts/${id}/ack`),
+  monitorResolveAlert: (id: number) =>
+    post<{ alert: MonitorAlert }>(`/api/ops/monitor/alerts/${id}/resolve`),
+  monitorAction: (action: string) =>
+    post<{ action: string; result: Record<string, unknown> }>("/api/ops/monitor/actions", { action }),
+  monitorMute: (hours: number, tasks?: string[]) =>
+    put<{ muted: boolean; until?: string; tasks?: string[] }>("/api/ops/monitor/mute",
+      { hours, ...(tasks ? { tasks } : {}) }),
 };

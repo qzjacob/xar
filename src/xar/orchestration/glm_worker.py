@@ -676,6 +676,13 @@ def run_once(*, batch_docs: int | None = None, backfill_units: int | None = None
     stages_on = cfg["stages"]
     pin = _fetchy_pin(cfg)
 
+    # 开工戳(2026-07-29 监控加入)。`last_cycle_at` 只在本函数**结尾**盖,所以一次轮内卡死
+    # (实测 phanny 卡 3.5 小时、全库零新文档)看起来与进程死掉完全一样。有了开工戳,
+    # 「开了工却迟迟不收工」可被单独识别为轮内卡死,而不是误判成 worker 挂了。
+    _c = get_state("counters")
+    _c["cycle_started_at"] = _now()
+    save_state("counters", _c)
+
     out["pulls"] = _pull_fresh(cfg)
     if stages_on.get("backfill", True):
         out["backfill"] = _backfill(backfill_units)
@@ -752,14 +759,18 @@ def run_daemon() -> None:
     """常驻循环:额度可用 → 每 cycle_seconds 一轮;耗尽 → 每 probe_seconds 一探。
     SIGTERM/Ctrl-C 干净退出;所有阶段幂等,重启即续。"""
     from ..config import get_settings
+    from ..monitoring import control
 
     s = get_settings()
+    # 软重启用:只响应晚于本进程启动的请求(比时间 ⇒ 标记天然一次性,无需删除、无竞态)
+    started_at = datetime.now(timezone.utc)
     # docker stop 发 SIGTERM;转成 KeyboardInterrupt 让 sleep 中也能干净退出
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     log.info("glm-worker daemon up: pin=%s cycle=%ss probe=%ss batch=%s",
              ",".join(GLM_PIN), s.glm_worker_cycle_seconds, s.glm_worker_probe_seconds,
              s.glm_worker_batch_docs)
     while True:
+        control.exit_if_requested("glmworker", started_at=started_at)
         try:
             out = run_once()
             log.info("cycle done: quota=%s extract=%s backfill=%s",

@@ -36,6 +36,42 @@ export function useAsync<T>(
   return { data, loading, error, reload: () => setTick((t) => t + 1) };
 }
 
+/**
+ * 定时重取(2026-07-29 随任务监控面板引入 —— 此前全仓没有任何轮询先例)。
+ *
+ * 只在标签页可见时计时:监控页会长期开着不看,后台标签每 30s 打一次接口纯属浪费,
+ * 而且本机是 7×24 交易机,GPU 常态满载。切回前台时立即补一次,避免看到过期数据。
+ */
+export function usePolling(reload: () => void, ms: number) {
+  useEffect(() => {
+    if (!ms) return;
+    let timer: number | undefined;
+    const start = () => {
+      stop();
+      timer = window.setInterval(() => {
+        if (document.visibilityState === "visible") reload();
+      }, ms);
+    };
+    const stop = () => {
+      if (timer) window.clearInterval(timer);
+      timer = undefined;
+    };
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        reload();
+        start();
+      } else stop();
+    };
+    start();
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVis);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ms]);
+}
+
 /** Page header band shared by all ops console pages. */
 export function OpsHeader({
   title,

@@ -17,6 +17,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { CompanyPage } from "./pages/CompanyPage";
 import { SegmentPage } from "./pages/SegmentPage";
 import { OpsOverviewPage } from "./pages/ops/OpsOverviewPage";
+import { MonitorPage } from "./pages/ops/MonitorPage";
 import { FetchyPage } from "./pages/ops/FetchyPage";
 import { OntologyPage } from "./pages/ops/OntologyPage";
 import { CoveragePage } from "./pages/ops/CoveragePage";
@@ -114,6 +115,7 @@ export default function App() {
           {/* Jarvy — 后端管理中心 (曾用名 Ops) */}
           <Route path="/jarvy" element={<AdminLayout />}>
             <Route index element={<OpsOverviewPage />} />
+            <Route path="monitor" element={<MonitorPage />} />
             <Route path="fetchy" element={<FetchyPage />} />
             <Route path="ontology" element={<OntologyPage />} />
             <Route path="coverage" element={<CoveragePage />} />

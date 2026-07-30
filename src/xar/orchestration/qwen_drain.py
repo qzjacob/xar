@@ -14,6 +14,7 @@ from __future__ import annotations
 import signal
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 
 from ..config import get_settings
 from ..logging import get_logger
@@ -169,26 +170,48 @@ def run_once() -> dict:
     return {"done": len(ids), "pending": _pending()}
 
 
+def _beat(done: int, pending: int, t0: float, *, idle: bool) -> None:
+    """持久化心跳(2026-07-29 监控加入)。此前本进程**只往 stdout 写** rate/done/elapsed,
+    容器一重建现场就没了 —— 于是「drain 是不是还在跑」只能靠翻日志或猜。
+    空转时也要写:否则队列清空看起来与进程死亡一模一样(idle≠dead)。"""
+    from ..storage.kvstate import save_state
+    el = max(1e-6, time.time() - t0)
+    try:
+        save_state("qwen_drain_beat", {
+            "at": datetime.now(timezone.utc).isoformat(), "done": done, "pending": pending,
+            "rate_per_min": round(done / el * 60, 2), "elapsed_min": round(el / 60, 1),
+            "idle": idle})
+    except Exception as e:  # noqa: BLE001 — 心跳写失败绝不能影响抽取本身
+        log.warning("qwen_drain beat failed: %s", str(e)[:120])
+
+
 def run_daemon() -> None:
+    from ..monitoring import control
+
     s = get_settings()
     pin = (s.qwen_drain_model,)
+    started_at = datetime.now(timezone.utc)      # 软重启用:只响应晚于本进程启动的请求
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     log.info("qwen_drain up: pin=%s workers=%d pending=%d", pin[0], s.qwen_drain_workers, _pending())
     t0 = time.time()
     done = 0
     with ThreadPoolExecutor(max_workers=s.qwen_drain_workers) as ex:
         while True:
+            control.exit_if_requested("qwendrain", started_at=started_at)
             try:
                 ids = _claim(s.qwen_drain_batch)
                 if not ids:
+                    _beat(done, 0, t0, idle=True)
                     time.sleep(s.qwen_drain_idle_seconds)
                     continue
                 run_id = llm.new_batch_run_id("kg")
                 list(ex.map(lambda d: _one(d, run_id, pin), ids))
                 done += len(ids)
                 el = time.time() - t0
+                pending = _pending()
+                _beat(done, pending, t0, idle=False)
                 log.info("qwen_drain done=%d pending=%d rate=%.1f/min elapsed=%.1fm",
-                         done, _pending(), done / el * 60, el / 60)
+                         done, pending, done / el * 60, el / 60)
             except KeyboardInterrupt:
                 log.info("qwen_drain interrupted — exiting cleanly")
                 return

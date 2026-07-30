@@ -458,6 +458,17 @@ class Settings(BaseSettings):
     wechat_deep_min: float = 0.4           # triage_score >= 此值才进深度抽取(精度优先)
     glm_worker_triage_docs: int = 40       # 每轮 triage 的微信文档数(短 prompt,便宜)
 
+    # --- 任务监控 (monitoring/;Jarvy「任务监控」面板)---
+    # 2026-07-29 审计产物:当时 Dagster 队列死锁 7 天零执行无人察觉、wechat/futu 静默哑火
+    # 数周而 cadence 戳仍绿。巡检跑在 app 容器后台线程(同 telegram.start_background)。
+    monitor_enabled: bool = Field(default=True, validation_alias="XAR_MONITOR_ENABLED")
+    monitor_sweep_seconds: int = 120       # 一轮 ≈15 条带索引 SQL + 2 次 dagster GraphQL
+    # 停摆报警推给哪个 Telegram chat。留空则回退 telegram_allowed_chats 首项;两者皆空 =
+    # 只有页内告警(面板会提示,并列出 chat_channels 里已知的 chat id 供复制)。
+    monitor_telegram_chat: str = Field(default="", validation_alias="XAR_MONITOR_TELEGRAM_CHAT")
+    monitor_remind_hours: int = 24         # 持续 down 且未 ack 时的提醒间隔(防告警疲劳)
+    dagster_graphql_url: str = Field(default="", validation_alias="XAR_DAGSTER_GRAPHQL_URL")
+
     # --- Posture / politeness ---
     data_posture: str = "self_use"
     http_user_agent: str = "xar-research/0.1 (+research)"

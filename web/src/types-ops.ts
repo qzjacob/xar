@@ -325,3 +325,73 @@ export interface FetchyInfo {
     pin: string[];
   };
 }
+
+// ── 任务监控(2026-07-29 审计产物;镜像 src/xar/api/monitor.py 输出)──────────────
+export type MonitorState = "ok" | "stale" | "down" | "unknown" | "unconfigured";
+
+export interface MonitorTask {
+  id: string;
+  label: string;
+  labelCn: string;
+  group: "workers" | "dagster" | "fetchy" | "slx" | "platform";
+  severity: "critical" | "warn";
+  state: MonitorState;
+  observed: MonitorState;        // 本轮观测(与 state 不同 = 正在等第 2 轮确认)
+  since: string | null;
+  hbAgeS: number | null;
+  hbSlaS: number;
+  yieldAgeS: number | null;
+  yieldSlaS: number | null;
+  detail: Record<string, unknown> & { worstBy?: string; reason?: string };
+  actions: string[];
+  muted: boolean;
+  note: string;
+}
+
+export interface MonitorAlert {
+  id: number;
+  task_id: string;
+  severity: "critical" | "warn";
+  state: "open" | "acked" | "resolved";
+  title: string;
+  detail: Record<string, unknown>;
+  opened_at: string;
+  acked_at: string | null;
+  resolved_at: string | null;
+  last_notified_at: string | null;
+}
+
+export interface MonitorMeta {
+  lastSweepAt: string | null;
+  sweepMs: number | null;
+  telegram: "ok" | "no_token" | "no_chat" | "unknown";
+  muteUntil: string | null;
+  openAlerts: number;
+}
+
+export interface MonitorInfo {
+  tasks: MonitorTask[];
+  summary: Partial<Record<MonitorState, number>>;
+  ranAt: string | null;
+  sweepMs: number | null;
+  monitor: MonitorMeta;
+  alerts: MonitorAlert[];
+  knownChats: string[];         // 未配推送时,库里已知的 telegram chat id(复制即可填 env)
+  note?: string;
+}
+
+export interface MonitorSummary {
+  lastSweepAt: string | null;
+  summary: Partial<Record<MonitorState, number>>;
+  openAlerts: number;
+  openCritical: number;
+}
+
+export interface MonitorHistoryRow {
+  task_id: string;
+  state: MonitorState;
+  prev_state: MonitorState | null;
+  kind: "transition" | "anchor";
+  detail: Record<string, unknown>;
+  at: string;
+}

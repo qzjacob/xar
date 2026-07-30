@@ -67,6 +67,14 @@ def _startup() -> None:
         telegram.start_background()
     except Exception as e:  # noqa: BLE001 — 通道失败绝不拖垮 API 启动
         log.warning("telegram channel not started: %s", e)
+    try:
+        # 任务监控巡检(2026-07-29 审计产物)。跑在 app 容器里的理由见 monitoring/sweep.py:
+        # Postgres 连接池、dagster GraphQL 可达性、Telegram token 三样它都已经有了。
+        from .. import monitoring
+
+        monitoring.start_background()
+    except Exception as e:  # noqa: BLE001 — 监控失败绝不拖垮 API 启动
+        log.warning("monitor sweep not started: %s", e)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -566,6 +574,73 @@ def ops_selftest() -> dict:
     from . import ops
 
     return ops.selftest()
+
+
+# ── 任务监控(2026-07-29 审计产物:「停摆不可见」的解药)──────────────────────────
+@app.get("/api/ops/monitor")
+def ops_monitor(fresh: int = 0) -> dict:
+    """全量任务快照。默认读 sweep 持久化的结果(<10ms,与告警判定同源);
+    fresh=1 强制现探,仅供排障 —— 现探不发报警。"""
+    from . import monitor
+
+    return monitor.overview(fresh=bool(fresh))
+
+
+@app.get("/api/ops/monitor/summary")
+def ops_monitor_summary() -> dict:
+    """轻量端点:侧栏红点徽章 + 主机 deadman 脚本探活都用它。"""
+    from . import monitor
+
+    return monitor.summary()
+
+
+@app.get("/api/ops/monitor/alerts")
+def ops_monitor_alerts(scope: str = "open", limit: int = 50) -> dict:
+    from . import monitor
+
+    return monitor.alerts(scope=scope, limit=limit)
+
+
+@app.get("/api/ops/monitor/history")
+def ops_monitor_history(task: str | None = None, hours: int = 168) -> dict:
+    """时间线数据:状态跃迁行 + 6h 锚点行。事后复盘「昨晚几点断的、断了多久」。"""
+    from . import monitor
+
+    return monitor.history(task=task, hours=hours)
+
+
+@app.post("/api/ops/monitor/alerts/{alert_id}/ack")
+def ops_monitor_ack(alert_id: int) -> dict:
+    from . import monitor
+
+    return monitor.ack(alert_id)
+
+
+@app.post("/api/ops/monitor/alerts/{alert_id}/resolve")
+def ops_monitor_resolve(alert_id: int) -> dict:
+    from . import monitor
+
+    return monitor.resolve(alert_id)
+
+
+@app.post("/api/ops/monitor/actions")
+def ops_monitor_action(body: dict) -> dict:
+    """处置动作。只接受 catalog 里某个任务显式声明过的 action id(白名单在 monitor.act)。"""
+    from . import monitor
+
+    action = (body or {}).get("action") or ""
+    if not action:
+        raise HTTPException(status_code=400, detail="action required")
+    return monitor.act(action)
+
+
+@app.put("/api/ops/monitor/mute")
+def ops_monitor_mute(body: dict) -> dict:
+    """维护静音:只压 Telegram 推送,历史与告警台账照记。hours=0 解除。"""
+    from . import monitor
+
+    b = body or {}
+    return monitor.set_mute(hours=int(b.get("hours") or 0), tasks=b.get("tasks"))
 
 
 @app.get("/api/ops/coverage")

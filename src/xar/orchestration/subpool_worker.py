@@ -106,21 +106,45 @@ def run_once() -> dict:
             "providers": [p for p, _ in pins], "quota": subpool.status()}
 
 
+def _beat(out: dict, *, idle: bool) -> None:
+    """持久化心跳(2026-07-29 监控加入)。此前每轮结果只进 stdout,而 sub_quota 只在**状态
+    变化**时才写(实测 3 家 provider 只有 1 家有行)—— 于是「健康且安静」与「从未跑过」
+    在库里长得一模一样。空转也写,idle≠dead。"""
+    from datetime import datetime, timezone
+
+    from ..storage.kvstate import save_state
+    try:
+        save_state("subpool_beat", {
+            "at": datetime.now(timezone.utc).isoformat(), "idle": idle,
+            "attempted": out.get("attempted"), "built": out.get("built"),
+            "providers": out.get("providers")})
+    except Exception as e:  # noqa: BLE001 — 心跳写失败绝不能影响重建本身
+        log.warning("subpool beat failed: %s", str(e)[:120])
+
+
 def run_daemon() -> None:
+    from datetime import datetime, timezone
+
+    from ..monitoring import control
+
     s = get_settings()
+    started_at = datetime.now(timezone.utc)      # 软重启用:只响应晚于本进程启动的请求
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     log.info("subpool worker up: pins=%s batch=%d", s.subpool_pins, s.subpool_batch)
     while True:
+        control.exit_if_requested("subpool", started_at=started_at)
         try:
             out = run_once()
             log.info("subpool cycle: %s",
                      {k: out.get(k) for k in ("attempted", "built", "idle", "skipped")})
             idle = ("idle" in out) or ("skipped" in out)
+            _beat(out, idle=idle)
         except KeyboardInterrupt:
             log.info("subpool worker interrupted — exiting cleanly")
             return
         except Exception as e:  # noqa: BLE001 — 常驻进程绝不因单轮异常退出
             log.warning("subpool cycle failed: %s", str(e)[:160])
+            _beat({}, idle=True)
             idle = True
         try:
             time.sleep(s.subpool_idle_seconds if idle else 2)
