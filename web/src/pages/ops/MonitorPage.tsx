@@ -45,6 +45,13 @@ function age(s: number | null | undefined): string {
   return `${(v / 86400).toFixed(1)}d`;
 }
 
+/** 探针自报的理由。放在 detail.hb.reason(心跳探针的 detail 会整块塞进 detail.hb)。 */
+function reasonOf(t: MonitorTask): string | null {
+  const hb = (t.detail?.hb ?? {}) as Record<string, unknown>;
+  const r = hb.reason ?? t.detail?.reason;
+  return typeof r === "string" ? r : null;
+}
+
 function StateChip({ state, muted }: { state: MonitorState; muted?: boolean }) {
   return (
     <span className={cn("inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-2xs font-medium", CHIP[state])}>
@@ -134,6 +141,9 @@ function WorkerCard({ task, onDone }: { task: MonitorTask; onDone: () => void })
         {d.worstBy === "yield" && (
           <Row k="判定依据"><span className="text-neg">心跳绿但零产出</span></Row>
         )}
+        {d.worstBy === "signal" && (
+          <Row k="判定依据"><span className="text-neg">{reasonOf(task) ?? "探针上报异常"}</span></Row>
+        )}
         {typeof d.inCycleSinceS === "number" && (
           <Row k="本轮已运行"><span className="tnum">{age(d.inCycleSinceS as number)}</span></Row>
         )}
@@ -175,6 +185,11 @@ function TaskTable({ tasks, onDone, minWidth = 760 }: {
               <td className="px-2 py-1.5">
                 <div className="text-brand-900">{t.labelCn}</div>
                 <div className="font-mono text-2xs text-brand-500">{t.id}</div>
+                {/* 探针给出的具体理由(失败率/队列死锁/连接器批量报错)—— 这类坏消息与
+                    「多久没心跳」无关,不显示出来就只剩一个没头没尾的红点。 */}
+                {reasonOf(t) && (
+                  <div className="mt-0.5 text-2xs text-neg">{reasonOf(t)}</div>
+                )}
               </td>
               <td className="px-2 py-1.5"><StateChip state={t.state} muted={t.muted} /></td>
               <td className="px-2 py-1.5 text-right"><AgeVsSla ageS={t.hbAgeS} slaS={t.hbSlaS} /></td>

@@ -14,10 +14,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from ..logging import get_logger
-from .detector import Probe
+from .detector import DOWN, STALE, Probe
 
 log = get_logger("xar.monitoring.catalog")
 
@@ -209,24 +209,54 @@ def _dagster_daemons_hb() -> Probe:
     newest = max((_parse_ts(d.get("lastHeartbeatIso")) for d in h["daemons"]
                   if d.get("lastHeartbeatIso")), default=None)
     detail = {"daemons": [d["daemonType"] for d in h["daemons"]], "unhealthy": unhealthy}
-    if unhealthy:
-        # 任一守护 unhealthy 立即判坏:把心跳当作「很久以前」交给 detector 判 down。
-        return Probe(datetime.now(timezone.utc) - timedelta(days=365), detail)
-    return Probe(newest, detail)
+    # 任一守护 unhealthy 立即判 down —— 用 degrade 断言,而不是伪造一个一年前的时间戳
+    # (伪造会让 detail 里的 hbAgeS 变成假数据,排障时最误导人)。
+    return Probe(newest, detail, degrade=DOWN if unhealthy else None)
+
+
+# 部分失败的判定阈值(2026-07-30 定):夜间一次调度 = 8 个 pull_shard + 1 个 extract_all。
+# 1 个失败还能靠其它分片覆盖大部分宇宙,算滞后;≥1/3 失败或一个都没成 = 这一夜废了。
+_DAG_FAIL_STALE = 1        # 窗口内失败数 ≥ 此值 → 至少 stale
+_DAG_FAIL_RATIO_DOWN = 1 / 3
 
 
 def _dagster_runs_hb() -> Probe:
-    """最近一次**真正成功**的 run。job_ticks 在 7 天零执行期间全绿,只有 runs 说真话。"""
+    """最近一次**真正成功**的 run + 这一夜的成败比。
+
+    两个陷阱都在这里躲:
+    ① job_ticks 在 7 天零执行期间全绿 → 只认 runs.status;
+    ② **「有一个成功」不等于「跑好了」**。2026-07-30 夜里 9 个 run 死了 4 个(全部 memcg
+       OOM),而监控当时显示 ok —— 因为 1.8h 前确实有过成功。所以窗口内的失败数/失败率
+       必须作为独立信号参与判定,这正是双信号原则用到 dagster 自己身上。
+    """
     from .dagster_gql import run_stats
     r = run_stats()
     if not r.get("ok"):
         return Probe(None, {"reason": r.get("error", "graphql unreachable")})
     detail = {"queued": r["queued"], "started": r["started"],
-              "maxConcurrent": r.get("maxConcurrent"), "lastSuccessJob": r.get("lastSuccessJob")}
+              "maxConcurrent": r.get("maxConcurrent"), "lastSuccessJob": r.get("lastSuccessJob"),
+              "windowHours": r.get("windowHours"), "windowOk": r.get("windowOk"),
+              "windowFailed": r.get("windowFailed"),
+              "windowFailRatio": r.get("windowFailRatio")}
+    ts = _parse_ts(r.get("lastSuccessAt"))
+
     if r.get("queueDeadlock"):
-        detail["queueDeadlock"] = True     # 队列死锁金丝雀:in-flight 吃满并发槽
-        return Probe(datetime.now(timezone.utc) - timedelta(days=365), detail)
-    return Probe(_parse_ts(r.get("lastSuccessAt")), detail)
+        detail["queueDeadlock"] = True     # 队列死锁金丝雀:in-flight 吃满并发槽且仍有排队
+        return Probe(ts, detail, degrade=DOWN)
+
+    failed, ok_n = int(r.get("windowFailed") or 0), int(r.get("windowOk") or 0)
+    ratio = float(r.get("windowFailRatio") or 0.0)
+    degrade = None
+    if failed and ok_n == 0:
+        detail["reason"] = f"本窗口 {failed} 个 run 全部失败"
+        degrade = DOWN
+    elif ratio >= _DAG_FAIL_RATIO_DOWN:
+        detail["reason"] = f"本窗口失败率 {ratio:.0%}({failed}/{failed + ok_n})"
+        degrade = DOWN
+    elif failed >= _DAG_FAIL_STALE:
+        detail["reason"] = f"本窗口有 {failed} 个 run 失败({failed}/{failed + ok_n})"
+        degrade = STALE
+    return Probe(ts, detail, degrade=degrade)
 
 
 # ── slx 宏观连接器 ───────────────────────────────────────────────────────────────
@@ -243,11 +273,10 @@ def _slx_hb() -> Probe:
         return Probe(None, {"reason": "slx.audit_log unreadable"})
     r = rows[0]
     detail = {"failing": int(r["bad"] or 0), "orphanRunning": int(r["orphans"] or 0)}
-    ts = _parse_ts(r["ts"])
-    if detail["failing"] > 3 or detail["orphanRunning"] > 0:
+    bad = detail["failing"] > 3 or detail["orphanRunning"] > 0
+    if bad:
         detail["reason"] = "too many failing connectors or an orphan running row"
-        return Probe(datetime.now(timezone.utc) - timedelta(days=365), detail)
-    return Probe(ts, detail)
+    return Probe(_parse_ts(r["ts"]), detail, degrade=DOWN if bad else None)
 
 
 # ── fetchy 源的产出探针(只列「产出可度量」的源)──────────────────────────────────

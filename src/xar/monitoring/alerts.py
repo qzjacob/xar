@@ -133,10 +133,17 @@ def _fmt_age(seconds: float | None) -> str:
 
 def _title(task, state: str, detail: dict) -> str:
     who = f"{task.id} — {task.label_cn}"
+    # 探针自己给了具体理由(部分失败率、队列死锁、连接器批量报错 …)就用它 ——
+    # 这类坏消息与「多久没心跳」无关,套用年龄措辞会误导:2026-07-30 那次 44% 失败率的
+    # run 距上次成功只有 1.8h,写成「停摆 1.8h」既不像故障也对不上 26h 的 SLA。
+    hb = detail.get("hb") or {}
+    reason = hb.get("reason") or detail.get("reason")
+    if state in (DOWN, STALE) and detail.get("worstBy") == "signal" and reason:
+        return f"{who}:{reason}"
     if state == DOWN:
         if detail.get("worstBy") == "yield":
             return f"{who}:在尝试但零产出 {_fmt_age(detail.get('yieldAgeS'))}"
-        if detail.get("hb", {}).get("queueDeadlock") or detail.get("queueDeadlock"):
+        if hb.get("queueDeadlock") or detail.get("queueDeadlock"):
             return f"{who}:队列死锁"
         return f"{who}:停摆 {_fmt_age(detail.get('hbAgeS'))}"
     if state == STALE:

@@ -34,9 +34,16 @@ RANK: dict[str, int] = {OK: 0, UNCONFIGURED: 0, UNKNOWN: 1, STALE: 2, DOWN: 3}
 
 @dataclass(frozen=True)
 class Probe:
-    """一次探测结果。ts=None 表示**信号缺失**(第三态),不是「很旧」。"""
+    """一次探测结果。ts=None 表示**信号缺失**(第三态),不是「很旧」。
+
+    `degrade`:探针可以断言「不管时间戳多新,状态至少坏到这一档」。给的是那些**不是
+    时间新鲜度**的坏消息:dagster 守护 unhealthy、队列死锁、部分 run 失败、连接器批量报错。
+    没有它就只能靠「把时间戳伪造成一年前」来逼出 down —— 那样 detail 里的 hbAgeS 会是假的
+    (排障时最误导人),而且只能表达 down、无法表达「部分失败 = stale」这种中间档。
+    """
     ts: datetime | None = None
     detail: dict = field(default_factory=dict)
+    degrade: str | None = None
 
 
 def _age_s(ts: datetime, now: datetime) -> float:
@@ -81,6 +88,11 @@ def evaluate(*, now: datetime,
     state = _by_age(hb_age, hb_sla_s, down_mult)
     detail["hbAgeS"] = round(hb_age, 1)
     detail["hbAt"] = hb.ts.isoformat()
+    if hb.degrade:
+        # 非新鲜度类的坏消息(守护 unhealthy / 队列死锁 / 部分失败 …)
+        if RANK.get(hb.degrade, 0) > RANK[state]:
+            detail["worstBy"] = "signal"
+        state = worse(state, hb.degrade)
 
     if yld is not None and yield_sla_s:
         detail["yieldSlaS"] = yield_sla_s
@@ -100,6 +112,8 @@ def evaluate(*, now: datetime,
             # 产出用固定 2× 而非 down_mult:产出 SLA 本就宽松(按天算),
             # 再乘 3 会把「一周没产出」也判成 stale,失去意义。
             y_state = _by_age(y_age, yield_sla_s, 2.0)
+            if yld.degrade:
+                y_state = worse(y_state, yld.degrade)
             if RANK[y_state] > RANK[state]:
                 detail["worstBy"] = "yield"    # 心跳绿但产出坏 = 陷阱①,显式标出
             state = worse(state, y_state)

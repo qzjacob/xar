@@ -64,6 +64,56 @@ def test_dual_signal_covers_the_sources_that_went_silent():
         assert t.data_yield is not None and t.yield_sla_s, f"fetchy.{key} 缺产出探针(双信号失效)"
 
 
+# ── dagster 部分失败检测(2026-07-30 补的漏洞)────────────────────────────────────
+def _dag_probe(monkeypatch, **stats):
+    """打桩 run_stats,拿到 _dagster_runs_hb 的判定。"""
+    from xar.monitoring import dagster_gql
+    base = {"ok": True, "queued": 0, "started": 0, "maxConcurrent": 7,
+            "queueDeadlock": False, "lastSuccessAt": "2026-07-30T08:54:16+00:00",
+            "lastSuccessJob": "pull_shard_job", "windowHours": 26.0,
+            "windowOk": 0, "windowFailed": 0, "windowFailRatio": 0.0}
+    base.update(stats)
+    monkeypatch.setattr(dagster_gql, "run_stats", lambda **k: base)
+    return catalog._dagster_runs_hb()
+
+
+def test_dagster_all_green_is_not_degraded(monkeypatch):
+    p = _dag_probe(monkeypatch, windowOk=9, windowFailed=0, windowFailRatio=0.0)
+    assert p.degrade is None
+
+
+def test_dagster_partial_failure_is_stale(monkeypatch):
+    """1 个失败:其余分片还覆盖了大部分宇宙 → 滞后,不是停摆。"""
+    p = _dag_probe(monkeypatch, windowOk=8, windowFailed=1, windowFailRatio=1 / 9)
+    assert p.degrade == "stale"
+    assert "1 个 run 失败" in p.detail["reason"]
+
+
+def test_dagster_that_actual_2026_07_30_night_is_down(monkeypatch):
+    """真实回归:那夜 9 个 run 死了 4 个,而当时监控显示 ok。"""
+    p = _dag_probe(monkeypatch, windowOk=5, windowFailed=4, windowFailRatio=4 / 9)
+    assert p.degrade == "down", "44% 失败率必须判 down —— 这正是当初漏掉的那次"
+    assert "44%" in p.detail["reason"]
+
+
+def test_dagster_total_failure_is_down(monkeypatch):
+    p = _dag_probe(monkeypatch, windowOk=0, windowFailed=3, windowFailRatio=1.0)
+    assert p.degrade == "down" and "全部失败" in p.detail["reason"]
+
+
+def test_dagster_queue_deadlock_is_down(monkeypatch):
+    p = _dag_probe(monkeypatch, queueDeadlock=True, windowOk=9, windowFailed=0)
+    assert p.degrade == "down" and p.detail["queueDeadlock"] is True
+
+
+def test_dagster_unreachable_is_unknown_not_down(monkeypatch):
+    from xar.monitoring import dagster_gql
+    monkeypatch.setattr(dagster_gql, "run_stats",
+                        lambda **k: {"ok": False, "error": "URLError: nope"})
+    p = catalog._dagster_runs_hb()
+    assert p.ts is None and p.degrade is None, "读不到 ≠ 停摆(第三态 unknown)"
+
+
 def test_probe_failure_degrades_to_unknown_not_exception():
     """坏探针不得带崩整轮巡检。"""
     def boom() -> catalog.Probe:

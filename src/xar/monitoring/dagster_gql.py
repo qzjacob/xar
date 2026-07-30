@@ -29,12 +29,22 @@ _Q_DAEMONS = """
       daemonType healthy lastHeartbeatTime } } } }
 """
 
-# 队列深度 + 最近一次成功 run。分三段查而不是一次全量拉,避免把 199 条 run 全搬过来。
+# 队列深度 + 最近一次成功 run + **最近一个调度窗内的成败计数**。
+# 分段 count 查询而不是一次全量拉,避免把几百条 run 全搬过来。
+# `%(after)f` 由 run_stats 填入窗口起点(epoch 秒);createdAfter 是 RunsFilter 的合法字段
+# (已用 GraphQL introspection 确认)。
 _Q_RUNS = """
-{ q: runsOrError(filter: {statuses: [QUEUED]}, limit: 1) { ... on Runs { count } }
+{ instance { runQueueConfig { maxConcurrentRuns } }
+  q: runsOrError(filter: {statuses: [QUEUED]}, limit: 1) { ... on Runs { count } }
   s: runsOrError(filter: {statuses: [STARTED]}, limit: 1) { ... on Runs { count } }
   ok: runsOrError(filter: {statuses: [SUCCESS]}, limit: 1) {
-        ... on Runs { results { runId jobName endTime } } } }
+        ... on Runs { results { runId jobName endTime } } }
+  winOk: runsOrError(filter: {statuses: [SUCCESS], createdAfter: %(after)f}, limit: 1) {
+        ... on Runs { count } }
+  winFail: runsOrError(filter: {statuses: [FAILURE], createdAfter: %(after)f}, limit: 1) {
+        ... on Runs { count } }
+  winCancel: runsOrError(filter: {statuses: [CANCELED], createdAfter: %(after)f}, limit: 1) {
+        ... on Runs { count } } }
 """
 
 
@@ -76,23 +86,47 @@ def daemon_health() -> dict:
          "lastHeartbeatIso": _epoch_iso(d.get("lastHeartbeatTime"))} for d in rows]}
 
 
-def run_stats(*, max_concurrent: int = 10) -> dict:
-    """队列深度 + 最近成功 run。`queueDeadlock` 是 2026-07-22 那次锁死的金丝雀:
-    in-flight(QUEUED+STARTED 中的 STARTED 部分)吃满并发槽且长期没有新的成功 ——
-    单看「有 run 排队」不算异常,**排队且槽位被占满**才是。"""
+def run_stats(*, max_concurrent: int | None = None, window_hours: float = 26.0) -> dict:
+    """队列深度 + 最近成功 run + 最近一个调度窗内的成败计数。
+
+    `queueDeadlock` 是 2026-07-22 那次锁死的金丝雀:in-flight 吃满并发槽且仍有排队 ——
+    单看「有 run 排队」不算异常,**排队且槽位被占满**才是。
+
+    `winFail/winOk` 是 2026-07-30 补的那个漏洞:那天夜里 9 个 run 死了 4 个,而监控显示
+    `dagster.runs = ok` —— 因为它只看「距上次 SUCCESS 多久」,而确实 1.8h 前有过成功。
+    「有一个成功」不等于「跑好了」。窗口默认 26h,覆盖一个夜间调度周期(cron 每日一次)。
+
+    `max_concurrent` 默认从 **dagster 实例现读**(GraphQL 的 runQueueConfig),不写死:
+    写死过 10,而 2026-07-30 把 max_concurrent_runs 调成了 7 —— 那之后 `started >= 10`
+    永不成立,死锁金丝雀会静默失效。监控自己的阈值跟着被监控方的配置漂移,是这类工具
+    最典型的烂法。
+    """
+    import time as _time
+    after = _time.time() - window_hours * 3600
     try:
-        data = _post(_Q_RUNS)
+        data = _post(_Q_RUNS % {"after": after})
     except (urllib.error.URLError, OSError, RuntimeError, ValueError) as e:
         return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:120]}"}
     queued = int(((data.get("q") or {}).get("count")) or 0)
     started = int(((data.get("s") or {}).get("count")) or 0)
+    live_max = (((data.get("instance") or {}).get("runQueueConfig") or {})
+                .get("maxConcurrentRuns"))
+    cap = int(max_concurrent if max_concurrent is not None
+              else (live_max if live_max else 10))
     results = ((data.get("ok") or {}).get("results")) or []
     last = results[0] if results else {}
+    win_ok = int(((data.get("winOk") or {}).get("count")) or 0)
+    win_fail = int(((data.get("winFail") or {}).get("count")) or 0)
+    win_cancel = int(((data.get("winCancel") or {}).get("count")) or 0)
+    total = win_ok + win_fail
     return {"ok": True, "queued": queued, "started": started,
-            "maxConcurrent": max_concurrent,
-            "queueDeadlock": bool(queued > 0 and started >= max_concurrent),
+            "maxConcurrent": cap, "maxConcurrentSource": "live" if live_max else "fallback",
+            "queueDeadlock": bool(queued > 0 and started >= cap),
             "lastSuccessAt": _epoch_iso(last.get("endTime")),
-            "lastSuccessJob": last.get("jobName")}
+            "lastSuccessJob": last.get("jobName"),
+            "windowHours": window_hours,
+            "windowOk": win_ok, "windowFailed": win_fail, "windowCanceled": win_cancel,
+            "windowFailRatio": round(win_fail / total, 3) if total else 0.0}
 
 
 def terminate_runs(run_ids: list[str]) -> dict:

@@ -105,6 +105,40 @@ def test_worse_ordering():
     assert worse(UNCONFIGURED, DOWN) == DOWN
 
 
+# ── degrade:非新鲜度类的坏消息 ───────────────────────────────────────────────────
+def test_degrade_forces_state_despite_fresh_heartbeat():
+    """2026-07-30 补的漏洞:dagster 那夜 9 个 run 死了 4 个,但 1.8h 前确实有过成功,
+    于是只看「距上次 SUCCESS 多久」就判 ok。「有一个成功」不等于「跑好了」。"""
+    st, d = evaluate(now=NOW, hb=Probe(_ago(60).ts, {"windowFailed": 4}, degrade=DOWN),
+                     hb_sla_s=26 * 3600)
+    assert st == DOWN
+    assert d["worstBy"] == "signal"
+
+
+def test_degrade_keeps_the_real_age_in_detail():
+    """degrade 存在的理由:此前只能靠「把时间戳伪造成一年前」逼出 down,
+    那样 detail 里的 hbAgeS 是假数据 —— 排障时最误导人。"""
+    st, d = evaluate(now=NOW, hb=Probe(_ago(300).ts, degrade=STALE), hb_sla_s=3600)
+    assert st == STALE
+    assert d["hbAgeS"] == 300.0, "degrade 不得篡改真实年龄"
+
+
+def test_degrade_never_improves_a_worse_age_verdict():
+    """取较坏者:心跳已经烂到 down,degrade=stale 不能把它拉回来。"""
+    st, _ = evaluate(now=NOW, hb=Probe(_ago(SLA * 100).ts, degrade=STALE), hb_sla_s=SLA)
+    assert st == DOWN
+
+
+def test_degrade_none_is_a_noop():
+    assert evaluate(now=NOW, hb=Probe(_ago(60).ts, degrade=None), hb_sla_s=SLA)[0] == OK
+
+
+def test_yield_probe_can_also_degrade():
+    st, _ = evaluate(now=NOW, hb=_ago(60), hb_sla_s=SLA,
+                     yld=Probe(_ago(60).ts, degrade=DOWN), yield_sla_s=48 * 3600)
+    assert st == DOWN
+
+
 # ── 跃迁确认(恶化需 2 轮,恢复立即)──────────────────────────────────────────────
 def test_first_observation_is_taken_at_face_value():
     st, changed, prev = confirm(None, DOWN, now=NOW)
