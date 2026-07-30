@@ -37,8 +37,13 @@ def test_overview_shape(seeded_db):
     assert b["monitor"]["telegram"] in ("ok", "no_token", "no_chat", "unknown")
 
 
-def test_fresh_sweep_returns_populated_tasks(seeded_db):
-    """?fresh=1 现探:验证探针链路端到端能跑通(而非只读到空快照)。"""
+def test_fresh_sweep_returns_populated_tasks(isolated_db):
+    """?fresh=1 现探:验证探针链路端到端能跑通(而非只读到空快照)。
+
+    必须用 isolated_db(事务回滚):现探会真写 task_status_history / monitor_states。
+    而在**宿主**上跑测试时 `http://dagster:3000` 是解析不了的(那是 compose 网络名),
+    dagster 两个任务会判 unknown —— 若不回滚,每跑一次测试就往生产时间线里灌一串
+    假的 ok↔unknown 跃迁(实测污染过 04:43-04:53 那一段)。"""
     c = _client()
     b = c.get("/api/ops/monitor?fresh=1").json()
     assert len(b["tasks"]) >= 10, "任务注册表应覆盖常驻 worker + 13 个拉取源"

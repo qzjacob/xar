@@ -22,12 +22,34 @@ run_coordinator:
   module: dagster.core.run_coordinator
   class: QueuedRunCoordinator
   config:
-    # 保持与既往默认值一致(未改变夜间负载画像)。
-    # ⚠️ 待定权衡:夜间 8 个 pull_shard 同时起,实测 2026-07-21 02:00:49 EDT 有 3 个 step
-    #    子进程被 memcg OOM 杀(各 ~730MB anon,容器限额 8G,见 docker-compose.override.yml)。
-    #    若要内存安全,把这里降到 5 左右;代价是 8 个分片分两波跑,墙钟翻倍(实测单片约 5h,
-    #    其中约 45min 纯耗在已下线的 FMP 端点上——先摘掉 FMP 能显著缩短)。
-    max_concurrent_runs: 10
+    # ── 分 job 限额(2026-07-30 内存实测后定,替代原来的单一全局闸 10)────────────────
+    # 2026-07-30 夜间 9 个 run 死了 4 个,全部 memcg OOM。单一全局系数是错的抽象:
+    # 真正的约束是 **extract_all 与 pull 天然重叠** —— extract 06:30 触发,而 pull 跑到 08:50。
+    #
+    # 实测账(容器硬限 8G;固定开销约 580MB;12% 留给 page cache,cgroup v2 的
+    # memory.current 计入 file cache → 可用约 6629MB):
+    #   pull_shard  (in_process) ≈ 730MB/run
+    #   extract_all (in_process) ≈ 1759MB —— 内含 fastembed 模型 618MB(仅 parse 阶段加载)
+    #   6×730 + 1759 + 580 = 6719  → 余 1473MB(18% 余量)✓
+    #   8×730 + 1759 + 580 = 8179  → 只余 13MB ✗（这就是昨夜的死法）
+    # 若哪天把 executor 改回 multiprocess,每 run 涨到约 951MB,pull 上限须同步降到 5。
+    #
+    # 墙钟:8 片分 2 波,估 5–6h,06:00 UTC 起约 07:00–08:00 EDT 收工,仍在开盘前。
+    # 想缩短优先摘掉 FMP(端点已 403 永久下线,每片纯空转约 45min),比调系数划算。
+    #
+    # ⚠️ 不要靠提高容器内存限额来解决:docker.slice 的软闸 24G 昨夜已被打满,而各容器
+    #    限额之和已 22.5G。提到 12G 会把聚合推向 28G 硬闸,冲顶时受害的是整个栈
+    #    (db 峰值已 100%、werss 已 100%)—— 本机是 7×24 交易机,不可接受。
+    max_concurrent_runs: 7            # 总闸 = 6 pull + 1 extract
+    tag_concurrency_limits:
+      # key 用 dagster/schedule_name:实测 run 上确实带此 tag(runs.db 的 run_tags 已验证);
+      # 没有 dagster/job_name 这个 tag,别改成那个。
+      - key: "dagster/schedule_name"
+        value: "pull_schedule"
+        limit: 6
+      - key: "dagster/schedule_name"
+        value: "extract_schedule"
+        limit: 1
 
 run_monitoring:
   enabled: true

@@ -112,6 +112,10 @@ services:
   dagster:
     build: .
     restart: unless-stopped
+    # `dagster dev` 以 PID 1 运行,不回收孤儿进程:2026-07-30 实测容器内积了 16 个僵尸
+    # (8 对 tail+python3.12,前一夜那批 run 的残留)。僵尸 RSS 为 0、不占内存,但会一直
+    # 占着 PID 表项。init: true 给容器一个 tini 做 reaper,一行解决。
+    init: true
     env_file: .env
     environment:
       XAR_DATABASE_URL: postgresql://xar:xar@db:5432/xar

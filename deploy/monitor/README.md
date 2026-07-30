@@ -87,7 +87,40 @@ crontab -e
 产出探针写在 `catalog.YIELD_PROBES`(源 → 数据表 max 时间戳 + 产出 SLA)。
 产出 SLA 必须比心跳 SLA 宽松(源本来就可能一整天没新内容),单测有断言守着。
 
-## 六、排障
+## 六、Dagster 内存预算(2026-07-30 实测,改并发/限额前必读)
+
+夜间 9 个 run 死了 4 个,全部 memcg OOM。**结论:不要提高容器内存限额,要降低并发需求。**
+
+实测账(`dagster` 容器硬限 8G):
+
+| 项 | 值 | 说明 |
+|---|---|---|
+| 固定开销 | ~580 MB | `dagster dev` = webserver + daemon + code server |
+| worker import 基线 | **214 MB** | 每个 run 进程都要付 |
+| fastembed 模型 | **+618 MB** | 只有 `parse_pending()` 加载 ⇒ 只有 `extract_all` 付 |
+| pull_shard / run | ~730 MB | in_process;multiprocess 下约 951 MB |
+| extract_all / run | ~1759 MB | 214 + 618 + parse 工作集,与内核 OOM 记录精确吻合 |
+| 可用额度 | ~6629 MB | `8192 × 0.88 − 580`,12% 留给 page cache(cgroup v2 计入 file cache) |
+
+`6×730 + 1759 + 580 = 6719` → 余 1473 MB(18%)✓ 而 `8×730 + …= 8179` 只余 13 MB ✗
+
+**为什么不能提限额**:`docker.slice` 软闸 24G 昨夜已被打满,各容器限额之和已 22.5G。
+提到 12G 会把聚合推向 28G 硬闸,冲顶时受害的是整个栈(db 峰值已 100%、werss 已 100%)。
+本机 7×24 交易机 —— 不可接受。
+
+**为什么用 in_process**:三个 job 各自只有一个 asset = 一个 op = 一个 step,multiprocess
+买不到并行度,只买到「多一个进程 + 多一份 214MB import」;而 dagster 的 `start_method`
+默认是 **spawn**(可选值只有 spawn/forkserver,**没有 fork**),子进程是全新解释器、
+零 copy-on-write,那 214MB 是实打实再付一遍。
+
+⚠️ **in_process 的代价**:multiprocess 恰恰是被 OOM 的 shard 能被记成 FAILURE 的原因
+(内核杀 step 子进程,父进程活着写终态)。in_process 下 OOM 会连带杀掉唯一进程 →
+run 卡 `STARTED`,即当初 7 天死锁的形态。现依赖 `run_monitoring.max_runtime_seconds`
+兜底回收(8h)—— **那份配置不可删**。若改回 multiprocess,pull 上限须同步 6 → 5。
+
+想缩短墙钟优先摘掉 FMP(端点 403 永久下线,每片纯空转约 45min),比调系数划算。
+
+## 七、排障
 
 ```bash
 # 巡检活着吗
