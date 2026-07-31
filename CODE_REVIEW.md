@@ -1454,3 +1454,88 @@ if template_ver is None and template:
   还会与生产抢额度。要让它可用,得把外网调用桩掉或标记 `@pytest.mark.network` 默认跳过 ——
   这是独立的一项工作,不在本次审核处置范围内,但应尽早做:
   一个跑不完的门禁等于没有门禁。
+
+---
+
+## 附录 P:Dagster 实例存储 SQLite → Postgres 迁移(2026-07-31)
+
+### 为什么迁
+
+07-31 那一夜 8 个分片 **0 个成功**。上一轮内存治理其实是**成立的** —— dagster 自己的
+cgroup 当晚**零 memcg OOM**(按 `oom_memcg=` 精确归因;那 5 次全是 glmworker 的已知
+5G 自愈循环)。真因是 **SQLite 的单写锁**:7 个 in_process run 持续写事件日志 +
+7 个守护线程写心跳,全撞在一个 writer 上:
+
+```
+03:03  AssetDaemon ERROR - Failed to add heartbeat:
+       sqlite3.OperationalError: database is locked
+       [SQL: INSERT INTO daemon_heartbeats ...]
+04:32  7 个守护线程全部 >1800s 无心跳
+04:33  dagster dev 退出 → 容器重启 → 7 个在飞 run worker 全灭 → run 永久 STARTED 占满槽
+```
+
+⚠️ **这是内存治理成功之后才暴露的下一个瓶颈**:此前 run 被 OOM 打死得早(07-30 那晚
+4/9 个 run 被杀),并发写压力根本持续不起来;等 7 个 run 全活着连写几小时,单写锁才成为
+新的约束。**修好 A 才看得见 B —— 不要读成「上一轮治理白做了」。**
+
+### 落地
+
+- 独立库 `dagster`(同 `main-db-1` 实例)。不塞进 `xar` 库:dagster 自建 22 张表
+  (runs/event_logs/daemon_heartbeats/…),与业务表混 schema 既难备份也难辨认;
+  独立 db 隔离干净,又不必多起一个 Postgres 容器(db 限额 3G,常驻仅约 370MB)。
+- **版本必须对齐**:dagster 库版 = `0.(minor+16).patch`,故 dagster 1.13.15 ↔
+  dagster-postgres 0.29.15。上线前用 `pip install --dry-run` 确认过它**反过来钉住**
+  `dagster==1.13.15`、只新增 `dagster-postgres` + `psycopg2-binary`,不会连带升级 dagster。
+- ⚠️ **依赖在两处各写一遍是有意的**,不是冗余:dagster 服务**没挂源码**,
+  `pip install '.[orchestration]'` 装的是**镜像里 baked 的那份 pyproject**。
+  只改仓库 pyproject 对运行中的容器零作用 —— 实证:改完重启即
+  `ModuleNotFoundError: dagster_postgres`,`restart: unless-stopped` 无限重启,
+  **实测崩了 30 次**才被我发现。修法是在 compose 的 `command` 里显式点名,
+  启动期 pip 直接从 PyPI 取,无需 rebuild 即可自愈;下次 rebuild 后 pyproject 那份也生效。
+- **历史不搬**(官方无 sqlite→postgres 迁移路径)。旧 `runs.db` 备份为
+  `runs.db.pre-pg-2026-07-31`(217 行)留在卷里。切换后 run 历史从零开始,
+  监控 `dagster.runs` 在下一个成功 run 之前判 **`unknown`**(实测),**属预期非回归**。
+  这里值得记一笔:我原本预计它会判 `down`,实际是 `unknown` —— 检测器把「窗内没有
+  任何终态 run」正确识别成**信号缺失**而不是**停摆**,正是「信号缺失是 unknown 而非停摆」
+  那条纪律在起作用。若它判了 down,反而说明检测器把「没数据」和「出事了」混为一谈。副作用:迁移前那 7 个僵尸 run 一并出了视野。
+- **回滚已验证**:注释掉 `storage:` 段 + restart 即退回旧 sqlite(217 行完好)。
+
+### 迁移后必须复核的两件事(差点漏掉)
+
+1. **调度会不会还在跑。** 调度的 on/off 存在 **schedule_storage** 里,换存储 = 这份状态
+   归零。若 UI 上手动开过而代码里没声明,迁完就是**静默不再触发** —— 夜跑直接消失且无人报错。
+   实查:两个 schedule 在新库里都在,状态 `DECLARED_IN_CODE`,而代码里
+   `default_status=DefaultScheduleStatus.RUNNING` ⇒ 仍是 RUNNING,SchedulerDaemon 已装载。
+2. **夜检脚本的数据源。** `verify_nightly.sh` 原本直读 `/dagster/history/runs.db`。
+   那个文件**还在、还有 217 行**,继续读它**不会报错**,只会永远回放迁移前的旧世界。
+   **「不报错的错数据」比读不到更难发现** —— 已改为查 Postgres 的 `dagster` 库。
+
+### 验证
+
+| 项 | 结果 |
+|---|---|
+| 存储类(看实例真身而非配置) | `PostgresRunStorage` / `PostgresEventLogStorage` / `PostgresScheduleStorage` |
+| 守护健康 | 7/7 healthy |
+| `database is locked` | 切换后 **0 次** |
+| 守护心跳 | 7 个全部持续推进(SQLite 时代正是这里饿死) |
+| 端到端 | 真实 `core_daily_job` run,事件落 Postgres `event_logs` |
+| 调度 | 2 个 schedule 均 RUNNING,今夜 02:00 会照常触发 |
+| 前端 | `tsc --noEmit` + `vite build` 通过;SPA 200(资源哈希与本次构建产物一致),监控 4 个端点均 200 |
+| 后端全量测试 | **1148 passed / 0 failed**(11m56s) |
+
+⚠️ **前端没有测试框架**:`web/package.json` 只有 `dev` / `build` / `preview`,
+无 vitest/jest/playwright。所以「前端测试」实际能做到的上限就是
+`build` 里的 `tsc --noEmit` 类型检查 + 生产构建 + 接口连通性核验 —— 如实说明,
+不把它包装成「前端测试通过」。
+
+**首轮全量跑出 5 个 failed,全在 `tests/test_quarterly_feedback.py`,与本次迁移无关**,
+是又一例「测试读生产数据」:文件用 `_CID = "nvidia"` 做夹具,而 `company_thesis` 的唯一约束是
+**(company_id, version)**、不含 `event_date` —— 生产库里 nvidia 的 version=1 建于 2026-07-03,
+测试插同一把键必然 `UniqueViolation`。更深一层:即使换 version 躲开约束,
+`recent_print_companies` / `sweep` 读的仍是**真实论点行**,断言等于在考生产数据的状态。
+已改用库里不存在的哨兵公司 `zz_qf_test` + 事务内补 `companies` 行(有 FK),`isolated_db` 回滚不留痕。
+这是本次会话修掉的**第三例**同类问题(前两例见附录 O)。
+
+**未做压力测试并非疏忽**:`docker.slice` 距 28G 硬闸只剩约 4G,而 subpool 无 `mem_limit`
+且已占 13.4G。再拉起 7 个并发 run(约 +5.5G)会把聚合推过硬闸,**代价是 OOM 掉生产容器**。
+7 并发的真实证据留给今夜 02:00 的自然夜跑 —— 那本来就是最有代表性的一次。

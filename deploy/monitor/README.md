@@ -238,6 +238,39 @@ dagster 零 OOM」,脚本却报「5 次 memcg OOM、内存治理未达标」。�
 要么走临时文件。与 2026-07-30 那次 `docker exec` 漏 `-i`(heredoc 静默变空脚本)
 是同一类错误:**stdin 只有一个,别让脚本和数据抢。**
 
+### 6.5.1 存储迁 Postgres 之后,夜检脚本必须跟着改(2026-07-31)
+
+**数据源换了**:第 1 节不再读 `/dagster/history/runs.db`,改查 Postgres 的 `dagster` 库。
+⚠️ 那个 sqlite 文件**还在卷里、还有 217 行**(含迁移前那批僵尸),继续读它**不会报错**,
+只会永远回放迁移前的旧世界 —— **「不报错的错数据」比读不到更难发现**。
+备份 `runs.db.pre-pg-2026-07-31` 仅供取证,任何判定都不许再碰。
+查询走 `db` 容器的 psql 而非在 dagster 容器里连库:少一层依赖,且 dagster 挂掉时
+这一节仍能出结论 —— 恰恰是最需要它的时候。
+另注意 `create_timestamp` 是 `timestamp WITHOUT time zone` 存的 UTC,
+必须拿 `now() at time zone 'utc'` 比;直接 `now()` 会按本机 EDT 比,窗口整体偏 4 小时。
+
+**僵尸判据从「数 worker 进程」改成「逐 run 点名」。** 第一版按命令行特征
+`api execute_run` 数,结果恒为 0 —— `DefaultRunLauncher` 的 run worker 根本不长那样,
+它是 daemon 用 multiprocessing spawn 出来的子进程:
+`python3.12 -c from multiprocessing.spawn import spawn_main; spawn_main(...)`,
+命令行里没有任何 dagster 字样。于是**活着的 run 也被判成僵尸** ——
+这比原先的漏报更糟:**误报会让人去查一件根本没发生的事**。
+现在把在飞 run 的 id 传进容器,看 id 是否出现在任何进程的命令行里
+(dagster 为每个 run 起 `tail -F /dagster/storage/<run_id>/compute_logs/…` 与
+`watch_orphans.py`,cmdline 带 run_id)。点名法与启动器实现解耦,换 launcher 也不失效。
+
+**「窗内启动」要分两种。** `RestartCount>0` = docker 自动拉起(崩溃/被杀),是事故;
+`RestartCount=0` = 人为 recreate(部署/改配置),不是事故。两者对 `memory.peak` 的影响
+相同(都归零 ⇒ 不可验证),但对「要不要去查根因」的指示完全相反 ——
+混为一谈会让一次正常部署看起来像一次崩溃。
+
+**stdin 只有一个,别让脚本和数据抢**(这条踩了三次,定型写法记牢):
+- `cmd | python3 - <<'PY'` ✗ —— heredoc 本身就是 stdin,盖掉管道,`sys.stdin` 读到脚本自己。
+- `python3 -c "$(cat <<'PY' … PY)"` 嵌在外层 `$( )` 里 ✗ —— 外层命令替换在 heredoc 内部的
+  括号处提前收口,变量直接变空、下游全线 JSONDecodeError。
+- ✓ **脚本走 heredoc(占 stdin)、数据走 argv**,两者各行其道。
+  (同源错误:`docker exec` 漏 `-i` 时 heredoc 静默变空脚本。)
+
 ## 七、排障
 
 ```bash

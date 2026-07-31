@@ -18,8 +18,26 @@ import pytest
 from xar.research import quarterly_feedback as qf
 from xar.storage import db
 
-_CID = "nvidia"
+# ⚠️ 公司也必须是哨兵,不能借用真实公司(2026-07-31 修)。
+# 原来是 `_CID = "nvidia"` + 远期 `_ED` 哨兵,以为靠日期就能避开真实数据 —— 避不开:
+# `company_thesis` 的唯一约束是 **(company_id, version)**,**不含 event_date/as_of**。
+# 生产库里 nvidia 早有 version=1(建于 2026-07-03),于是测试插同一把键必然
+# `UniqueViolation: Key (company_id, version)=(nvidia, 1) already exists`。
+# 更深一层:即使换个 version 躲开约束,`recent_print_companies` / `sweep` 读的仍是
+# **该公司的真实论点行**,断言等于在考生产数据的状态,而不是被测逻辑 —— 借真实公司做
+# 夹具,从一开始就不成立。改用库里不存在的哨兵公司,并在事务内补一条 companies 行
+# (company_thesis/phanny_verdicts/event_calendar 都有 FK 指向 companies);
+# isolated_db 整体回滚,不留痕。
+_CID = "zz_qf_test"
 _ED = dt.date(2099, 4, 15)          # 远期哨兵,避开真实数据(与既有测试同惯例)
+
+
+@pytest.fixture(autouse=True)
+def _sentinel_company(isolated_db):
+    """在事务内建出哨兵公司。autouse + 依赖 isolated_db,保证任何 DB 测试跑之前它就位。"""
+    db.execute("INSERT INTO companies(id, name) VALUES(%s, %s) ON CONFLICT (id) DO NOTHING",
+               (_CID, "ZZ Quarterly-Feedback Test Co"))
+    yield
 
 
 def _events(cid=_CID):

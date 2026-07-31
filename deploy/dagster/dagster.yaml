@@ -18,6 +18,43 @@
 # 本文件放在仓库里而非直接写进 dagster_home 卷:卷里的手改会在重建/换机时丢失,且不受
 # 版本控制(同 CLAUDE.md 对 docker update 限额被 compose 冲回的告诫)。
 
+# ── 实例存储:Postgres(2026-07-31 从默认 SQLite 迁来)────────────────────────────
+# 为什么必须迁:2026-07-31 那一夜 8 个分片 0 个成功,真因不是内存 —— dagster 自己的
+# cgroup 当晚**零 memcg OOM**(内存治理是成立的)。真因是 SQLite 的**单写锁**:
+# 7 个 in_process run 持续写事件日志 + 7 个守护线程写心跳,全撞在一个 writer 上。
+# 03:03 起 AssetDaemon 反复报
+#     sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) database is locked
+#     [SQL: INSERT INTO daemon_heartbeats ...]
+# 04:32 升级为「7 个守护线程全部 >1800s 无心跳」,04:33 `dagster dev` 退出、容器重启,
+# 把全部 7 个在飞 run worker 一起打死 → run 永久停在 STARTED、占满并发槽。
+#
+# ⚠️ 注意这是**内存治理成功之后才暴露出来的**瓶颈:此前 run 被 OOM 打死得早
+# (07-30 那晚 4/9 个 run 被杀),并发写压力根本持续不起来;等 7 个 run 全活着连写几小时,
+# 单写锁才成为新的约束。修好 A 才看得见 B —— 别把这条读成「上一轮治理白做了」。
+#
+# 为什么是同实例的独立库而不是塞进 xar 库:dagster 自己建表(runs/event_logs/
+# daemon_heartbeats/…),与 XAR 业务表混在一个 schema 里既难备份也难辨认;
+# 独立 db 隔离干净,又不必多起一个 Postgres 容器(db 容器限额 3G,实测常驻仅约 370MB)。
+# hostname 用 compose 服务名 db —— 走 compose 网络,不经宿主端口映射。
+#
+# ⚠️ 迁移不搬历史:dagster 官方没有 sqlite→postgres 的迁移路径。旧的
+# /dagster/history/runs.db 保留在卷里(不删,留作取证),但新实例看不到它 ——
+# 换言之切换后 run 历史从零开始,监控面板的 dagster.runs 在下一个成功 run 之前
+# 判 `unknown`(实测;不是 down —— 窗内无终态 run 属**信号缺失**,不是停摆)。预期行为,非回归。
+# 回滚(已验证可行):把下面整个 storage: 段注释掉 → `docker compose restart dagster`。
+# dagster 会退回默认的 /dagster/history/runs.db(仍在卷里、217 行完好),
+# 备份 runs.db.pre-pg-2026-07-31 同为 217 行。回滚代价 = 丢掉切换之后在 Postgres 里
+# 攒下的那段历史(反之亦然),两边都不会互相污染。
+# ⚠️ 回滚前先确认没有 run 在飞 —— 换存储等于换世界,在飞的 run 会在旧存储里查无此人。
+storage:
+  postgres:
+    postgres_db:
+      username: xar
+      password: xar
+      hostname: db
+      db_name: dagster
+      port: 5432
+
 run_coordinator:
   module: dagster.core.run_coordinator
   class: QueuedRunCoordinator

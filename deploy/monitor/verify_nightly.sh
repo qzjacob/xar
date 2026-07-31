@@ -2,7 +2,8 @@
 # 夜间 dagster 调度 + 内存治理效果核验(2026-07-30 起)。
 #
 # 为什么是本地脚本而不是云端定时 agent:要看的东西全在这台机器上 —— docker、
-# dagster 容器里的 runs.db、cgroup 的 memory.peak、内核 OOM 日志、localhost:8000。
+# dagster 的 run 存储(2026-07-31 起在 Postgres 的 dagster 库,此前是容器内 sqlite)、
+# cgroup 的 memory.peak、内核 OOM 日志、localhost:8000。
 # 云端 agent 能 clone 仓库,但摸不到这些。
 #
 # 用法:
@@ -27,20 +28,42 @@ note "===== XAR 夜间调度核验  $(date -Is) (窗口 ${WINDOW_H}h) ====="
 # ── 1. 本窗口的 run 结果 ────────────────────────────────────────────────────────
 note ""
 note "[1] dagster run 结果"
-# 注意 -i:没有它 docker exec 不接 stdin,`python3 -` 会读到空脚本、静默什么都不干。
-RUNS=$(docker exec -i main-dagster-1 python3 - "$WINDOW_H" <<'PY' 2>/dev/null
-import sqlite3, sys, json, time
-w = sys.argv[1]
+# ⚠️ 数据源是 **Postgres 的 dagster 库**,不再是 /dagster/history/runs.db(2026-07-31 迁移)。
+# 那个 sqlite 文件**还在卷里、还有 217 行**(含迁移前那批僵尸),继续读它不会报错,
+# 只会永远回放迁移前的旧世界 —— 「不报错的错数据」比读不到更难发现。
+# 备份 runs.db.pre-pg-2026-07-31 仅供取证,任何判定都不许再碰它。
+# 走 db 容器的 psql 而不是在 dagster 容器里连库:少一层依赖(不要求 dagster 容器装 psycopg2),
+# 且 dagster 挂掉时这一节仍能给出结论 —— 恰恰是最需要它的时候。
+# create_timestamp 是 timestamp WITHOUT time zone、存的是 UTC,所以必须拿
+# `now() at time zone 'utc'` 比,直接用 now() 会按本机 EDT 比,窗口整体偏 4 小时。
+RUNS_RAW=$(docker exec main-db-1 psql -U xar -d dagster -tA -F'|' -c \
+  "SELECT run_id, pipeline_name, status, coalesce(partition,''), coalesce(start_time::text,''),
+          coalesce(end_time::text,'')
+     FROM runs
+    WHERE create_timestamp > (now() at time zone 'utc') - interval '${WINDOW_H} hours'" \
+  2>/dev/null)
+# ⚠️ 数据经 **argv** 传给 python,不走管道(2026-07-31 两次踩坑后的定型写法):
+#   · `… | python3 - <<'PY'` 不行 —— heredoc 本身就是 stdin,会盖掉管道(README §6.5);
+#   · `python3 -c "$(cat <<'PY' … PY)"` 嵌在外层 `$( )` 里也不行 —— 外层命令替换会在
+#     heredoc 内部的括号处提前收口,实测 $RUNS 直接变空、下游全线 JSONDecodeError。
+# 把脚本放 heredoc(占 stdin)、把数据放 argv,两者各走各的,不会互相抢。
+RUNS=$(python3 - "$RUNS_RAW" <<'PY'
+import sys, json, time
 now = time.time()
-c = sqlite3.connect('file:/dagster/history/runs.db?mode=ro', uri=True)
-q = ("SELECT pipeline_name, status, partition, start_time, end_time FROM runs "
-     f"WHERE create_timestamp > datetime('now','-{w} hours')")
-rows = list(c.execute(q))
+rows = []
+for line in (sys.argv[1] or "").splitlines():
+    if not line.strip():
+        continue
+    f = line.split("|")
+    if len(f) < 6:
+        continue
+    rid, job, st, part, s, e = f[0], f[1], f[2], f[3] or None, f[4], f[5]
+    rows.append((rid, job, st, part, float(s) if s else None, float(e) if e else None))
 out = {"total": len(rows), "by_status": {}, "shards_started": 0, "shards_ok": 0,
        "extract": [], "never_started": 0, "max_overlap": 0, "in_flight": 0,
-       "oldest_in_flight_h": 0.0}
+       "oldest_in_flight_h": 0.0, "in_flight_ids": []}
 iv = []
-for job, st, part, s, e in rows:
+for rid, job, st, part, s, e in rows:
     out["by_status"][st] = out["by_status"].get(st, 0) + 1
     if s is None:
         out["never_started"] += 1
@@ -51,6 +74,7 @@ for job, st, part, s, e in rows:
         iv.append((s, e if e is not None else now))
     if st in ("STARTED", "STARTING"):
         out["in_flight"] += 1
+        out["in_flight_ids"].append(rid)
         if s is not None:
             out["oldest_in_flight_h"] = max(out["oldest_in_flight_h"], (now - s) / 3600)
     if job == "pull_shard_job":
@@ -70,7 +94,7 @@ print(json.dumps(out))
 PY
 )
 if [ -z "$RUNS" ]; then
-  bad "读不到 runs.db(dagster 容器在吗?)"
+  bad "读不到 dagster 的 Postgres run 存储(db 容器在吗?dagster 库存在吗?)"
 else
   python3 - "$RUNS" <<'PY'
 import json, sys
@@ -103,25 +127,34 @@ PY
   # 「跑失败了」和「跑的人被杀了」。
   INFL=$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['in_flight'])" "$RUNS")
   OLDH=$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['oldest_in_flight_h'])" "$RUNS")
-  if [ "${INFL:-0}" -gt 0 ]; then
-    WORKERS=$(docker exec main-dagster-1 python3 -c "
-import glob, os
+  IDS=$(python3 -c "import json,sys; print(' '.join(json.loads(sys.argv[1])['in_flight_ids']))" "$RUNS")
+  if [ "${INFL:-0}" -gt 0 ] && [ -n "$IDS" ]; then
+    # ⚠️ 判据是**逐 run 点名**,不是「数一数有几个 worker 进程」(2026-07-31 修正)。
+    # 第一版按命令行特征 `api execute_run` 数,结果恒为 0 —— 因为 DefaultRunLauncher
+    # 的 run worker 根本不长那样:它是 daemon 用 multiprocessing spawn 出来的子进程
+    #   python3.12 -c from multiprocessing.spawn import spawn_main; spawn_main(...)
+    # 命令行里没有任何 dagster 字样。于是**活着的 run 也会被判成僵尸**,
+    # 比原来那个漏报更糟(误报会让人去查根本没发生的事)。
+    # 现在改为:把在飞 run 的 id 传进容器,看它的 id 是否出现在**任何**进程的命令行里
+    # (dagster 会为每个 run 起 compute-log 的 tail -F /dagster/storage/<run_id>/… 和
+    # watch_orphans.py,cmdline 里带 run_id)。点名法与启动器实现解耦,换 launcher 也不失效。
+    ALIVE=$(docker exec main-dagster-1 python3 -c "
+import glob, os, sys
 me = os.getpid()
-n = 0
+ids = [x for x in sys.argv[1:] if x]
+cmds = []
 for d in glob.glob('/proc/[0-9]*'):
     pid = int(os.path.basename(d))
-    # ⚠️ 必须排除本进程:这段探针自己的命令行里就含有下面要找的那个字符串,
-    # 不排除就永远至少数出 1 个,'零 run worker' 的判据直接失效(实测过)。
-    if pid == me: continue
-    try:
-        cmd = open(d + '/cmdline').read().replace('\0', ' ')
-    except Exception: continue
-    # run worker 的命令行特征;webserver/daemon/code-server/grpc 都不算
-    if 'dagster' in cmd and 'api execute_run' in cmd: n += 1
-print(n)" 2>/dev/null)
-    note "  在飞 run ${INFL} 个(最老 ${OLDH}h),容器内 run worker 进程 ${WORKERS:-?} 个"
-    if [ -n "$WORKERS" ] && [ "$WORKERS" -eq 0 ]; then
-      bad "${INFL} 个 run 状态为 STARTED 但容器内零 run worker —— **僵尸 run**(容器中途重启/被杀),不是跑失败"
+    if pid == me: continue          # 排除本进程:它的 argv 里就带着这些 run_id
+    try: cmds.append(open(d + '/cmdline').read().replace('\0', ' '))
+    except Exception: pass
+blob = '\n'.join(cmds)
+print(sum(1 for r in ids if r in blob))" $IDS 2>/dev/null)
+    note "  在飞 run ${INFL} 个(最老 ${OLDH}h),其中有活进程的 ${ALIVE:-?} 个"
+    if [ -n "$ALIVE" ] && [ "$ALIVE" -lt "$INFL" ]; then
+      bad "$((INFL - ALIVE))/${INFL} 个 run 状态为 STARTED 但容器内找不到对应进程 —— **僵尸 run**(容器中途重启/被杀),不是跑失败"
+    elif [ "${ALIVE:-0}" -eq "$INFL" ]; then
+      good "在飞的 ${INFL} 个 run 都有活进程(不是僵尸)"
     fi
   fi
 fi
@@ -163,7 +196,15 @@ PY
   note "  dagster memory.peak = ${DPEAK} GiB / 限额 ${DLIM} GiB"
   note "  容器启于 ${DSTART}(本地时区)  重启次数 ${DRC}"
   if [ "$DRESTARTED" = "yes" ]; then
-    bad "容器在核验窗内启动过(重启次数 ${DRC})—— memory.peak 已随之归零,**本窗口峰值不可验证**;且重启会打死全部在飞 run worker"
+    # 区分两种「窗内启动」:RestartCount>0 = docker 自动拉起(崩溃/被杀),是事故;
+    # RestartCount=0 = 人为 recreate(部署/改配置),不是事故。两者对 peak 的影响相同
+    # (都归零 ⇒ 不可验证),但对「是否要去查根因」的指示完全相反 —— 混为一谈会让
+    # 一次正常部署看起来像一次崩溃。
+    if [ "${DRC:-0}" -gt 0 ]; then
+      bad "容器在核验窗内被自动拉起过(RestartCount=${DRC},即崩溃/被杀)—— memory.peak 已归零,**本窗口峰值不可验证**;且这会打死全部在飞 run worker,需查根因"
+    else
+      bad "容器在核验窗内重建过(RestartCount=0,属人为部署而非崩溃)—— memory.peak 已归零,**本窗口峰值不可验证**"
+    fi
     note "      → 这一夜的内存结论只能靠第 3 节的 OOM 归因来判,不能看 peak"
   else
     # 目标 6.7G(6 pull×0.73 + extract 1.76 + 固定 0.58);留到 7.4 作为告警线

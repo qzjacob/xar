@@ -134,7 +134,15 @@ services:
         condition: service_healthy
       app:
         condition: service_started
-    command: bash -lc "pip install '.[orchestration]' && dagster dev -m xar.orchestration.definitions -h 0.0.0.0 -p 3000"
+    # ⚠️ `dagster-postgres` 在这里**再写一遍**是有意的,不是冗余(2026-07-31 实证)。
+    # 它已经在 pyproject 的 orchestration extra 里,但这行 `pip install '.[orchestration]'`
+    # 装的是**镜像里 baked 的那份源码**(dagster 服务没挂 ./src 或 ./pyproject.toml),
+    # 所以改 pyproject 对运行中的容器毫无作用 —— 必须 rebuild 才生效。
+    # 而 dagster.yaml 的 storage 段一旦指向 postgres,缺这个模块就是
+    # `ModuleNotFoundError: dagster_postgres` → 容器起不来 → restart: unless-stopped
+    # 无限重启(实测崩了 30 次)。在命令行里显式点名,等于让启动期 pip 直接从 PyPI 取,
+    # 无需 rebuild 即可自愈;下次 rebuild 后 pyproject 那份也会生效,两者版本必须一致。
+    command: bash -lc "pip install '.[orchestration]' dagster-postgres==0.29.15 && dagster dev -m xar.orchestration.definitions -h 0.0.0.0 -p 3000"
     volumes:
       - xar_data:/data
       - xar_models:/root/.cache
