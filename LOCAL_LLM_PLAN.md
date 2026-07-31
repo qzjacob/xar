@@ -49,6 +49,12 @@
 > 也就是说 glmworker 再次进入 OOM 自愈循环时,面板只会显示它「活着」(心跳照常刷新),
 > 不会报警。要覆盖需另加一类资源探针。
 >
+> **2026-07-31 补充:排查前先排除 IO 干扰。** 那一夜 dagster 夜跑把 `nvme0n1` 打到
+> %util 174 / 831MB/s 读,Postgres 被拖成 `unhealthy`,连带 qwendrain 的 `_claim()` 卡住、
+> GPU 空转 30 分钟。**在这种时段采样 glmworker 的 RSS 曲线会把 IO 阻塞误读成内存增长**
+> (进程卡在等 IO、对象不释放、RSS 看着只涨不跌)。采样窗口应避开 02:00–09:00 UTC 的夜跑,
+> 或先确认 `iostat` 的 %util < 30。
+>
 > ⚠️ 复现性缺口:本节引用的 `mem_limit: 5g`(以及 dagster 的 8G)只存在于
 > **未被版本控制**的 `docker-compose.override.yml`(.gitignore,且由
 > `fix-minis-oom-freeze.sh` 生成会被重写)。换机/重装后这些限额会静默消失,
