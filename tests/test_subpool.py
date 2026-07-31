@@ -123,3 +123,51 @@ def test_mark_holds_lock_under_hammering(mem):
         t.join()
     st = subpool.status()
     assert all(st.get(p, {}).get("status") == "exhausted" for p in provs), st
+
+
+# ── 毒项 vs provider 故障的归因(2026-07-31 审核 P2-3 回归)────────────────────────
+def test_poison_item_does_not_cool_a_healthy_provider(mem):
+    """单个「与 provider 健康无关」的毒项,不得冷掉任何一家订阅。
+
+    此前 item 级失败与 provider 级失败共用同一个 fails 计数器:毒项被 requeue 后
+    若连续三次落回同一个 worker,就会冷掉一家完全健康的 provider —— 白丢一份 5h 额度窗。
+    现在只有**该项的首次失败**记到 provider 头上,再次失败即判毒项跳过。
+    """
+    def fn(x):
+        if x == "poison":
+            raise ValueError("thesis.build DB error —— 与 provider 无关")
+        return f"ok:{x}"
+
+    items = ["poison"] + [f"good{i}" for i in range(8)]
+    out = subpool.run_parallel(items, fn)
+
+    st = subpool.status()
+    cooled = [p for p in ("zhipu", "minimax", "moonshot")
+              if st.get(p, {}).get("status") == "exhausted"]
+    assert not cooled, f"毒项冷掉了健康 provider: {cooled}"
+
+    got = {it: res for it, res in out}
+    assert got["poison"] is None, "毒项应放弃,result 为 None 交调用方下轮重试"
+    assert all(got[f"good{i}"] == f"ok:good{i}" for i in range(8)), "健康项必须全部完成"
+
+
+def test_poison_item_is_dropped_not_requeued_forever(mem):
+    """毒项不得被无限 requeue —— 那会把所有 provider 逐一冷却直到全灭。"""
+    calls = {"n": 0}
+
+    def fn(x):
+        calls["n"] += 1
+        raise ValueError("always fails")
+
+    subpool.run_parallel(["only_poison"], fn)
+    # 首次失败(计 provider 账 + requeue)+ 第二次失败(判毒项丢弃)= 至多 2 次
+    assert calls["n"] <= 2, f"毒项被重试了 {calls['n']} 次,说明仍在无限 requeue"
+
+
+def test_genuinely_broken_provider_still_cools(mem):
+    """归因改动不得削弱原有能力:provider 真坏时(在**不同项**上连续失败)照旧冷却。"""
+    subpool.run_parallel([f"item{i}" for i in range(12)],
+                         lambda _x: (_ for _ in ()).throw(ValueError("auth invalid")))
+    st = subpool.status()
+    assert any(st.get(p, {}).get("status") == "exhausted"
+               for p in ("zhipu", "minimax", "moonshot")), "真坏的 provider 仍必须被冷却"

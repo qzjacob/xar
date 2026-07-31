@@ -156,8 +156,7 @@ def propose(cid: str, event: dict, dossier: dict, *, run_id: str | None = None, 
             if build_id:
                 snapshots.snap_call(build_id, cid, stage="propose", run_id=run_id,
                                     event_date=event.get("scheduled_for"), attempt=attempt,
-                                    model=model, capture=cap, template="phanny.proposer.user",
-                                    template_ver=1, meta={"status": "llm_failed"})
+                                    model=model, capture=cap, template="phanny.proposer.user", meta={"status": "llm_failed"})
             return None, [f"llm: {str(e)[:160]}"], model
         problems = validate_proposal(p, known_ids=dossier["known_ids"])
         # 每一稿(含被拒稿)都留快照 —— 最该复盘的恰恰是没能入库的那些
@@ -165,7 +164,6 @@ def propose(cid: str, event: dict, dossier: dict, *, run_id: str | None = None, 
             snapshots.snap_call(build_id, cid, stage="propose", run_id=run_id,
                                 event_date=event.get("scheduled_for"), attempt=attempt,
                                 model=model, capture=cap, template="phanny.proposer.user",
-                                template_ver=1,
                                 params={"as_of": str(dossier.get("as_of")), "has_retry_suffix": bool(suffix)},
                                 meta={"status": "ok" if not problems else "rejected",
                                       "problems": problems[:10]})

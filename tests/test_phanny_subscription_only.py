@@ -38,8 +38,19 @@ def test_critic_pins_are_subscription_only():
     assert "deepseek-v4-pro" not in flat
 
 
-def test_critic_pins_cover_three_vendors():
-    """多 LLM 对抗仍在:三家不同 provider(zhipu/moonshot/minimax)都要有 critic 头。"""
+def test_critic_pins_cover_three_vendors(monkeypatch):
+    """多 LLM 对抗仍在:三家不同 provider(zhipu/moonshot/minimax)都要有 critic 头。
+
+    **必须先把冷却状态钉死为「都没冷却」**(2026-07-31):`_critic_pins` 会查
+    `subpool.cooling()`,而它读的是**实时生产库**的 sub_quota。不打桩的话本测试断言的就不再是
+    「配置里有没有配够三家」,而是「此刻三家订阅额度是不是都还在」—— 后者随供应商计费周期
+    自然起落,与本文件要守的配置不变量无关。实证:2026-07-30 04:58 Kimi 计费周期额度耗尽
+    (vendor 明确返回 "reached your usage limit for this billing cycle"),_critic_pins 正确地
+    把 moonshot 摘掉,于是这个测试红了 —— 红的是被监控方的额度,不是被测代码。
+    邻近两个冷却测试本来就打了桩,这个漏了。
+    """
+    from xar.models import subpool
+    monkeypatch.setattr(subpool, "cooling", lambda prov: False)
     heads = [pin[0] for pin in debate._critic_pins()]
     provs = {reg.get(h).provider for h in heads if reg.get(h)}
     assert provs >= {"zhipu", "moonshot", "minimax"}, f"critic 厂商覆盖不足: {provs}"

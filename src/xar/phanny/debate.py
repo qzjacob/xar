@@ -134,7 +134,7 @@ def run_debate(cid: str, event: dict, dossier: dict, proposal, *,
                 if build_id:
                     snapshots.snap_call(build_id, cid, stage="critic", run_id=run_id, event_date=ed,
                                         round=rnd, model=cm, capture=cap,
-                                        template="phanny.critic.user", template_ver=1,
+                                        template="phanny.critic.user",
                                         meta={"status": "parse_failed"})
                 continue
             except Exception as e:  # noqa: BLE001 — 额度耗尽/供应商故障:跳过,余下 critic 继续
@@ -156,7 +156,7 @@ def run_debate(cid: str, event: dict, dossier: dict, proposal, *,
             if build_id:
                 snapshots.snap_call(build_id, cid, stage="critic", run_id=run_id, event_date=ed,
                                     round=rnd, model=cm, capture=cap,
-                                    template="phanny.critic.user", template_ver=1,
+                                    template="phanny.critic.user",
                                     meta={"status": "ok", "vote": v.direction_vote})
 
         prev = {"direction": cur.direction, "conviction": float(cur.conviction), "anchors": _anchors(cur)}
@@ -188,7 +188,7 @@ def run_debate(cid: str, event: dict, dossier: dict, proposal, *,
         if build_id:
             snapshots.snap_call(build_id, cid, stage="rebut", run_id=run_id, event_date=ed,
                                 round=rnd, model=(engine._primary_pin() or ("token",))[0],
-                                capture=cap_r, template="phanny.rebut.user", template_ver=1)
+                                capture=cap_r, template="phanny.rebut.user")
         cur_state = {"direction": cur.direction, "conviction": float(cur.conviction), "anchors": _anchors(cur)}
         trace.append({"round": rnd, "role": "proposer", "direction": cur.direction,
                       "conviction": float(cur.conviction), "anchors": cur_state["anchors"],

@@ -193,6 +193,11 @@ def run_parallel(items: list, fn) -> list:
         q.put((i, it))
     results: list = [None] * len(items)
     rlock = threading.Lock()
+    # 每一项各自的失败次数(2026-07-31 审核 P2-3)。用于把「这一项有毒」与「这家 provider 坏了」
+    # 分开:此前两者共用同一个 fails 计数器,于是一个与 provider 健康**无关**的毒项
+    # (如某公司 thesis.build 持续抛 DB 错)被 requeue 后若连续三次落回同一个 worker,
+    # 就会冷掉一家完全健康的订阅 —— 白白损失一份 5h 额度窗。
+    item_fails: dict = {}
 
     def worker(prov: str, pin: tuple[str, ...]) -> None:
         fails = 0
@@ -218,7 +223,20 @@ def run_parallel(items: list, fn) -> list:
             if ok:
                 fails = 0
                 continue
-            # 失败(异常/返 None):交回队列让其他 provider 试;连续失败达阈值(如鉴权失效)→ 冷却退出
+            # 失败(非额度异常 / 返 None)。归因规则:**只有该项的首次失败才记到 provider 头上**。
+            #   · 第 1 次失败 → 可能是 provider 的锅,计 provider 账 + requeue 让别家试;
+            #   · 再次失败(不论落到哪家)→ 已被证明"换个 provider 也不行" ⇒ 判为毒项,
+            #     直接丢弃(result 保持 None,调用方下轮自会重取),**不再 requeue、不计 provider 账**。
+            # 于是:真坏掉的 provider 会在**不同项**上连续吃到首次失败,照旧 3 次冷却(行为不变);
+            # 而单个毒项对任何一家 provider 至多贡献 1 次失败,冷不掉健康供应商。
+            # 顺带消除一个隐患:毒项此前会被无限 requeue,直到把所有 provider 逐一冷却为止。
+            with rlock:
+                item_fails[i] = item_fails.get(i, 0) + 1
+                n_item = item_fails[i]
+            if n_item > 1:
+                log.warning("subpool item#%d 连续失败 %d 次(已跨 provider)→ 判为毒项跳过,"
+                            "不计 %s 的账", i, n_item, prov)
+                continue
             fails += 1
             q.put((i, it))
             if fails >= _MAX_PROVIDER_FAILS:

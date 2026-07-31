@@ -37,7 +37,15 @@ services:
       - xar_data:/data
       - xar_models:/root/.cache  # fastembed model cache (persist across restarts)
     ports:
-      - "8000:8000"
+      # 监听地址可配(2026-07-31 审核 P2-1)。默认 0.0.0.0 = 保持既有行为不变。
+      # ⚠️ 但要清楚这意味着什么:`/api/ops/monitor/actions` 能重启 worker、终止 dagster run,
+      # 而 `_api_token_gate` **默认关**(XAR_API_TOKEN 为空时不校验)——端口一旦被网络可达,
+      # 这些破坏性端点就是敞开的。代码注释里写的「硬边界是 SSH 隧道不暴露端口」需要这里配合才成立。
+      # 只从本机/SSH 隧道访问 → 在 .env 设 XAR_BIND_ADDR=127.0.0.1(一行,零代码)。
+      # 需要从局域网/Tailscale 直接开页面 → 保持默认,但**建议同时配上 XAR_API_TOKEN**。
+      # 注意:目前 SPA 的 fetch 不发 X-API-Token(web/src/lib/ops.ts),所以armed 之后
+      # 面板上的写操作会 401 —— 要么先补 SPA 带 header,要么用 XAR_BIND_ADDR 这条路。
+      - "${XAR_BIND_ADDR:-0.0.0.0}:8000:8000"
 
   # Daily auto-ingest runtime (Dagster daemon + webserver). Pulls every source
   # nightly, extracts the semantic layer, and updates the KG — the whole universe

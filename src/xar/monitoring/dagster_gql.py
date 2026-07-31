@@ -53,9 +53,16 @@ def _endpoint() -> str:
     return getattr(get_settings(), "dagster_graphql_url", "") or DEFAULT_URL
 
 
-def _post(query: str) -> dict:
+def _post(query: str, variables: dict | None = None) -> dict:
+    """GraphQL POST。**带变量的调用一律走 `variables`,不要往 query 里拼字符串**
+    (2026-07-31 审核 P3-1):即便当前的 runId 全部源自 Dagster 自身响应、可信,
+    拼接也是一种「迟早会变成注入面」的写法 —— 只要哪天有调用方把外部输入传进来就成立。
+    参数化的成本是零,所以没有理由留着那个形状。"""
+    payload: dict = {"query": query}
+    if variables:
+        payload["variables"] = variables
     req = urllib.request.Request(
-        _endpoint(), data=json.dumps({"query": query}).encode(),
+        _endpoint(), data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:   # noqa: S310 — 固定内网端点
         body = json.loads(r.read())
@@ -133,10 +140,10 @@ def terminate_runs(run_ids: list[str]) -> dict:
     """处置动作:终止指定 run,释放并发槽(等价于 deploy/dagster/unstick_run_queue.py,
     但不需要 docker exec)。只由 actions.request 显式调用。"""
     done, failed = [], []
+    q = "mutation($rid: String!) { terminateRun(runId: $rid) { __typename } }"
     for rid in run_ids:
-        q = ('mutation { terminateRun(runId: "%s") { __typename } }' % rid)
         try:
-            _post(q)
+            _post(q, {"rid": rid})
             done.append(rid)
         except (urllib.error.URLError, OSError, RuntimeError, ValueError) as e:
             failed.append({"runId": rid, "error": str(e)[:120]})
@@ -144,10 +151,10 @@ def terminate_runs(run_ids: list[str]) -> dict:
 
 
 def in_flight_run_ids(limit: int = 100) -> list[str]:
-    q = ("{ runsOrError(filter: {statuses: [QUEUED, STARTED]}, limit: %d) "
-         "{ ... on Runs { results { runId } } } }" % limit)
+    q = ("query($n: Int!) { runsOrError(filter: {statuses: [QUEUED, STARTED]}, limit: $n) "
+         "{ ... on Runs { results { runId } } } }")
     try:
-        data = _post(q)
+        data = _post(q, {"n": int(limit)})
     except (urllib.error.URLError, OSError, RuntimeError, ValueError) as e:
         log.warning("dagster in_flight query failed: %s", str(e)[:120])
         return []

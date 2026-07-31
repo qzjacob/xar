@@ -1297,3 +1297,160 @@ IO 饱和期 Postgres 被拖成 `unhealthy`,qwendrain 的 `_claim()` 拿不到�
 theme_segment / 两个部分索引),任何「过去 N 小时按源统计」都要全扫 46 万行 1.4GB 表,
 IO 一紧即查不动(07-31 实测全部超时)。这也是监控刻意读**单行快照**而非现场聚合的原因;
 若要支持交互式时间窗查询,应补 `CREATE INDEX CONCURRENTLY ON documents(ingested_at DESC)`。
+
+---
+
+## 附录 O:对《AUDIT-72h-2026-07-31》审核意见的复核与处置(2026-07-31)
+
+用户提交了一份第三方 72 小时全链路审核意见,要求「复核,并修复其中成立的意见」。
+本节逐条给出裁定与证据 —— **包括两条不成立的**,以及审核方法论本身的两处缺陷。
+原则:审核意见不因其为审核意见而享有推定成立。
+
+### 裁定汇总
+
+| 编号 | 意见 | 裁定 | 处置 |
+|---|---|---|---|
+| P2-1 | 破坏性监控端点默认无鉴权 | **成立** | 已修(但**不按其建议的方式**,见下) |
+| P2-2 | `template_ver=1` 写死使回放校验位失真 | **成立** | 已修 + 7 项回归 |
+| P2-3 | subpool 单一失败计数器混淆「毒项」与「provider 坏了」 | **成立** | 已修 + 3 项回归 |
+| P3-1 | GraphQL 用字符串拼接传参 | **成立** | 已修(全部参数化) |
+| P3-2 | `catalog.py` 导入未使用的 `field` | **成立** | 已修 |
+| P3-3 | `deploy/monitor/deadman.sh` 缺失、未挂 crontab | **不成立** | 无需处置 |
+
+外加一条复核过程中自行发现、审核未提及的问题(见「额外发现」)。
+
+### P2-1 成立,但审核给的修法会**打死面板**
+
+意见原文建议:「处置类端点单独要求 token 在场(即使其它 /api 仍默认开)」。
+问题成立无疑 —— `config.py:179` 的 `api_token` 默认空串,`.env` 里 `grep -c '^XAR_API_TOKEN='` = 0,
+故 `api/app.py:33-48` 的 `_api_token_gate` 完全惰性,`POST /api/ops/monitor/actions`
+(能重启 worker、terminateRun)对任何能连到 8000 端口的人敞开。`ss -lntp` 确认端口绑在 `0.0.0.0`。
+
+但**按其建议实施会立刻打死监控面板**,原因审核没查到:
+`web/src/lib/ops.ts` 的 `post()` 只发 `Accept` 与 `Content-Type`,**根本不带 X-API-Token**。
+一旦 token 到场,面板上所有写操作(含刚建好的重启 / Unstick 按钮)全部 401。
+这是「修了安全、废了功能」的典型 —— 建议本身没错,错在没验证调用方能不能满足它。
+
+另一条看似自然的修法(「只放行 loopback」)在本部署下**不可行**:app 在容器内,
+宿主请求经 docker-proxy NAT 后源地址呈现为网桥网关 `172.17.0.1`,
+`request.client.host` 分不出「本机来的」与「外网来的」。已实测确认。
+
+**实际修法 —— 收窄监听面,而不是加一道调用方满足不了的闸:**
+`docker-compose.yml` 的端口改为 `"${XAR_BIND_ADDR:-0.0.0.0}:8000:8000"`。
+- 默认值保持 `0.0.0.0`,**零行为变化**(`docker compose config` 验证:默认展开无 `host_ip`;
+  设 `XAR_BIND_ADDR=127.0.0.1` 时展开出 `host_ip: 127.0.0.1`)。
+- 只从本机/SSH 隧道用的话,`.env` 一行即收到回环 —— 这才真正兑现了代码注释里早就写着、
+  但从来没有任何东西去执行的那句「硬边界是 SSH 隧道不暴露端口」。容器间通信走 compose
+  网络的服务名,不经宿主端口映射,故不受影响。
+- `.env.example` 同步写清两条实情:SPA 不发 header(设 token 会 401)、本项默认不校验。
+
+**为什么默认没直接改成 127.0.0.1**:本机有 Tailscale 地址,用户是否从别的机器直接开
+Jarvy 页面属于部署事实,不在代码里。默认值一改就可能悄悄打断用户既有访问路径 ——
+把开关和事实交清楚,选择权留给用户,比替用户猜一个更负责。
+
+### P2-2 成立:回放校验位反向失真
+
+`models/prompts` 的模板身份是双轨的(人工 `version` + 源码 sha),
+而 `replay._verify_prompt` 判漂移用的正是「注册表版本 != 快照记录的版本」。
+`engine.py` / `debate.py` 共 5 处把 `template_ver=1` 写死。后果不是「少记一个字段」,
+而是**一旦谁 bump 了某模板版本,新构建仍记 1,回放就对本该正确的构建误报「模板已从 v1 升到 v2」**。
+一个反向失真的校验位比没有校验位更糟 —— 它不报错,只给出错误的结论。
+
+修法:取值权威收到注册表一处。`snapshots.snap_call` 在调用方不显式给 `template_ver` 时自行现取:
+```python
+if template_ver is None and template:
+    t = prompts.REGISTRY.get(template)
+    template_ver = t.version if t is not None else None
+```
+5 处硬编码全部删除。`tests/test_prompt_version_identity.py` 新增 7 项,含一条源码级护栏
+(`调用点不得再出现 template_ver=<字面量>`)——因为这个字段坏掉时是**静默**的,
+只靠行为测试守不住,得守住写法本身。模板未注册时不抛(观测面 never-raise 契约)。
+
+### P2-3 成立,且**当晚就有活体证据**
+
+`subpool.run_parallel` 里 `fails` 一个计数器同时承担两件事:「这家 provider 坏了」与
+「这一项跑不通」。于是一个与 provider 健康**完全无关**的毒项(某公司 thesis.build 持续抛 DB 错),
+被 requeue 后若连续三次落回同一个 worker,就会冷掉一家**完全健康**的订阅 ——
+白白损失一份 5h 额度窗。且毒项会被无限 requeue,直到把所有 provider 逐一冷却为止。
+
+修法:引入 per-item 计数 `item_fails`。归因规则改为**只有该项的首次失败才记到 provider 头上**;
+再次失败(不论落到哪家)⇒ 已证明「换个 provider 也不行」⇒ 判毒项丢弃,不再 requeue、不计 provider 账。
+真坏掉的 provider 依旧会在**不同项**上连续吃到首次失败,3 次照常冷却(行为不变)。
+3 项回归覆盖:毒项冷不掉健康 provider、毒项不被无限 requeue(≤2 次调用)、真坏的 provider 仍会冷却。
+
+**活体证据**:复核期间实测 `sub_quota` 里 moonshot 的冷却记录,
+`last_reason = "repeated failure (auth invalid / empty / rejected)"` —— 正是本 bug 走的那条路径。
+(后续直连探测确认 Kimi 此刻**确实**是真额度耗尽:vendor 明确返回
+`reached your usage limit for this billing cycle`,故这次冷却结论正确;但触发它的代码路径
+无法区分两种成因,这正是要修的理由。)
+
+### P3-1 成立:GraphQL 拼串
+
+`terminate_runs` / `in_flight_run_ids` 用 f-string 把 runId、limit 拼进查询体。
+当前所有 runId 都源自 Dagster 自身响应、可信,**不构成现实可利用的注入**;
+但这是「迟早会变成注入面」的写法 —— 只要哪天有调用方把外部输入传进来就成立。
+参数化的成本是零,没有理由留着那个形状。`_post` 增加 `variables` 参数,两处查询改用
+`$rid: String!` / `$n: Int!`。已对**线上 dagster 实例**验证:
+`in_flight_run_ids` 正常返回 run id、`run_stats.ok=True`(maxConcurrent=7,来源 live)、
+`daemon_health.ok=True`(7 个守护)。
+
+### P3-3 **不成立**
+
+意见称 `deploy/monitor/deadman.sh` 缺失且未挂 crontab。二者均与事实不符:
+文件自 commit `9442058` 起在仓库中,`crontab -l` 有对应条目 1 条。
+
+### 审核方法论的两处缺陷(值得记下,因为会影响对整份意见的采信)
+
+1. **「本仓库非 git 仓库(.git 不存在)」——不成立。**
+   `git rev-parse --is-inside-work-tree` 返回 true。审核据此放弃了所有基于 git 历史的核对。
+2. **「35/35 纯逻辑监控测试通过」——计数不符。** 实际收集到 **75 项**。
+
+两处一起指向同一个解释:**审核跑在一个落后约 4 个 commit 的快照上**,
+而非当前工作树。这既解释了 P3-3 的误判,也提示对该审核的其余结论应做同样的独立复核 ——
+本节所有裁定因此都附了可复算的证据,而不是引用审核的措辞。
+
+### 额外发现(审核未提及,复核中自行发现并修复)
+
+`tests/test_phanny_subscription_only.py::test_critic_pins_cover_three_vendors` **不封闭**:
+`_critic_pins()` 会查 `subpool.cooling()`,而它读的是**实时生产库**。
+不打桩时该测试断言的不是「配置里配够了三家」,而是「此刻三家订阅额度都还在」——
+后者随供应商计费周期自然起落。2026-07-30 04:58 Kimi 计费周期额度耗尽后,该测试即转红,
+**红的是被监控方的额度,不是被测代码**。同文件邻近两个冷却测试本来就打了桩,这个漏了。
+已补 `monkeypatch.setattr(subpool, "cooling", lambda prov: False)`。
+
+### 运行现状(复核期间实测,非本次改动引入)
+
+- **Kimi (moonshot) 订阅计费周期额度已耗尽**,vendor 侧返回明确提示,下个计费周期恢复。
+  phanny critic 面板当前降级为 **2 家厂商(zhipu + minimax)**——按设计优雅降级,
+  不落计量模型、零意外支出。需要恢复三家对抗则要在 Kimi 侧购买额度或等周期刷新。
+
+### 额外发现之二:`test_event_moved_when_no_occurred_row` 的**按日期触发**假失败
+
+全量套件里另有一处红,追下去与本次改动无关,但同属「测试读生产数据」这一类,一并修了。
+
+`tests/test_earnings_outcomes.py` 的 `_clean` fixture 只精确删 `scheduled_for=_PAST` 那一天的
+`event_calendar` 行,而被测代码 `_occurred_on(cid, ed, tol_days=earnings_outcome_max_days)`
+查的是 **ed ±5 天的窗**。两者范围不一致 ⇒ 窗内的真实生产行删不掉,
+测试标称的前提「无 occurred earnings 行」在某些日期根本不成立。
+
+实证(2026-07-31):`_PAST = 2026-07-24`,而 ServiceNow(`now`)真有一行
+**2026-07-22 `occurred` earnings** 落在窗内 → `occ` 非空 → 走打分而非 `event_moved` 收尾
+→ `assert out["event_moved"] == 1` 拿到 0。
+
+**它只在真实财报日恰好落进 `(today-7) ± 5` 时现形,其余日子全绿** —— 这类假失败最坏的地方
+不是红,是它红得没有规律,几次之后就会被当成「又抽了」而习惯性忽略,
+真问题混进来时一起被无视。修法:清理窗口跟着 `earnings_outcome_max_days` 走,
+与被测代码看同一个范围。18 项 earnings 测试全通过。
+
+### 验证
+
+- 受影响回归带 **199 项全通过**(monitor 全套 + phanny + snapshot + replay + prompt + subpool);
+  earnings 带 **18 项全通过**;ruff 全绿。
+- ⚠️ **全量套件未能作为门禁跑完,原因值得单独记一笔**:实测它会发起**真实外网 HTTPS 调用**
+  (`ss -tnp` 见 pytest 进程与 Clash fake-ip 段 `198.18.0.0/15` 的多条 ESTAB 连接)。
+  68 分钟只跑到 58%,而**累计 CPU 时间仅 2 分 52 秒** —— 99% 的墙钟耗在等网络。
+  它同时在消耗 phanny/glmworker 要用的那份订阅额度(Kimi 当时已耗尽),
+  故主动终止。**结论:当前全量套件不是一个可用的提交门禁**,既慢又不封闭,
+  还会与生产抢额度。要让它可用,得把外网调用桩掉或标记 `@pytest.mark.network` 默认跳过 ——
+  这是独立的一项工作,不在本次审核处置范围内,但应尽早做:
+  一个跑不完的门禁等于没有门禁。

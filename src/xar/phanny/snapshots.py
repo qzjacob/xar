@@ -78,8 +78,18 @@ def snap_call(build_id: str, cid: str, *, stage: str, run_id: str | None = None,
               params: dict | None = None, meta: dict | None = None) -> None:
     """记一次 LLM 调用的可回放痕迹。`capture` 来自 `llm.complete_json(capture=...)`:
     模型原文进 artifacts(每次都不同,必须全存 —— 它同时是辩论逐轮全文的载体),
-    提示词只留 sha(回放时按 template/params 重渲染比对)。"""
+    提示词只留 sha(回放时按 template/params 重渲染比对)。
+
+    `template_ver` **不传即从注册表现取**(2026-07-31 审核 P2-2):此前各调用点把
+    `template_ver=1` 写死,而 `replay._verify_prompt` 是拿 `注册表版本 != 快照版本` 判漂移的
+    —— 一旦谁 bump 了某模板的 version,新构建仍记 1,回放就会对**本该正确**的构建误报
+    「模板已从 v1 升到 v2」。校验位反向失真,比没有更糟。现取值权威只剩注册表一处,
+    调用点不可能再写错;显式传值仅供测试构造反例。"""
     cap = capture or {}
+    if template_ver is None and template:
+        from ..models import prompts
+        t = prompts.REGISTRY.get(template)
+        template_ver = t.version if t is not None else None
     try:
         resp_sha = save_artifact("response_raw", cap.get("raw"),
                                  {"company_id": cid, "stage": stage, "round": round})

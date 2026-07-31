@@ -7,6 +7,7 @@ import json
 
 import pytest
 
+from xar.config import get_settings
 from xar.research import earnings
 from xar.storage import db, structured
 
@@ -30,8 +31,17 @@ def _clean(isolated_db):
     # 生产/残留行会污染全局桶计数(test_calibration_buckets 的 4≠3),清干净才能只看本测试插入的;
     # 全在单事务内、teardown 整体 rollback、绝不落库,生产 verdict 复原(K.3.2 测试隔离)。
     db.execute("DELETE FROM earnings_verdicts")
+    # ⚠️ 必须按**容差窗**清,不能只清 scheduled_for=_PAST 那一天(2026-07-31 修)。
+    # 被测代码 `_occurred_on(cid, ed, tol_days=earnings_outcome_max_days)` 查的是 ed ±5 天,
+    # 而这里此前只精确删 ed 当天 —— 窗内的**真实生产行**删不掉,于是
+    # `test_event_moved_when_no_occurred_row` 前提("无 occurred 行")在某些日期根本不成立。
+    # 实证:今天 _PAST=2026-07-24,而 ServiceNow('now')真有一行 2026-07-22 `occurred` earnings
+    # 落在窗内 → occ 非空 → 走打分而非 event_moved 收尾 → 断言 0 == 1 挂掉。
+    # 这是**按日期触发**的假失败:只有真实财报日恰好落进 (today-7)±5 才现形,平时全绿,
+    # 与被测逻辑无关。清理窗口跟着 tol 走,才和被测代码看的是同一个范围。
+    _tol = dt.timedelta(days=get_settings().earnings_outcome_max_days)
     db.execute("DELETE FROM event_calendar WHERE company_id IN ('now','snow','crm') "
-               "AND scheduled_for=%s", (_PAST,))
+               "AND scheduled_for BETWEEN %s AND %s", (_PAST - _tol, _PAST + _tol))
     yield
 
 
