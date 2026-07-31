@@ -4,6 +4,10 @@
 > 目标:**一处定义分析能力 → Chathy 对话、Genny 页面按钮、通用 API、CLI、worker 全部走同一入口**;
 > 并完成 ET 三向耦合(裁决 dossier 吃 Andy 宏观 + Genny 主题争论;公司页「跑 ET」按钮;Chathy 全套工具)。
 > 唯一新表 `capability_runs`;其余全部复用/重排既有基础设施。
+> 2026-07-31 附注:UA-P0…P6 已于 2026-07-07/08 全部落地(`capabilities/{registry,runs}.py`、
+> `capability_runs` 表、`POST /api/run/{name}`),上方状态行未及更新;正文保留原貌作历史记录。
+> 另:该计划 §0 所述「5 个状态存储互不相通」现已增至 8 个(2026-07-29 新增
+> `task_status_history` / `monitor_alerts`)—— 结论未被推翻,而是被印证并加剧。
 
 ---
 

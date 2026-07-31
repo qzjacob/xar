@@ -4,6 +4,8 @@
 > T-10 起每日数据刷新、T-3 生成并**锁定**裁决(仅 `--force` 重生成),T+1..T+5 最小盘后回验做校准。
 > **唯一新表 `earnings_verdicts`**;其余全部复用既有基础设施(alt_signals / estimates / event_calendar /
 > analyst_ratings / thesis 层 / TaskClass 路由 / glm_worker 节拍)。任务前缀 **ET-**。
+> 2026-07-31 附注:ET 已于 2026-07-07 落地(`src/xar/research/earnings.py`、`earnings_verdicts` 表),
+> 上方状态行未及更新;正文保留原貌作历史记录。
 
 ---
 

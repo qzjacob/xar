@@ -47,6 +47,13 @@ wechat/futu 静默哑火 6.5/24 天而 cadence 戳**至今仍是绿的**。
 - **页内**:面板告警流 + 左栏 Monitor 旁的红点(未解决 critical 计数,60s 刷新)。
 - **手机**:Telegram。`severity=critical` 的任务转 `down` 时推一次;此后未 ack 则**每 24h**
   提醒一次;恢复推一次。`warn` 级只进页内,不打扰手机。
+  ⚠️ `last_notified_at` 为 NULL 视作「**从未成功推送过**」→ 下一轮立即补发首条,不等提醒间隔。
+  这不是优化而是必需:告警若在通道配通**之前**开出来(或推送失败),没有补发就**永久静默** ——
+  而那恰恰是最需要被通知的一类。2026-07-31 接通当天实测踩到:dagster.runs 的 critical
+  在配通前就已开启,当时若不补发,当夜的失败不会有任何动静。
+
+**现状(2026-07-31):已接通** —— 专用 bot `@xar_alertbot`,推送目标为私聊 chat。
+带外死人开关也已挂进主机 crontab(见 §三)。下面是配法与踩坑记录。
 
 接通手机推送(三个键,顺序有讲究):
 
@@ -78,19 +85,35 @@ curl -s "https://api.telegram.org/bot${TOK}/getUpdates" \
 静音(维护窗):面板上的静音开关,或 `PUT /api/ops/monitor/mute {"hours": 2}`。
 **静音只压推送,历史与台账照记** —— 否则静音期间的停摆会彻底消失在记录里。
 
-## 三、带外死人开关(装一次)
+## 三、带外死人开关(**已装**,2026-07-31)
 
 巡检线程和 Telegram 推送都在 app 容器里,所以「app 整个挂了」恰恰是**报警会跟着一起死**
-的情况。这个脚本由主机 cron 独立跑,只用 bash + curl:
+的情况 —— 这一层是唯一能在那时还发声的。脚本由主机 cron 独立跑,只用 bash + curl,
+不依赖 XAR 的任何代码路径,也不碰 docker。
 
-```bash
-crontab -e
-# 每 10 分钟探活;不可达或巡检停摆 >15min 就直接打 Telegram API
-*/10 * * * * /home/jake-ma/Project/XAR/main/deploy/monitor/deadman.sh >> ~/monitoring/deadman.log 2>&1
+已装入 crontab 的行:
+
+```cron
+3-59/10 * * * * /home/jake-ma/Project/XAR/main/deploy/monitor/deadman.sh >> /home/jake-ma/monitoring/deadman.log 2>&1
 ```
 
+几个不显然的点:
+- **错开 :00**(用 `3-59/10` 而非 `*/10`):本机整点已有每分钟的 rsync 与 Phantom 的整点任务扎堆。
+- crontab 里已有的 `SHELL` / `PATH` / `CRON_TZ` 声明会被这一行继承,不必重复声明。
+- 装法是**纯追加**(`crontab -l` 导出 → 追加 → 装回),并先备份到 `~/monitoring/crontab.bak-*`;
+  这台机器上还跑着 Phantom 的交易任务,crontab 绝不可整体覆写。
+- 它与 app 内的告警**共用同一个 bot**(`XAR_MONITOR_BOT` 优先,回退 `BOT_HTTP_API`)——
+  两边若用不同 bot,「app 活着时的告警」与「app 死了时的告警」会落在两个会话里,
+  而后者恰恰是最慌乱的时刻。
+
 手测:`DEADMAN_TEST=1 deploy/monitor/deadman.sh`(强制走一次推送路径)。
-自身也节流:同一故障 6 小时内不重复推。
+⚠️ 测完记得删掉 `~/monitoring/.deadman_state` —— 否则真出事时会被 6 小时节流压住。
+建议用 cron 的最小环境验证(交互 shell 里 `grep` 可能是函数,会掩盖 PATH 问题):
+
+```bash
+env -i SHELL=/bin/bash PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  HOME=$HOME LOGNAME=$USER USER=$USER deploy/monitor/deadman.sh
+```
 
 ## 四、处置操作(零 docker socket)
 

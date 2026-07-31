@@ -3,6 +3,9 @@
 > 状态:**设计定稿,未实施**。本文档是唯一交付物;实施须按阶段(P0→P5)推进,每阶段 pytest+ruff 绿。
 > 范式示例(贯穿全文):ServiceNow(registry id `now`)——核心投资分歧「AI 对其生意模式是**颠覆还是赋能**」;
 > 验证点 RPO/cRPO/ARR/NRR;资讯语义「企业客户**采用 vs 取消**其产品」回归到分歧的证实/证伪。
+> 2026-07-31 附注:本计划已于 2026-07-07 落地(见 `src/xar/research/{thesis,thesis_health,
+> thesis_signals,evidence_link}.py` 与 `company_thesis` / `thesis_fact_links` 表),
+> 上方状态行未及更新;正文保留原貌作历史记录。
 
 ---
 

@@ -19,8 +19,8 @@ XAR 由**三个对等顶层模块**构成，各自拥有独立的 SPA 外壳与�
 | 模块 | 路由 | 主题色 | 定位 |
 |---|---|---|---|
 | **投研门户 Research Portal** | `/` | 海军蓝 chrome + 蓝色 accent | 投资终端：主题 → 环节 → 公司 → 信号 → 决策 |
-| **运营控制台 Operations Console** | `/ops/*` | 琥珀色 accent | 管理控制面：自省与操作真实平台状态（8 页） |
-| **前沿探索 Exploration** | `/explore`、`/explore/:sectionId` | 靛蓝 "explore" accent | 人类知识前沿：arXiv + 期刊 + X → 前瞻研究前沿 |
+| **运营控制台 Operations Console** | `/jarvy/*` | 琥珀色 accent | 管理控制面：自省与操作真实平台状态（11 页） |
+| **前沿探索 Exploration** | `/romy`、`/romy/:sectionId` | 靛蓝 "explore" accent | 人类知识前沿：arXiv + 期刊 + X → 前瞻研究前沿 |
 
 | 维度 | 传统人工投研 | **XAR AI 投研体系** |
 |---|---|---|
@@ -72,7 +72,7 @@ XAR 由**三个对等顶层模块**构成，各自拥有独立的 SPA 外壳与�
 ┌───────────┴──────────────────────────────┴───────────────────────────────┐
 │  采集与解析层 (key-gated，缺 Key 自动跳过)                                  │
 │  非结构化: SEC EDGAR · cninfo · 新闻 · 产品页 · ATS招聘 · 微信公众号         │
-│  结构化/另类: Finnhub · FMP · Polygon · Yahoo · Polymarket · X · Reddit · Wind│
+│  结构化/另类: Finnhub · Polygon · Yahoo · Polymarket · X · Reddit · Wind      │
 │  前沿: arXiv 预印本 · 顶级期刊/专业平台(Quanta/Physics World) · X 专家之声    │
 │           → 统一归一到 FinMetric 规范词表 → 蒸馏进 kg_events 催化剂流         │
 └───────────▲───────────────────────────────────────────────────────────────┘
@@ -93,7 +93,7 @@ XAR 的每一层都遵循 **"交钥匙默认 + 可热插拔升级"** 原则 —�
 |---|---|---|
 | **存储** | 单 **Postgres + pgvector**（向量 + 关系 + 双时态图谱一库） | Neo4j/Graphiti（图）、Qdrant（向量）、MinIO（对象存储） |
 | **非结构化采集** | edgartools（SEC，绿）· AKShare（cninfo，绿）· trafilatura（新闻）· **微信公众号** · ATS 官方 API（招聘） | Crawl4AI、Tushare Pro |
-| **结构化/另类数据** | Finnhub · FMP · Polygon · Yahoo · Polymarket · X · Reddit · Wind · AIFINmarket | 任意 provider，按需配置 |
+| **结构化/另类数据** | Finnhub · Polygon · Yahoo · Polymarket · X · Reddit · Wind · AIFINmarket | 任意 provider，按需配置 |
 | **前沿数据** | arXiv（公开 Atom API，无 Key）· 期刊 RSS（Quanta/Physics World）· X 精选研究者 | 任意预印本/期刊源 |
 | **解析** | pdfplumber + 分块 + **数值对账闸** | Docling（`.[parse-deep]`）、MinerU |
 | **嵌入** | fastembed（CPU，bge-small 384d） | BGE-M3 1024d、TEI/vLLM 服务 |
@@ -116,7 +116,7 @@ cninfo 公告 ┤→ Doc(permission) ──→ 分块 ──→ tie-out ──�
 新闻/产品页 ┤                    └→ LLM 抽取(schema 约束) ──→ kg_nodes/edges/events   │
 微信公众号 ─┘                       └→ 专家智能体过滤 ──→ kg_events(license=expert)   │
                                                                           ├→ RRF 混合检索 ──→ 5 分析师
-Finnhub/FMP ─┐                                                                                  │
+Finnhub     ─┐                                                                                  │
 Polygon/Yahoo┤→ canonical_metric(FinMetric) ──→ fundamentals/estimates/prices ... ──┐         ├→ 多空辩论
 Polymarket  ─┤                                                                       │         ├→ 风险压测
 X/Reddit    ─┘→ signals.derive ──────────────────────────→ kg_events(统一催化剂流) ─┘         ├→ 主编合成
@@ -124,7 +124,7 @@ X/Reddit    ─┘→ signals.derive ──────────────�
                                                                                               └→ 人审 → 发布
 
 arXiv 预印本 ─┐                                                                  前沿探索 (Exploration)
-顶级期刊 RSS ─┤→ documents(meta.frontier, meta.domain) ──→ 强推理 LLM 综合 ──→ frontier_fronts ──→ /explore
+顶级期刊 RSS ─┤→ documents(meta.frontier, meta.domain) ──→ 强推理 LLM 综合 ──→ frontier_fronts ──→ /romy
 X 专家之声  ─┘   (绿/灰 license)                            (按域综合研究前沿)   + frontier_domain_state
 ```
 
@@ -459,17 +459,20 @@ ThesisDebate  key=ai_disrupt_vs_empower
 ```
 零 provider Key → 仅靠 SEC EDGAR + 新闻 + 招聘 + Yahoo(无 key) + arXiv(无 key) 即可端到端跑通
 填一个 Finnhub Key → 点亮基本面/估计/评级/内部交易 + 公司新闻（finnhub_news）
-填一个 FMP Key → 点亮三大报表/目标价/日线 + 公司新闻
 填一个 X Token → 点亮专家社媒流 + 前沿专家之声
 arXiv / 期刊 RSS → 开箱即用（无需 Key），前沿探索立即可跑
 ……逐源点亮，永不阻塞
 ```
 
-### ⚙️ 创新 7 —— 每夜自动增量采集 + Dagster 运行时
+> **FMP 是这套 key-gated 设计的一个反面注脚**：该源已被**上游整体下线**（其历史端点一律拒绝服务），因此**填 Key 也点不亮** —— 它不是配额问题，不必去买 Key。连接器仍在链上，但只以"缺源即空"的姿态优雅降级，不再作为可用能力宣传。这正是 key-gated 的价值：一个源死了，整条夜间链照跑。
 
-> 关键文件：`src/xar/orchestration/daily.py`（`run_daily`） · `src/xar/orchestration/definitions.py`（Dagster） · `src/xar/storage/runlog.py` + `ingest_runs` 表
+### ⚙️ 创新 7 —— 每夜自动采集 + 停摆自检
 
-XAR 把"每个可达源每夜增量入库"工程化为一条幂等、可续跑的链：`run_daily(stages=('pull','extract'))` —— **按源增量 PULL**（按公司分片、单源失败隔离）→ 解析/嵌入 → `build_kg` → 专家层 → 信号 → `resolve_forward_claims`。**`extract` 阶段全局只跑一次**（不按分片，单批预算上限），廉价 DB 阶段始终运行。`ingest_runs` 表兼作运行日志与**每源增量游标**（`last_success_ts`）；内容哈希 + NOT-EXISTS 游标保证**幂等可续跑**。CLI：`xar daily`。
+> 关键文件：`src/xar/orchestration/daily.py`（`run_daily`） · `src/xar/orchestration/definitions.py`（Dagster） · `src/xar/monitoring/`（任务监控） · `web/src/pages/ops/MonitorPage.tsx`
+
+XAR 把"每个可达源每夜增量入库"工程化为一条按源增量、单源失败隔离的链：`run_daily(stages=('pull','extract'))` —— **按源增量 PULL**（按公司分片）→ 解析/嵌入 → `build_kg` → 专家层 → 信号 → `resolve_forward_claims`。**`extract` 阶段全局只跑一次**（不按分片，单批预算上限），廉价 DB 阶段始终运行。内容哈希 + 每源增量游标保证重跑不重复入库。CLI：`xar daily`。
+
+**停摆自检（任务监控）**：一条夜间链最危险的失败不是报错，而是**安静地不跑** —— 2026-07-29 的一次审计发现调度队列已死锁、夜间采集**连续 7 天零执行而无人察觉**，而当时的健康戳仍是绿的，因为它只看"任务尝试过没有"、不看"有没有真的产出东西"。XAR 为此补上一层**任务监控**：覆盖全部 22 个常驻/间歇任务，**心跳与产出双信号取较坏者**判活，于是"跑了但什么都没拉到"不再冒充健康；恶化需连续两轮确认才报、恢复立即解除；严重故障**直推手机**，另有一层独立于主服务的带外看门狗兜底 —— 主服务整个挂掉时进程内的报警会跟着一起死，这一层是唯一还能发声的。控制台 **Monitor** 页留有状态时间线与告警历史，可回溯"究竟哪天开始不对"。**这里不承诺"从不失败"**，承诺的是：停摆可判、可报、可复盘 —— 失败会被立刻发现并报到手机。
 
 **Dagster 边车（已部署的每夜运行时）** `definitions.py`：`pull_shard`（8 个静态分区，06:00 调度）+ `extract_all`（单次，06:30，一份批预算）+ `core_daily`（按需）。`docker-compose.yml` 新增 dagster 服务，宿主端口 **`:3001`**（UI / 运行历史 / 重试），独立 `dagster_home` 卷；**仅 `app` 容器跑 `xar init`**（schema owner）。
 
@@ -485,7 +488,7 @@ XAR 把"每个可达源每夜增量入库"工程化为一条幂等、可续跑�
 | A 股法定披露 + 财报 | cninfo（证监会指定披露） | AKShare | 🟢 **绿**：强制公开披露 |
 | 卖方研报 | 东财研报**清单**（标题/机构/评级/目标价/EPS） | AKShare `stock_research_report_em` | 🔴 **红**：**仅元数据**，绝不入全文 PDF（版权） |
 | 新闻文章 | 公司 IR 页、交易所、财经新闻 | Scrapy/Crawl4AI + trafilatura | 🟡 **灰**：存事实+引用，不转载全文 |
-| **公司新闻 API** | Finnhub `company-news` + FMP（落 `documents`，source='finnhub'/'fmp'） | `finnhub.pull_news` / `fmp.pull_news`（标题/摘要，内容哈希去重） | 🟡 **灰**：自用事实摘录（摘要非全文），流入 build_kg + 专家层 |
+| **公司新闻 API** | Finnhub `company-news`（落 `documents`，source='finnhub'） | `finnhub.pull_news`（标题/摘要，内容哈希去重） | 🟡 **灰**：自用事实摘录（摘要非全文），流入 build_kg + 专家层 |
 | 产品页/规格书 | 模块厂+芯片厂产品页 | 定向礼貌爬取 | 🟢 **绿偏**：公开营销页 |
 | 招聘信号 | Greenhouse/Lever/Ashby ATS board | **官方 ATS REST API** | 🟢 **绿**：绝不抓 LinkedIn（ToS+CFAA） |
 | **微信公众号** | 自建 [we-mp-rss](https://github.com/rachelos/we-mp-rss) | 公开 feed 端点，零鉴权 stdlib 解析 | 🟡 **灰**：国内最快非结构化情报源 |
@@ -495,7 +498,7 @@ XAR 把"每个可达源每夜增量入库"工程化为一条幂等、可续跑�
 | provider | 取数 | 姿态 |
 |---|---|---|
 | **Finnhub** | basic-financials、EPS/营收估计、recommendation、内部交易（Form 4 codes）、**公司新闻**（`pull_news` / `pull_general_news`） | 灰/自用 OK |
-| **FMP** | income/balance/cashflow 全字段、analyst-estimates、price-target、日线 OHLCV、**公司新闻**（`pull_news`） | 付费/免费层 |
+| **FMP**（已停用） | **上游整体下线**：其历史端点一律拒绝服务，有无 Key 都零产出 —— **不是配额问题，填 Key 也点不亮**。连接器保留仅为优雅降级（恒返回空） | ⚫ 不可用 |
 | **Polygon** | 日聚合(深度历史)、vX reference-financials | 付费层 |
 | **Yahoo (yfinance)** | 全球价格(含 A 股 300308.SZ)、`.info` 基本面快照 | **无 Key**，全球覆盖 |
 | **Polymarket** | Gamma 公开 API：AI/算力/加速器相关市场远期概率 | **公开无 Key**：最早的需求侧催化信号 |
@@ -512,7 +515,7 @@ XAR 把"每个可达源每夜增量入库"工程化为一条幂等、可续跑�
 | **Journals / Quanta** | Quanta Magazine + Physics World 公开 RSS：同行评审 / 编辑精选层 | 🟢 **绿无 Key**：metadata + summary |
 | **X 专家之声** | 复用 `twitter` provider，但**仅精选研究者 handle**、回复过滤 | 🟡 **灰**：真正的前沿研究者声音 |
 
-> `providers.status()` 现统计 **11 个**结构化/另类/前沿 provider：`fmp · finnhub · polygon · yahoo · wind · polymarket · twitter · reddit · aifinmarket · arxiv · journals`。加上非结构化采集源（edgar · cninfo · news · jobs · wechat）与**新增的 `finnhub_news` 公司新闻源**（与 finnhub 同一 Key 闸控），运营控制台 **Sources** 注册表共展示 **17 个**数据源（11 provider + edgar/cninfo/news/jobs/wechat + 新增 finnhub_news；含 frontier 类 arxiv/journals），并经 `run_source` 注册为可一键运行/自检。
+> `providers.status()` 现统计 **14 个**结构化/另类/前沿 provider：`finnhub · polygon · yahoo · wind · polymarket · twitter · reddit · aifinmarket · alphapai · futu · gangtise · arxiv · journals`，外加**已被上游下线、仅保留优雅降级的 `fmp`**。其中 11 个进入运营控制台 **Sources** 注册表，加上非结构化采集源（edgar · cninfo · news · jobs · wechat）与 `finnhub_news` 公司新闻源（与 finnhub 同一 Key 闸控），注册表共展示 **17 个**数据源（含 frontier 类 arxiv/journals），并经 `run_source` 注册为可一键运行/自检。
 
 ---
 
@@ -520,7 +523,7 @@ XAR 把"每个可达源每夜增量入库"工程化为一条幂等、可续跑�
 
 > 源码：`web/src/`（React 18 + TypeScript strict + Vite + Tailwind v3 + react-router v6 + lucide-react）。FastAPI 服务其编译产物，**无 mock，全部真实后端数据**。设计令牌：`brand`(海军蓝)、`accent`(蓝，投研)、`warn`(琥珀，运营)、`explore`(靛蓝，探索)、`pos`/`neg`。
 
-XAR 前端是**三个对等模块、三套外壳**：投研门户（`/`，海军蓝）围绕 **Theme → Segment → Company → Signal → Decision** 完整投研链路；前沿探索（`/explore`，靛蓝）描绘研究前沿；运营控制台（`/ops`，琥珀）自省真实平台状态。统一呈现**机构级金融终端审美**（克制、信息密集、`tnum` 等宽数字、无 emoji、无大面积渐变）。研究终端侧边栏底部内置**模块切换按钮**（Exploration / Operations Console），一键跳转。
+XAR 前端是**三个对等模块、三套外壳**：投研门户（`/`，海军蓝）围绕 **Theme → Segment → Company → Signal → Decision** 完整投研链路；前沿探索（`/romy`，靛蓝）描绘研究前沿；运营控制台（`/jarvy`，琥珀）自省真实平台状态。统一呈现**机构级金融终端审美**（克制、信息密集、`tnum` 等宽数字、无 emoji、无大面积渐变）。研究终端侧边栏底部内置**模块切换按钮**（Exploration / Operations Console），一键跳转。
 
 ### 9.1 投研门户：三栏终端布局
 
@@ -550,22 +553,25 @@ XAR 前端是**三个对等模块、三套外壳**：投研门户（`/`，海军
 | **DecisionRail** | House View（自动生成的双语 prose）+ Top Opportunities + Top Risks + 可勾选 Action Queue | house view 由 `dashboard.decision()` 从真实图谱事实生成 |
 | **CatalystCalendar** | 催化剂按周分组，类型/极性/重要度/"in Nd" | 双时态事件的可视化时间轴 |
 
-### 9.3 前沿探索（Exploration，独立外壳 `/explore`，靛蓝）
+### 9.3 前沿探索（Exploration，独立外壳 `/romy`，靛蓝）
 
 | 视图 | 能力 |
 |---|---|
-| **探索仪表盘** `/explore` | 六大领域卡片（AI 优先）：headline + momentum + 论文/期刊/专家计数 + Top 前沿预览 |
-| **领域详情** `/explore/:sectionId` | 该领域全部研究前沿（按 momentum 排序：方向/意义/maturity/horizon/momentum/置信）+ 被引 arXiv 论文（可点回）+ 期刊文章 + 专家之声 |
+| **探索仪表盘** `/romy` | 六大领域卡片（AI 优先）：headline + momentum + 论文/期刊/专家计数 + Top 前沿预览 |
+| **领域详情** `/romy/:sectionId` | 该领域全部研究前沿（按 momentum 排序：方向/意义/maturity/horizon/momentum/置信）+ 被引 arXiv 论文（可点回）+ 期刊文章 + 专家之声 |
 
-### 9.4 运营控制台（Operations Console，独立外壳 `/ops`，琥珀）
+### 9.4 运营控制台（Operations Console，独立外壳 `/jarvy`，琥珀）
 
-**8 个控制台页**，由 `/api/ops/*` 实时自省与操作**真实平台状态**（无 mock）：
+**11 个控制台页**，由 `/api/ops/*` 实时自省与操作**真实平台状态**（无 mock）：
 
 | 页面 | 能力 |
 |---|---|
 | **Overview** | 平台全局自省：行数 / 覆盖 / 健康 |
+| **Monitor** | 全部常驻/间歇任务的停摆自检：心跳与产出双信号判活 + 未解决告警 + 状态时间线（严重故障直推手机） |
+| **Fetchy** | 常驻抓取/抽取工人的运行状态与配置（下一轮生效，无需重启） |
 | **Ontology** | 节点/边/催化剂类型 + FIBO/schema.org IRI + FinMetric 词表 + 实时 KG 计数 |
-| **Sources** | **15 源**可用性/姿态/行数/上次运行（含 frontier 类的 arxiv/journals）+ **一键运行** + **自检(selftest)** |
+| **Coverage** | 票池数据完整度：主题 × 维度的满足率热力表 |
+| **Sources** | **17 源**可用性/姿态/行数/上次运行（含 frontier 类的 arxiv/journals）+ **一键运行** + **自检(selftest)** |
 | **DataLake** | 非结构化文档/分块/解析/抽取统计 + 浏览器 + **处理 pending** |
 | **AltData** | 另类数据专家加工：X/公众号/AIFINmarket → AI 专家提炼（keep-rate 可见）+ 一键处理 |
 | **Models** | LLM vendor/model 路由 + 定价 + 用量 + **Test LLM**（真实廉价往返） |
@@ -650,12 +656,12 @@ xar serve           # Web UI + API
 
 | 类别 | 选型 |
 |---|---|
-| 语言 | Python 3.11+（后端）· TypeScript strict（前端） |
+| 语言 | Python 3.12+（后端）· TypeScript strict（前端） |
 | Web 框架 | FastAPI + Uvicorn · Typer CLI |
 | 数据库 | PostgreSQL 16 + **pgvector** + **pg_trgm**（一库：向量+关系+双时态图谱+前沿前沿表） |
 | LLM 网关 | **LiteLLM + LLM 任务管理器**（按任务路由 · 多供应商 DeepSeek/GLM/Kimi/Anthropic/本地 ollama · token-vs-订阅-vs-本地零成本计费感知 · 跨供应商回退 · 预算上限 · 一处换代/运行时改路由；**默认 DeepSeek V4**，glmworker 抽取本地优先） |
 | 嵌入 | **fastembed**（ONNX/CPU，零 GPU；默认 bge-small 384d，可换 BGE-M3 1024d） |
-| 采集 | edgartools · AKShare · trafilatura · we-mp-rss · ATS API · Finnhub · FMP · Polygon · yfinance · Polymarket · X · Reddit · Wind · AIFINmarket · **arXiv · 期刊 RSS** |
+| 采集 | edgartools · AKShare · trafilatura · we-mp-rss · ATS API · Finnhub · Polygon · yfinance · Polymarket · X · Reddit · Wind · AIFINmarket · **arXiv · 期刊 RSS** |
 | 解析 | pdfplumber（默认）+ **数值对账闸** · Docling 可选 |
 | 知识图谱 | 自建双时态 + 确定性实体消解 + 事件级去重 · Graphiti 可选 |
 | 检索 | pgvector 稠密 + trigram 词法，**RRF(k=60)** 融合 + GraphRAG |

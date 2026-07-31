@@ -1207,3 +1207,62 @@ K.6 表中 K.3.2 的「余 2 红」已**全部修复**（全量 pytest **773 pas
 3. **M.2.2**（gross_cap 软闸语义）：在 sizing docstring / ops 控制台显式标注 gross_cap 为软上限（cosmetic）。
 
 > 第二意见结论：**phanny 模块结构与 earnings 底座对称、纪律承接干净**；唯一实质问题是 **M.1.1——`propose()` 未隔离 LLM 失败，单名失败可废弃整本 book**，修复成本极低（镜像 earnings 既有 try/except 形态）。其余两项为口径/语义观察，记录待确认。version 竞态、evidence grounding、integrity guards 经核验成立。
+
+---
+
+## 附录 N:运行时可观测性审计与治理落地复核(2026-07-29 → 07-31)
+
+> 方法:2026-07-29 对全链路做运行时审计(不读需求文档,只看库表、容器、内核日志、
+> GraphQL),再对随后的三轮治理逐条实测复核。**本附录仅记录意见与事实,不修改代码。**
+> 与既有附录的关系:凡与旧附录冲突处,以本附录为准并在下方点名。
+
+### N.1 附录 M 的 M.1.1 / M.2.1 已修复(标记关闭)
+
+M 的处置块把 M.1.1(`propose()` 未隔离 LLM 失败,单名失败可废整本 book)列为「建议本修复
+在合入或下一轮 phanny 触及时一并处理」。实测**已修复**:`src/xar/phanny/engine.py:152`
+有 `except Exception` 将失败隔离为单名拒绝并返回 `(None, [...], model)`,
+`src/xar/phanny/book.py:101` 另有第二道 per-name 隔离。M.2.1 的口径注释同样已补。
+修复提交在本文件最后一次更新之后 4 分钟落地,故 M 的处置块未及反映。**M.1.1 / M.2.1 关闭。**
+
+### N.2 附录 L 的「6 套 run 状态存储」被印证并加剧为 8 套
+
+L.2.6 / L.6 批评「UNIFIED_ARCH_PLAN 自己承认 5 个状态存储互不相通,然后加了第 6 个而不是收敛」。
+2026-07-29 又加了两张:`task_status_history`、`monitor_alerts`。**该结论未被推翻,而是被印证。**
+但需补一句公道话:L.2.6 当时预言「事后要拼接昨晚到底跑了什么会很痛」——
+新建的任务监控正是为解决那个痛点而生,它把散落的心跳与产出信号收敛成一个可判、可报、
+可复盘的面。**收敛的方向是对的,代价是存储数 +2;是否把它升格为唯一 run 视图,值得单列一轮。**
+
+### N.3 若干附录把已死的能力当作已落地
+
+- **`ingest_runs`**:附录中多处(及 ARCHITECTURE_REVIEW L88/L312)将其描述为运行日志 +
+  每源增量游标、「幂等可续」。实测该表**最后一行 2026-07-22**,并留有 **87 行永久 `running`**
+  (`finish()` 只在优雅退出时写,无 reaper);唯一写入方 `orchestration/daily.py` 那条路径
+  已不运行。真正全天在拉数的是 glmworker 自身循环(`run_once → _pull_fresh/_backfill`),
+  它零 runlog。**把「表里有 running 行」当作「在跑」是本次审计最核心的教训之一。**
+- **FMP**:附录 L/J 与 ultraplan 均把 `fmp.pull_news` 列为补齐的真实源。实测其 v3/v4
+  **全部端点返回 HTTP 403「Legacy Endpoint … no longer supported」——上游永久下线,不是
+  402/429 配额**。它写的 6 张表有史以来零行,却仍在 `daily_enabled_sources` 里,
+  每分片每晚空耗约 45 分钟,且因 `get_json` 吞异常而对监控完全静默。
+
+### N.4 测试隔离:K.3.2 是个例,这里是它的一般形式
+
+K.3.2 记录了 `test_calibration_buckets` / `test_link_idempotent_cursor` 两处「聚合读到不属于
+本测试的数据」,并把修复归因为需要 rollback-fixture 基建。2026-07-30 又出现同类的另一族
+(`test_buildlog::test_summary_groups_by_status` 等)。**一般形式是:凡是在共享库里提交真实
+日期数据、又用无序/无限定查询回读的测试,都会被生产数据污染。** 判别法不是看测试名,
+而是看它是否 (a) 写共享库且不回滚,或 (b) 读聚合时不按本测试的标识过滤。
+本轮新增的监控测试据此一律用 `isolated_db`(事务回滚),其中 `?fresh=1` 那条尤其必要 ——
+它会真写 `task_status_history`,而在宿主上跑测试时解析不了 `http://dagster:3000`,
+不回滚就会往生产时间线灌假的 ok↔unknown 跃迁。
+
+### N.5 新增但尚未被任何评审覆盖的面
+
+任务监控自身(判定语义、告警去重、软重启协议)只有单测与 `deploy/monitor/README.md`,
+**未经独立评审**。已知的自评弱点两条,留给下一轮:
+1. catalog 全是**新鲜度**探针,没有容器 RSS / OOM 探针 —— 故 `LOCAL_LLM_PLAN` 的 P0
+   (glmworker 内存增长 OOM 自愈循环)**不在监控覆盖内**;
+2. 软重启依赖 worker 循环能走到检查点,进程彻底卡死时无效(面板 tooltip 已注明需人工
+   `docker restart`),这条设计上不可能自洽,只能靠监控上报。
+
+> 处置建议:N.1 关闭;N.2 单列一轮讨论「run 视图收敛」;N.3 两项应进 daily 源清单的清理
+> (摘掉 fmp)与 `ingest_runs` 的去留决策;N.4 已在本轮新测试中落实;N.5 待独立评审。

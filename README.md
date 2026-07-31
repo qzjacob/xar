@@ -2,13 +2,13 @@
 
 围绕多条并行主题（首发：**AI 光互连**，现已扩展至 **8 大主题**：5 条 AI 供应链 + 3 条消费经济周期链，覆盖 947 家公司）自动汇聚公司公告、财报、研报元数据、新闻、产品页与招聘信号 →
 构建**双时态产业链知识图谱 + 时间戳化语义层（semantic_facts）+ RAG** → 经**多 Agent 流水线**产出**深度报告 / 跟踪摘要 / 投资启示**，每条结论可溯源引用，并由**日级自动增量采集**持续刷新。
-平台前端由**四个同级模块**组成：**XAR Chathy**（对话分析，默认首页 `/`）、**XAR Andy**（宏观指标，`/andy`）、**XAR Genny**（投研终端 + 数据室，`/genny`）、**XAR Fenny**（结构化票据 + 期权台，`/fenny`），另有 **前沿探索**（`/explore`）与 **运维控制台**（`/ops`）两个卫星页；全部为同一 React SPA 内的外壳，共享同一 Postgres + 本体 + 语义层 + 文档/嵌入/LLM 栈。
+平台前端由**五个同级模块**组成：**XAR Chathy**（对话分析，默认首页 `/`）、**XAR Andy**（宏观指标，`/andy`）、**XAR Genny**（投研终端 + 数据室，`/genny`）、**XAR Phanny**（季报多空事件交易 book，`/phanny`）、**XAR Fenny**（结构化票据 + 期权台，`/fenny`），另有 **前沿探索 Romy**（`/romy`）与 **运维控制台 Jarvy**（`/jarvy`）两个卫星页（2026-07-11 更名，旧 `/explore`、`/ops` 只是 302 兼容重定向）；全部为同一 React SPA 内的外壳，共享同一 Postgres + 本体 + 语义层 + 文档/嵌入/LLM 栈。
 
 > 交钥匙工程：填入一个 LLM Key 即可运行。设计蓝图见 [`DESIGN.md`](./DESIGN.md)，前端四大模块说明见 [`UI.md`](./UI.md)。
 
 ## 四大前端模块 — Chathy / Andy / Genny / Fenny
 
-同一个由 FastAPI 托管的 **React SPA**（React + TS + Tailwind），顶栏 **ModuleNav** 在 Chathy | Andy | Genny | Fenny（+ Explore / Ops 卫星）间切换；全站统一**深色金融终端主题**（Bloomberg 风、琥珀强调，`web/src/styles/theme.css` 的 CSS 变量 token 经 `tailwind.config.js` 消费）。
+同一个由 FastAPI 托管的 **React SPA**（React + TS + Tailwind），模块导航（`components/shell/SidebarNav.tsx`）在 Chathy | Andy | Genny | Phanny | Fenny（+ Romy / Jarvy 卫星）间切换；全站统一**深色金融终端主题**（Bloomberg 风、琥珀强调，`web/src/styles/theme.css` 的 CSS 变量 token 经 `tailwind.config.js` 消费）。
 
 - **XAR Chathy**（对话分析，默认首页 **`/`**）— ChatGPT 式流式、**工具调用**分析助手：以 SSE 流式 + function-calling 就地调用仪表盘同款的平台函数（语义事实、混合文档检索、仪表盘、供应链图谱、公司/环节详情、数据室文档）作答。后端 `models/llm.complete_stream()`（`TaskClass.CHAT` 走 `XAR_CHAT_MODELS` 的**精确有序订阅链** kimi-k3 → glm-5.2 → minimax-m3 → deepseek，推理力度拉满、输出预算 `XAR_CHAT_MAX_TOKENS`）+ `src/xar/chathy/{tools,sessions,agent}.py`（code-as-truth 工具注册表、≤12 轮工具循环 + 1 轮**收工回合**（撤掉工具、逼模型用已取证据作答，撞上限也不空手而归）、会话入 Postgres `chat_sessions`/`chat_messages`）+ `api/chathy.py`（`/api/chathy/*`）。
 - **XAR Andy**（宏观指标，**`/andy`**）— 理论锚定的宏观指标平台：vendored **`siliconomics` 硅基经济指标库**（`src/slx`，自 github.com/qzjacob/xar-andi，溯源/再同步见 [`ANDY_UPSTREAM.md`](./ANDY_UPSTREAM.md)）。**12 条理论锚**（A1–A8 + 4 META）×**43 个指标**（硬度分级 10 hard / 21 medium / 5 soft / 7 条不可量化「承重墙」），**双时态 point-in-time 库**（`valid_time`/`knowledge_time`/`vintage_date`，严格 `knowledge_time<=as_of` 防前视守卫），**18 个数据连接器**（零 key：sec_edgar/epoch_ai/fhfa/lbnl/indeed_hiring_lab/bls/stooq；带 key：FRED/BEA/EIA/EMBER/ACLED/Ticketmaster），**计量识别引擎**（DID + within-FE，真实 t 检验 p 值）与 **9 条过度宣称登记簿**（安全 AST DSL，判定 open/fixation_triggered/falsified/expired/inconclusive）。与主库**同一 Postgres、独立 `slx` schema**（search_path 隔离）；vendored FastAPI 挂载于 **`/api/andy`**。**勾稽层**：`ontology/macro_links.py`（code-as-truth，43/43 指标映射到 主题/环节/技术路线）+ `ingestion/macro_bridge.py` 把指标印字与判定跃迁蒸馏为 `kg_events(event_type='macro_print')` → 经 `semantic_facts` 零额外代码流入 Genny 信号流与 Chathy 工具（新增 `macro_indicators` 工具，识别水印逐字直通——soft 指标 = 未识别·勿作因果）。前端 5 个懒加载页（总览 / 指标库 / 指标审讯页 / 过度宣称登记簿 / 承重墙）+ 全局 `?as_of=` 防前视控制，teal 强调；Genny 侧配套 `MacroStrip` 反向勾稽 pill。
@@ -30,8 +30,8 @@ docker compose up --build
 ```
 
 打开 <http://localhost:8000> → 默认进入 **Chathy 对话分析**（`/`），直接提问即可（它会工具调用整个平台作答）。投研终端已移到 **Genny**（`/genny`）：点「采集全部公司」→ 选公司 + 报告类型 → 「生成报告」；宏观指标在 **Andy**（`/andy`，种子数据：`docker compose exec app xar andy ingest --seed`）；结构化票据/期权台在 **Fenny**（`/fenny`）。
-顶栏 **ModuleNav** 另可进入 **/explore**（前沿探索）与 **/ops**（运维控制台）。内置 Web UI 说明见 [`UI.md`](./UI.md)。
-`docker compose up` 同时起一个 **Dagster 边车**（日级自动采集运行时，UI / 运行历史 / 重试在 <http://localhost:3001>）；schema 仅由 `app` 容器 `xar init` 建表，Dagster 复用同一 Postgres。
+模块导航（`components/shell/SidebarNav.tsx`）另可进入 **/romy**（前沿探索）与 **/jarvy**（运维控制台，含 **Monitor 任务监控**页）。内置 Web UI 说明见 [`UI.md`](./UI.md)。
+`docker compose up` 同时起一个 **Dagster 边车**（日级自动采集运行时，UI / 运行历史 / 重试在 <http://localhost:3001>）；schema 仅由 `app` 容器 `xar init` 建表，Dagster 复用同一 Postgres。compose 对 Dagster 只读挂载的 `deploy/dagster/dagster.yaml` 是**承重配置**——缺了会退回 Dagster 默认（`run_monitoring` 关闭），僵尸 run 占满并发槽后整条队列死锁，详见架构表「编排」行。
 
 唯一**必填**项是**一个 LLM Key**（任选其一）。数据库、向量库、嵌入模型（CPU，无需 GPU）、对象存储都已内置自动初始化。所有行情/另类数据 provider 的 Key 全部可选，缺失即自动跳过。Andy 宏观连接器同理：零 key 连接器（sec_edgar / epoch_ai / fhfa / lbnl / indeed_hiring_lab / bls / stooq）开箱即用；带 key 连接器（`FRED_API_KEY` / `BEA_API_KEY` / `EIA_API_KEY` / `EMBER_API_KEY` / `ACLED_API_KEY`+`ACLED_EMAIL` / `TICKETMASTER_API_KEY`，另有可选 `SLX_SLACK_WEBHOOK` 判定跃迁告警，见 `.env.example`）全部可选。
 
@@ -53,11 +53,11 @@ xar serve                         # Web UI: http://localhost:8000
 
 ## 终端外壳与卫星模块（Genny 终端 · Ops · Explore）
 
-除上文 Chathy / Andy / Genny / Fenny 外，同一 React SPA 还含两个经 **ModuleNav** 切换的卫星模块，共享同一套 Postgres + 文档/嵌入/LLM 栈：
+除上文 Chathy / Andy / Genny / Fenny 外，同一 React SPA 还含两个经模块导航（`components/shell/SidebarNav.tsx`）切换的卫星模块，共享同一套 Postgres + 文档/嵌入/LLM 栈：
 
 1. **投研终端（Genny）**（`/genny`）— 投研主控台，主线为 **主题 → 环节 → 公司 → 信号 → 决策**；深色底 + 琥珀强调（`accent`），`Sidebar` + `TopBar` + `DecisionRail` + 全局 `DataProvider` context，并新增 **数据室**（`/genny/dataroom`）；legacy `/segment/:id`、`/company/:id` 自动重定向至此。
-2. **运维控制台 Operations Console**（`/ops/*`）— 管理控制平面，琥珀色强调（`warn`），`AdminLayout`。9 个子页：总览、本体、**覆盖度**（947 公司 × 16 维 主题热力，`/ops/coverage`）、数据源、数据湖、另类数据、模型、连接器、技能（overview / ontology / coverage / sources / datalake / altdata / models / connectors / skills）。
-3. **前沿探索 Exploration**（`/explore`、`/explore/:sectionId`）— **新增第三模块**，面向人类知识前沿。靛蓝色强调（`explore`），`ExplorationLayout` + `ExplorationSidebar`。详见下文。
+2. **运维控制台 Operations Console**（`/jarvy/*`）— 管理控制平面，琥珀色强调（`warn`），`AdminLayout`。11 个子页：总览、**任务监控**（`/jarvy/monitor`，侧栏带未解决 critical 红点计数）、**抓取工人 Fetchy**、本体、**覆盖度**（947 公司 × 16 维 主题热力，`/jarvy/coverage`）、数据源、数据湖、另类数据、模型、连接器、技能（overview / monitor / fetchy / ontology / coverage / sources / datalake / altdata / models / connectors / skills）。
+3. **前沿探索 Exploration**（`/romy`、`/romy/:sectionId`）— **新增第三模块**，面向人类知识前沿。靛蓝色强调（`explore`），`ExplorationLayout` + `ExplorationSidebar`。详见下文。
 
 ## 8 大主题（947 家公司）
 
@@ -106,7 +106,7 @@ xar serve                         # Web UI: http://localhost:8000
 |---|---|---|
 | 存储 | **单 Postgres + pgvector**：向量 + 关系 + 双时态图谱 | Neo4j/Graphiti（图）、Qdrant（向量） |
 | 采集（非结构化） | edgartools（美股 SEC，绿）· AKShare（A 股 cninfo，绿；研报仅元数据，红——评级/目标价确定性解析入 `analyst_ratings`）· trafilatura（新闻/产品页）· **精选行业 RSS**（`ingestion/feeds.py` **16 条人工核验源 × 8 主题**，公开无 key，`xar pull-rss`）· **微信公众号（we-mp-rss，灰；多层级 SNR 挖掘，见下）** · ATS 官方 API（招聘，绿） | Crawl4AI、Tushare Pro |
-| 采集（结构化/另类） | **多 provider 套件**：Finnhub（基本面/估计/评级/内部交易 + **公司新闻** `pull_news`/`pull_general_news` + **财报日历→`event_calendar`**，速率感知全篮扫）· FMP（三大报表/分析师估计/目标价/日线 + **公司新闻** `pull_news`）· Polygon（深度日线 + vX 财报）· Yahoo/yfinance（免费全球价格+基本面 + **纵深**：全球评级/目标价/预期、空头持仓+流通盘（4 个新 CORE 指标键）、分红/拆股/财报日→日历、季度三表真实 `period_end` 含 capex/FCF；含 A 股，无 key）· **EDGAR 纵深**（`ingestion/xbrl.py` 8 季度 XBRL 财务时序 + `ingestion/holdings13f.py` 29 家管理人 13F→`holdings`）· **AIFINmarket / 万得**（CN A 股基本面+公告+资讯，MCP-over-HTTP）· **Futu 富途/moomoo**（HK+A 股+US：快照估值 + 主力资金流 + 板块→本体，经本地 OpenD 网关，默认关，见下）· Polymarket（预测市场，公开）· X/Reddit（社媒情绪）· Wind（CN-A 深度，需本地终端） | 任意 provider；均按需配置，缺 key 自动跳过 |
+| 采集（结构化/另类） | **多 provider 套件**：Finnhub（基本面/估计/评级/内部交易 + **公司新闻** `pull_news`/`pull_general_news` + **财报日历→`event_calendar`**，速率感知全篮扫）· Polygon（深度日线 + vX 财报）· Yahoo/yfinance（免费全球价格+基本面 + **纵深**：全球评级/目标价/预期、空头持仓+流通盘（4 个新 CORE 指标键）、分红/拆股/财报日→日历、季度三表真实 `period_end` 含 capex/FCF；含 A 股，无 key）· **EDGAR 纵深**（`ingestion/xbrl.py` 8 季度 XBRL 财务时序 + `ingestion/holdings13f.py` 29 家管理人 13F→`holdings`）· **AIFINmarket / 万得**（CN A 股基本面+公告+资讯，MCP-over-HTTP）· **Futu 富途/moomoo**（HK+A 股+US：快照估值 + 主力资金流 + 板块→本体，经本地 OpenD 网关，默认关，见下）· Polymarket（预测市场，公开）· X/Reddit（社媒情绪）· Wind（CN-A 深度，需本地终端）。⚠️ **FMP 已从可用源除名**：v3/v4 全部端点返回 HTTP 403 `Legacy Endpoint … no longer supported`（**不是** 402/429 配额问题），它写的 6 张表**有史以来零行**——买 key 也点不亮，勿再采购 | 任意 provider；均按需配置，缺 key 自动跳过 |
 | 采集（前沿） | **arXiv**（预印本，公开）· **Journals**（Quanta / Physics World RSS）· X 专家之声（计量 API：默认关 + $20/月总限额，见下） → 前沿探索模块 | 任意公开学术源 |
 | 宏观指标（Andy） | **vendored `src/slx`（siliconomics）**：12 理论锚 × 43 指标注册表 · 双时态 PIT 库（独立 `slx` schema，`knowledge_time<=as_of` 防前视）· 18 连接器（7 个零 key）· DID/within-FE 识别引擎 · 9 条过度宣称登记簿；勾稽层 `ontology/macro_links.py` + `ingestion/macro_bridge.py` → `kg_events(macro_print)` → `semantic_facts` | 上游 xar-andi 独立运行（见 `ANDY_UPSTREAM.md`） |
 | 解析 | pdfplumber + 分块 + **数值对账闸(tie-out)** | Docling（`.[parse-deep]`）、MinerU |
@@ -117,8 +117,9 @@ xar serve                         # Web UI: http://localhost:8000
 | 检索 | pgvector 稠密 + trigram 词法，RRF 融合 + GraphRAG | RAGFlow、LightRAG |
 | 多 Agent | 可控 DAG：规划→图谱→分析师→多空辩论→风险→主编→**证据闸**→**人工审批** | LangGraph（同构） |
 | 模型 | **LiteLLM + 任务路由器**：按 `TaskClass` 路由的可更新模型库（`models/registry.py`/`router.py`），计价感知（批量/检索→GLM/Kimi 订阅制，质量→token 跨厂回退；**glmworker 抽取 2026-07 起本地优先**——ollama `qwen3-14b-xar` @ RTX 3090 零成本，云 GLM 自动回落）+ 计费感知成本追踪 + 单次预算上限 | 任意 LiteLLM provider / 本地开源 |
-| 编排 | Dagster 资产化增量刷新（`.[orchestration]`）：`orchestration/definitions.py` 的 `pull_shard`（8 静态分区，06:00 调度）+ `extract_all`（单批，06:30）+ `core_daily`（按需），调度**默认 RUNNING**（起边车即自动夜跑）；compose 中 **dagster 边车** 暴露 <http://localhost:3001> | — |
-| 日级自动采集 | `orchestration/daily.py` `run_daily(stages=('pull','extract'))`：按源增量 PULL（按公司分片、隔离失败）→ 解析/嵌入 → build_kg → expert → signals → `resolve_forward_claims`；`storage/runlog.py` + 新表 **`ingest_runs`** = 运行日志 + 增量游标（last_success_ts），内容哈希 + NOT-EXISTS 游标做幂等/可续跑。CLI `xar daily` | — |
+| 编排 | Dagster 资产化增量刷新（`.[orchestration]`）：`orchestration/definitions.py` 的 `pull_shard`（8 静态分区，06:00 调度）+ `extract_all`（单批，06:30）+ `core_daily`（按需），调度**默认 RUNNING**（起边车即自动夜跑）——但**调度 RUNNING ≠ run 真的执行**：2026-07-29 审计发现队列死锁已让夜间 ingest **连续 7 天零执行**，schedule 仍显示绿的。治理落在仓库版 `deploy/dagster/dagster.yaml`（compose 只读挂载；放仓库不放卷，因为卷里的手改不受版本控制、换机即丢）：开 `run_monitoring` + **必须显式设** `max_runtime_seconds=28800`（`DefaultRunLauncher.supports_check_run_worker_health=False`，真正回收僵尸 run 的是 `check_run_timeout`；否则容器重建打死的 run 永远停在 STARTED、每次泄漏一个并发槽，攒满默认 `max_concurrent_runs=10` 即全队列锁死）· 并发由单一全局闸改为**分 job 限额**（`tag_concurrency_limits`：pull_schedule=6 / extract_schedule=1，总闸 7）· 三个单步 asset job 改 `in_process_executor` · 容器 `init: true` 收僵尸。内存实测（容器硬限 8G，**不上调**——docker.slice 软闸 24G 已被打满，提限会把聚合推向 28G 硬闸、冲顶时受害的是整个栈）：`pull_shard` ~730MB/run、`extract_all` ~1759MB（含仅 `parse_pending` 加载的 fastembed +618MB）。compose 中 **dagster 边车** 暴露 <http://localhost:3001> | — |
+| 日级自动采集 | `orchestration/daily.py` `run_daily(stages=('pull','extract'))`：按源增量 PULL（按公司分片、隔离失败）→ 解析/嵌入 → build_kg → expert → signals → `resolve_forward_claims`；`storage/runlog.py` + **`ingest_runs`** = 运行日志 + 增量游标（last_success_ts），内容哈希 + NOT-EXISTS 游标做幂等/可续跑。CLI `xar daily`。⚠️ **`ingest_runs` 现已是死表**（最后一行 2026-07-22，87 行永久 running）：唯一写入方 `daily.py` 这条路径已不运行；真正全天在拉数的是 **glmworker 自己的循环**（`run_once → _pull_fresh/_backfill`），它**零 runlog**——想知道「昨晚到底拉没拉」只能看任务监控，别信 `ingest_runs` | — |
+| 任务监控 | `monitoring/{catalog,detector,sweep,alerts,actions,control,dagster_gql}.py` + `api/monitor.py`：app 容器内后台线程每 **120s** 一轮，覆盖 **22 个任务**（常驻 worker + 13 个拉取源 + dagster + slx + 平台）。判定用**双信号取较坏者**——心跳（有没有尝试）与产出（真的产出了东西），另有 `Probe.degrade` 表达非新鲜度类坏消息（守护 unhealthy / 队列死锁 / 部分 run 失败）；恶化需连续 2 轮确认、恢复立即。落 `task_status_history` / `monitor_alerts`（去重靠部分唯一索引 `(task_id) WHERE state<>'resolved'`）；critical 经**专用 Telegram bot**（`XAR_MONITOR_BOT` + `XAR_MONITOR_TELEGRAM_CHAT`）推手机、warn 只进页内。带外兜底 `deploy/monitor/deadman.sh` 挂宿主 crontab 每 10 分钟——app 整个挂了时进程内报警会一起陪葬，这一层是唯一还能发声的。前端 `/jarvy/monitor`，runbook `deploy/monitor/README.md`。起因：2026-07-29 审计发现夜间 ingest 连续 7 天零执行，且 wechat/futu/gangtise 静默哑火 6.5/24/4 天而 cadence 戳仍是绿的 | — |
 | 评测 | 检索命中率 + 报告 rubric（LLM-judge）+ Phoenix（`.[eval]`） | — |
 | 回测 | 催化剂→远期收益 信号有效性：驱动自 **`semantic_facts`**（非仅 kg_events），按 (category, polarity, kind, time_orientation) 键控，严格 PIT 进场 = `GREATEST(as_of, observed_at)` | — |
 
@@ -157,12 +158,12 @@ xar serve           Web UI + API
 xar andy <cmd>      宏观指标：init · ingest[--seed|--connector NAME|--all-real] · identify · evaluate[--sync] · sync-events · status
 ```
 
-**前端路由**：`/`（Chathy）· `/andy/*`（宏观指标，懒加载，全局 `?as_of=` 防前视）· `/genny`（+ `dataroom` · `segment/:id` · `company/:id`；legacy `/segment/:id`、`/company/:id` 重定向至此）· `/fenny/*`（懒加载）· `/explore`（+ `/:sectionId`）· `/ops` + 9 个子页（含 `/ops/coverage` 覆盖度热力）。
+**前端路由**：`/`（Chathy）· `/andy/*`（宏观指标，懒加载，全局 `?as_of=` 防前视）· `/genny`（+ `dataroom` · `segment/:id` · `company/:id`；legacy `/segment/:id`、`/company/:id` 重定向至此）· `/phanny/*`（季报交易，懒加载）· `/fenny/*`（懒加载）· `/romy`（+ `/:sectionId`）· `/jarvy` + 11 个子页（含 `/jarvy/monitor` 任务监控、`/jarvy/fetchy` 抓取工人、`/jarvy/coverage` 覆盖度热力）；旧 `/explore/*`、`/ops/*` 自 2026-07-11 起只是 302 兼容重定向。
 设计 token（**深色金融终端主题**，`web/src/styles/theme.css`）：`brand` · `accent`（琥珀，全站强调）· `warn`（运维）· `explore`（violet，探索）· `pos`/`neg`；Andy 页面用 teal 强调 ramp；plotly 收敛在 Andy/Fenny 共享的单一懒加载分片（`components/charts/PlotlyChart.tsx`）。
 
 主要 API：`/api/providers` · `/api/pull` · `/api/fundamentals/{id}` · `/api/estimates/{id}` ·
 `/api/prices/{id}` · `/api/prediction-markets` · `/api/social/{id}` · `/api/signals/{id}` ·
-`POST /api/thesis/{cid}/build`（投资论点生成/刷新）· `/api/ops/coverage`（16 维覆盖度）· `/api/ops/wechat-mining`（微信 triage 保留率 + 策展名册 + 猎取目标）· `/api/ops/futu`（富途接入总览：连通/资讯/资金流/板块/本体缺口）·
+`POST /api/thesis/{cid}/build`（投资论点生成/刷新）· `/api/ops/coverage`（16 维覆盖度）· `/api/ops/wechat-mining`（微信 triage 保留率 + 策展名册 + 猎取目标）· `/api/ops/futu`（富途接入总览：连通/资讯/资金流/板块/本体缺口）· `/api/ops/monitor`（任务监控；+ `/summary` · `/alerts` · `/history` 与 `ack`/`resolve`/`actions`/`mute`）·
 `/api/chathy/*`（对话分析）· `/api/andy/*`（宏观指标，挂载 slx 子应用：`health` · `metrics[/{key}?as_of=]` · `registry/anchors` · `registry/metrics` · `overclaims[/evaluate]`；XAR 原生勾稽路由 `/api/andy/link/{themes, theme/{theme}?as_of, metric/{metric_key}, sync-events}` 注册于挂载之上）· `/api/genny/dataroom/*`（数据室）· `/api/fenny/*`（结构化票据/期权，挂载子应用）·
 `/api/ui/*`（投研仪表盘）· `/api/ops/*`（运维控制台）· `/api/exploration/*`（前沿探索）。
 
@@ -182,12 +183,12 @@ Product，便于 JSON-LD 导出）。不整体采用 FIBO：它穷尽刻画金�
 社媒/研报文本镜像进 `documents`，照常走 RAG + LLM 抽取嵌入本体。映射保持在 10 类催化剂分类内
 （`SIGNAL_TO_CATALYST`），具体信号子类记于事件 summary。
 
-**专家 Agent 层**（`kg/expert.py`）：用 LLM 对另类数据（X / 微信公众号 / 新闻 / AIFINmarket / **Finnhub / FMP 公司新闻**）做相关性 / 立场 /
-质量过滤 → `expert_insights` 表 + `kg_events(license=expert)`，作为信噪比放大器展示于 `/ops/altdata`。`ALT_SOURCES` 已含 finnhub/fmp，新闻同时流入 build_kg 与专家层。
+**专家 Agent 层**（`kg/expert.py`）：用 LLM 对另类数据（X / 微信公众号 / 新闻 / AIFINmarket / **Finnhub 公司新闻**）做相关性 / 立场 /
+质量过滤 → `expert_insights` 表 + `kg_events(license=expert)`，作为信噪比放大器展示于 `/jarvy/altdata`。`ALT_SOURCES` 里的 finnhub 新闻同时流入 build_kg 与专家层；**fmp 虽仍列于 `ALT_SOURCES`，但上游已 403 永久下线、零产出**（见架构表采集行），不要按可用源对待。
 
 **投资论点层（CompanyThesis）**（`ontology/thesis.py` + `research/thesis.py`）：论点不是自由文本而是**类型化对象**——3–6 个支柱（demand/moat/supply_chain/technology 等 8 类）的每条主张以类型化外键锚回平台事实（event/edge/chunk/insight/fundamental/estimate），带可证伪 falsifier 与 watch_metrics/watch_event_types；`validate_thesis` 纪律校验（证据 id 必须存在于 dossier、**总证据锚 <5 条时 conviction ≤3**），不过即拒绝入库。生成走 `TaskClass.THESIS`（订阅池优先、批量成本有界），版本化写入 `company_thesis`/`thesis_evidence`；**论点健康度零 LLM**：新事实按支柱 watch_event_types × 极性聚合，机器判 confirming/challenging/quiet。CLI `xar thesis`，API `POST /api/thesis/{cid}/build`，Chathy 工具 `get_thesis`。
 
-**360° 覆盖度**（`ontology/coverage360.py`）：「一家公司我们知道多少」的机器可算口径——**16 个维度**（文档/催化剂/前瞻日历/财务快照/**财务时序(含 capex)**/预期/评级/行情/**13F 持仓**/内部人/供应链/社媒/专家/论点…）各带探针 SQL + 目标行数 + 权重，为 947 家公司批量算 0–1 加权覆盖分，喂 `/ops/coverage` 主题×维度热力看板、公司页 CoverageRing、采集优先级与论点的诚实 coverage_gaps。
+**360° 覆盖度**（`ontology/coverage360.py`）：「一家公司我们知道多少」的机器可算口径——**16 个维度**（文档/催化剂/前瞻日历/财务快照/**财务时序(含 capex)**/预期/评级/行情/**13F 持仓**/内部人/供应链/社媒/专家/论点…）各带探针 SQL + 目标行数 + 权重，为 947 家公司批量算 0–1 加权覆盖分，喂 `/jarvy/coverage` 主题×维度热力看板、公司页 CoverageRing、采集优先级与论点的诚实 coverage_gaps。
 
 ## 微信公众号接入（we-mp-rss → 本体）
 

@@ -33,10 +33,37 @@
 
 **做法**:容器内加周期性 RSS 自报(worker 每 N 周期 log `resource.getrusage`/`tracemalloc` top);
 或宿主 `docker stats` 采样定位增长斜率与阶段相关性(pull/parse/extract 哪一段涨)。
+
+> **2026-07-31 交叉引用:嫌疑 ②(fastembed)已在 dagster 容器上被量出,可省一步。**
+> 方法是在容器内逐步 import 并读 `/proc/self/status` 的 VmRSS:裸进程 8.8MB →
+> `import xar.orchestration.daily` 后 **213.8MB**(这就是每个 worker 进程的固定底);
+> 再 `embeddings.embed_documents([...])` 触发模型加载后 **832MB(+618MB)**。
+> 关键结论:**fastembed 是懒加载的,唯一调用点是 `parse.parse_pending()`**
+> (`grep embed_documents` 全仓只有 `parsing/parse.py:85` 与 `retrieval/vector.py:47`),
+> 所以只跑 pull 的进程**不会**付那 618MB。据此,glmworker 若观察到 ≫214MB 的稳态底,
+> 差值来自嫌疑 ①③④ 而非 ②——除非它确实跑了 parse 阶段(它默认是跑的,见 `FETCHY_STAGES.parse`)。
+> 建议下一步直接量 glmworker 的 VmRSS 曲线并按 `run_once` 阶段打点,而不是从头猜。
+>
+> ⚠️ 另注:**2026-07-29 上线的任务监控不覆盖本项** —— 它的探针全是「新鲜度」类
+> (心跳时间戳 / 产出时间戳),`catalog.py` 里没有任何容器 RSS 或 OOM 探针。
+> 也就是说 glmworker 再次进入 OOM 自愈循环时,面板只会显示它「活着」(心跳照常刷新),
+> 不会报警。要覆盖需另加一类资源探针。
+>
+> ⚠️ 复现性缺口:本节引用的 `mem_limit: 5g`(以及 dagster 的 8G)只存在于
+> **未被版本控制**的 `docker-compose.override.yml`(.gitignore,且由
+> `fix-minis-oom-freeze.sh` 生成会被重写)。换机/重装后这些限额会静默消失,
+> 而上面整套内存推理都以它们为前提。
 **验收**:worker 连续 ≥48h 无 memcg kill(`journalctl -k | grep "Memory cgroup out of memory"` 零新增),
 或有意识地裁定「接受自愈循环」并把 restart 语义与周期状态恢复做成显式设计(文档化)。
 
 ## P1 — 7 天 soak(至 2026-07-26)与通过后的收尾清理
+
+> **2026-07-31 状态核查:截止日已过 5 天,而 soak 结论从未记录,闸后清理也未执行。**
+> 实测 `src/xar/models/registry.py`:三个赛马败者 `qwen35-local`(:202)/`qwen3-local`(:207)/
+> `glm4-0414-local`(:212)仍是 `Status.PREVIEW`,`glm4-local`(:192)仍无 `status=`(即 ACTIVE)。
+> 也就是说,既没有「通过并清理」,也没有「失败并回滚」——**这份含糊本身才是缺陷**:
+> 回滚位到底还在不在、`ollama` 那 ~42G 该不该释放,现在没有依据可判。
+> 下一步应先补跑一次 `soak-check.sh 24` 并把结论写进本节,再决定执行清理还是回滚。
 
 **soak 口径**(每日一次 `soak-check.sh 24`):
 - kg_extract 云端占比 ≤5%(回落信号;本地失败不记账,云占比即信号);

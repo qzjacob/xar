@@ -1,5 +1,11 @@
 # Plan — Ontology-anchored, timestamped semantic database + daily auto-ingest system
 
+> **2026-07-31 附注(仅状态更新,正文保留原貌)**:本文 Pillar A 的两处已不成立 ——
+> ① `fmp.pull_news` 指向的 `/v3/stock_news`(及全部 v3/v4 端点)现返回 HTTP 403
+>    "Legacy Endpoint … no longer supported",该源自建成起产出为零,并非配额问题;
+> ② `ingest_runs` 自 2026-07-22 起无新行(87 行永久 running),真实拉取路径是
+>    glmworker 自身循环。Dagster 侧的治理见 `deploy/dagster/dagster.yaml`。
+
 > **STATUS: IMPLEMENTED / SHIPPED** on branch `feat/semantic-db-daily-ingest` — 36 pytest pass, `ruff` clean,
 > running in docker (app http://localhost:8000, Dagster http://localhost:3001, Postgres+pgvector). All of
 > Pillars A/B/C below are applied and idempotent (`init_schema()` re-runs clean): `semantic_facts` view +

@@ -21,7 +21,7 @@
 | 检索 | Graphiti + RAGFlow 混合 | **pgvector 稠密 + pg_trgm 词法，RRF(k=60) 融合 + GraphRAG 遍历** |
 | 多 Agent | LangGraph DAG | **自建可控 DAG**：规划→图谱检索→5 分析师→多空辩论→风险→主编→证据闸→人审中断（检查点入 `report_runs.state`）。**run 状态机硬化（2026-07-20 复评修复轮）**：`approve` 仅接受 `awaiting_approval`（published 幂等/running·failed 拒绝）；任何异常统一落 `failed` 不卡 `running`；变更类 `/api/*` 可选 `XAR_API_TOKEN` 护栏（默认关，见 CODE_REVIEW 附录 I） |
 | 模型网关 | LiteLLM → Claude | **LiteLLM + LLM 任务管理器**（code-as-truth 模型库 `models/registry.py` + 任务路由 `models/router.py` + `llm.py` 跨候选回退执行器）：按 `TaskClass`（11 类）路由到有序候选链，**计费感知**（token vs 订阅）+ 单次/单批美元预算上限 + 成本计费；bulk/search 任务（`kg_extract`/`expert`/`search_bulk`）订阅优先（GLM/Kimi 平价）、quality 任务（debate/editor/synth）强 token 跨厂回退；**glmworker 钉扎路径 2026-07-19 起本地优先**（minis RTX 3090 ollama `qwen3-14b-xar` 零成本，云 GLM 订阅自动回落）；运行时换代经 `route_overrides` 表（`POST /api/ops/llm/route`）。**默认 DeepSeek V4**：`XAR_MODEL_FAST=deepseek/deepseek-v4-flash` + `XAR_MODEL_STRONG=deepseek/deepseek-v4-pro` + `XAR_MODEL_BULK`，`XAR_MODEL_EFFORT=high`；`complete_json` 走 JSON-mode 保障结构化输出；一行 env 或注册表 `preferred=True` 即切任意 LiteLLM 模型（`claude-opus-4-8` / `claude-haiku-4-5` / GLM / Kimi）。详见 §6.1 |
-| 编排 | Dagster | **已部署**：`orchestration/daily.py run_daily` 每日增量链（CLI `xar daily`）+ Dagster 旁车（`orchestration/definitions.py`：`pull_shard` 分片 06:00 / `extract_all` 06:30，docker-compose 暴露 `:3001` UI/重试/run 历史） |
+| 编排 | Dagster | **已部署**：`orchestration/daily.py run_daily` 每日增量链（CLI `xar daily`）+ Dagster 旁车（`orchestration/definitions.py`：`pull_shard` 分片 06:00 / `extract_all` 06:30，docker-compose 暴露 `:3001` UI/重试/run 历史）。**实例配置仓库化（2026-07-29）**：`deploy/dagster/dagster.yaml` 由 compose 只读挂载——`run_monitoring.enabled` + 显式 `max_runtime_seconds=28800`（僵尸 run 回收）、`tag_concurrency_limits` 分 job 限额（pull_schedule=6 / extract_schedule=1，总闸 7）、单步 asset job 用 `in_process_executor`、容器 `init: true` 收僵尸进程，见 §5.7。**注意**：Dagster 只管夜间分片批与 extract；**全天真正在拉数的是 glmworker 常驻循环**（`run_once → _pull_fresh/_backfill`，零 runlog），`ingest_runs` 已是死表 |
 | 评测/追踪 | Phoenix + Langfuse | 自建检索命中率 + 报告 rubric(LLM-judge)；`llm_usage` 表做成本追踪；Phoenix 可选(`.[eval]`) |
 | 前端 | Next.js + Vercel AI SDK | **React + TS + Tailwind SPA**（`web/`，FastAPI 托管编译产物；无构建时回退内置原生单页 `api/static/index.html`，见 `UI.md`） |
 | 包/运行 | 多服务 compose | Python 包 `xar`（`pip install` / `docker compose up`），CLI 入口 `xar` |
@@ -41,10 +41,11 @@
 11. **前沿探索模块（Exploration，第三个顶层模块）** —— 6 个前沿领域（AI 优先），arXiv 预印本 + 顶刊 + X 专家声音 → LLM 合成前瞻性**研究前沿**；复用 documents/embeddings/LLM/db 栈，新增 `frontier_fronts` + `frontier_domain_state` 两表（详见 §2.2/§5.3/§9）。该交付经独立审计 Agent 复核 → **PASS**。
 12. **语义数据库（headline，时间戳化、可回测、本体锚定的语义层）** —— 承载结构化数值表（基本面/估计/价格）**不**承载的内容：催化剂叙事、立场、因果、前瞻预期。设计决策=**加性复用既有三张双时态表**而非另立并行表：`kg_events`（新增列 theme/segment/narrative/time_orientation/resolution/…）+ `kg_edges`（新增 `causally_linked` EdgeType）+ `expert_insights`（新增 as_of/theme/segment/time_orientation），由单一 SQL `VIEW semantic_facts`（UNION）统一点查；抽取（`kg/extract.py`）填 `time_orientation`(forward/backward) + 因果/前瞻 `narrative` + `drivers`（因果实体→`causally_linked` 边）；`graphrag.semantic()` 点查该视图，`agents/nodes.py` 把语义流注入分析师 brief（详见 §5.6）。
 13. **前瞻声明解析生命周期** —— `kg/resolve_claims.py resolve_forward_claims()` 闭合"预期→兑现"环：一条有方向的 `forward_looking` 催化剂在窗口内出现同公司 `backward_looking` 兑现型事件时解析为 **hit/miss**（极性一致=hit、相反=miss；按 `COALESCE(event_date, observed_at)` 定时），否则 **stale**（可复查）；**仅** mutate forward 行，经 `semantic_facts.resolution` 暴露；CLI `xar resolve-claims`（详见 §5.6）。
-14. **每日自动增量链 + Finnhub/FMP 新闻源** —— `orchestration/daily.py run_daily(stages=('pull','extract'))`：按公司分片的逐源增量 PULL（隔离失败）→ 解析/嵌入 → `build_kg` → expert → signals → `resolve_forward_claims`（extract 全局只跑一次，LLM 阶段有预算上限、廉价 DB 阶段照常跑）；`storage/runlog.py` + 新表 `ingest_runs` = run 日志 + 逐源增量游标（`last_success_ts`），幂等可续（内容哈希 + NOT-EXISTS 游标）；CLI `xar daily`。`providers/finnhub.pull_news`(+`pull_general_news`)/`providers/fmp.pull_news` 把公司新闻落 `documents`（source=finnhub/fmp，permission=grey，自用摘要、内容哈希去重），`api/ops.py` 注册 `finnhub_news` 源，`kg/expert.ALT_SOURCES` 纳入 finnhub/fmp（新闻同入 build_kg 与专家层）。
+14. **每日自动增量链 + Finnhub/FMP 新闻源** —— `orchestration/daily.py run_daily(stages=('pull','extract'))`：按公司分片的逐源增量 PULL（隔离失败）→ 解析/嵌入 → `build_kg` → expert → signals → `resolve_forward_claims`（extract 全局只跑一次，LLM 阶段有预算上限、廉价 DB 阶段照常跑）；`storage/runlog.py` + 新表 `ingest_runs` = run 日志 + 逐源增量游标（`last_success_ts`），幂等可续（内容哈希 + NOT-EXISTS 游标）；CLI `xar daily`。`providers/finnhub.pull_news`(+`pull_general_news`)/`providers/fmp.pull_news` 把公司新闻落 `documents`（source=finnhub/fmp，permission=grey，自用摘要、内容哈希去重），`api/ops.py` 注册 `finnhub_news` 源，`kg/expert.ALT_SOURCES` 纳入 finnhub/fmp（新闻同入 build_kg 与专家层）。**FMP 已上游死亡（2026-07-29 实测）**：v3/v4 全部端点 403 `Legacy Endpoint … no longer supported`（**非配额、非缺 key**），其 6 张表有史以来零行——这一路实际只剩 finnhub，详见 §4.1。
 15. **公司 360 / 投资论点层（2026-07）** —— 类型化 `CompanyThesis`（`ontology/thesis.py`，证据类型化外键 + `validate_thesis` 纪律 + conviction–证据耦合）+ 生成管线（`research/thesis.py`：dossier→build→版本化 `company_thesis`/`thesis_evidence`→零 LLM 健康度）+ **16 维覆盖度**（`ontology/coverage360.py`→`/ops/coverage`）+ **五路数据纵深**（Finnhub 财报日历/篮扫、Yahoo 纵深、EDGAR XBRL+13F、CN 补齐、RSS 框架）+ Company 360 前端；Dagster 调度改默认 RUNNING。详见 §5.9。
 16. **微信多层级挖掘系统（2026-07）** —— 在深度抽取**之前**插入一层廉价、GLM 订阅钉扎的 **SNR triage 闸**（`mining/triage.py`），把微信「值不值得深抽」的判断前移：零 LLM 中文预筛（`ontology/cn_routing.py` 8 主题 + 33 tr_\* 中文关键词，补齐此前全英文关键词表的中文缺口）→ 一次 `WECHAT_TRIAGE` 短调用 → 可审计融合 + 小作文地板 + 新颖度救回 → `documents.triage_score`；两条 NULL 安全 WHERE 守卫（`build_kg`/`expert`）按 `triage_score >= 0.4` 门控（未 triage 照旧全流，向后兼容），把「每篇微信 2 次满额 GLM、保留率 3.75%、~96% 额度烧噪音」压到高信噪比文章才耗深度额度。含 T0 论点驱动目标化（`mining/targeting.py`）+ T1 策展名册（`mining/roster.py` + `wechat_accounts`，非关键词搜索）+ 中英嵌入升级（`xar reembed`→e5-large 1024d）。详见 §5.10。
 17. **富途 OpenAPI 接入（2026-07）** —— 经本地 **OpenD 网关**（`providers/futu.py`，镜像 Wind 的本地守护进程姿态：`XAR_ENABLE_FUTU=true` + 可达 OpenD 才 arm、否则整源 graceful-skip）补齐 FMP/finnhub 缺失的 **港股 + A 股 + 美股（带中文名）广度**：市场快照→规范估值（PE/PB/市值/EPS/股息率→`FinMetric`）+ 价格 bar、`get_search_news`→`documents(source=futu, permission=grey，仅标题+链接自用)`、`get_owner_plate`→`futu_plates` 表 + `plate_theme_gaps()` 本体缺口发现器；资金流 alt-signal `alt.futu_main_capital_flow`（`providers/alt/futu_flow.py`，主力净流入，绑定任何带 HK/CN/US ticker 的公司 ~436 家）；板块→本体经 `ontology/futu_plates.py` **复用 `cn_routing`**（无新映射表）；`scripts/futu_universe_gen.py` 从主题板块生成 HK/A 股候选供**人工复核**（不自动并入，防概念板块污染本体）。详见 §5.11。
+18. **任务监控（2026-07-29）** —— app 内后台线程每 120s 巡检 **22 个任务**（常驻 worker + 13 个拉取源 + Dagster + slx + 平台），判定取**心跳 ∧ 产出双信号的较坏者**（另有 `Probe.degrade` 表达非新鲜度类坏消息），恶化连续 2 轮确认、恢复立即；critical 经专用 Telegram bot 推手机、warn 只进页内，两张表 `task_status_history`/`monitor_alerts`，页面 `/jarvy/monitor`，容器外 `deadman.sh` 每 10 分钟兜底。**起因**：夜间 ingest 因 Dagster 队列死锁连续 7 天零执行无人察觉，且 wechat/futu/gangtise 哑火 6.5/24/4 天而 cadence 戳仍绿。详见 §5.16。
 
 ---
 
@@ -102,8 +103,8 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 | 模块 | 路由 | 角色 | 外壳 / 配色 |
 |---|---|---|---|
 | **1. 投研门户（Research Portal ＝ Genny）** | `/genny` · `/genny/segment/:id` · `/genny/company/:id`（旧 `/`·`/segment/:id`·`/company/:id` 302 重定向；`/` 现为 Chathy，见 §2.3） | 投研终端：主题 → 细分 → 公司 → 信号 → 决策。全局 `DataProvider` 上下文供数据 | `Layout`(AppShell) + `Sidebar` + `TopBar` + `DecisionRail`；海军蓝 chrome(`brand`)、蓝色强调(`accent`) |
-| **2. 运营控制台（Operations Console）** | `/ops` + 9 子页：overview · ontology · **coverage** · sources · datalake · altdata · models · connectors · skills | 管理控制面：本体/**覆盖度热力（947 × 16 维）**/数据源/数据湖/另类数据/模型/连接器/技能巡检 | `AdminLayout`；琥珀色强调(`warn`)；不挂终端数据上下文 |
-| **3. 前沿探索（Exploration）** | `/explore` · `/explore/:sectionId` | **新增第三模块**——人类知识的前沿：6 领域研究前沿、预印本、专家声音 | `ExplorationLayout` + `ExplorationSidebar`；靛蓝"explore"强调(`explore`，token `#6D28D9`) |
+| **2. 运营控制台（Operations Console ＝ Jarvy）** | `/jarvy` + **11** 子页：overview · ontology · **coverage** · sources · datalake · altdata · models · connectors · skills · **fetchy** · **monitor**（旧 `/ops/*` 自 2026-07-11 起为 302 兼容重定向） | 管理控制面：本体/**覆盖度热力（947 × 16 维）**/数据源/数据湖/另类数据/模型/连接器/技能巡检/外部 API 取数（Fetchy）/**任务监控（§5.16，侧栏带未解决 critical 红点计数）** | `AdminLayout`；琥珀色强调(`warn`)；不挂终端数据上下文 |
+| **3. 前沿探索（Exploration ＝ Romy）** | `/romy` · `/romy/:sectionId`（旧 `/explore/*` 302 重定向） | **新增第三模块**——人类知识的前沿：6 领域研究前沿、预印本、专家声音 | `ExplorationLayout` + `ExplorationSidebar`；靛蓝"explore"强调(`explore`，token `#6D28D9`) |
 
 设计令牌（`web/tailwind.config.js`）：`brand`(海军蓝) · `accent`(蓝，投研) · `warn`(琥珀，运营) · `explore`(靛蓝，探索) · `pos`/`neg`。
 
@@ -223,12 +224,12 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 
 ### 4.1 结构化 / 另类 / 前沿数据 provider（As-Built，`providers/`）
 
-> 全部 **key-gated**（Wind/富途为**本地网关-gated**）：缺 Key/网关即 `available()=False`、`pull()`/`fetch()` 返回空，**不报错**（交钥匙路径零 provider Key 也能跑）。`providers.status()` 统一上报 **13 个 provider** 状态（含**富途**与 **Gangtise 投研**）；另有 **`rss`** 公开无 key、恒可用（如 polymarket）。各结构化 provider 字段归一到 `FinMetric` 规范词表（§5.1），落 `fundamentals/estimates/...` 表，多源按 `source`+`as_of` 共存。
+> 全部 **key-gated**（Wind/富途为**本地网关-gated**）：缺 Key/网关即 `available()=False`、`pull()`/`fetch()` 返回空，**不报错**（交钥匙路径零 provider Key 也能跑）。`providers.status()` 统一上报 **14 个 provider** 状态（含**富途**与 **Gangtise 投研**）；另有 **`rss`** 公开无 key、恒可用（如 polymarket）。各结构化 provider 字段归一到 `FinMetric` 规范词表（§5.1），落 `fundamentals/estimates/...` 表，多源按 `source`+`as_of` 共存。
 
 | 类别 | provider | 取数 | 姿态/说明 |
 |---|---|---|---|
 | 基本面/比率 | **Finnhub** | basic-financials(毛利/净利率/PE/PS/ROE…)、EPS/营收估计、recommendation、内部交易 | 灰/自用 OK：免费层非商用=自用契合 |
-| 三大报表/估计/价格 | **FMP** | income/balance/cashflow 全字段、analyst-estimates、price-target、日线 OHLCV | 付费/免费层；自用；MCP 可接 |
+| 三大报表/估计/价格 | **FMP（已上游下线）** | income/balance/cashflow 全字段、analyst-estimates、price-target、日线 OHLCV | **不可用（2026-07-29 实测）**：v3/v4 **全部端点**返回 HTTP **403** `Legacy Endpoint … no longer supported`——**不是** 402/429 配额问题，**买 key 也点不亮**。其写的 6 张表**有史以来零行**，却仍留在 `daily_enabled_sources` 里，每分片每晚空耗约 45 分钟。**待办**：从默认源摘除；如需替代走 Finnhub/Yahoo/Polygon |
 | 深度行情 + vX 财报 | **Polygon** | 日聚合(深度历史)、vX reference-financials | 付费层；自用 |
 | 免费全球行情+快照 | **Yahoo (yfinance)** | 全球价格(含 A 股 300308.SZ)、`.info` 基本面快照 | **无 Key**；`.[market]`；仅自用原型 |
 | CN-A 深度基本面 | **Wind 万得** | WindPy 取 A 股报表指标 | 默认关；需本地授权终端；守护降级 |
@@ -361,7 +362,19 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 
 **run 日志 + 增量游标**：`storage/runlog.py` + 新表 **`ingest_runs`**（run 记录 + 逐源 `last_success_ts` 游标）。链路**幂等可续**（内容哈希去重 + NOT-EXISTS 游标）。CLI `xar daily`。
 
+> **现状更正（2026-07-29 核查）**：`ingest_runs` 已是**死表**——最后一行停在 2026-07-22，87 行永久挂 `running`，唯一写入方 `orchestration/daily.py` 的那条路径已不再运行。全天真正在拉数的是 **glmworker 常驻循环**（`run_once → _pull_fresh/_backfill`），它**零 runlog**。这正是 §5.16 任务监控**不看 `ingest_runs`**、改为直接查各源落库表做「心跳 ∧ 产出」双信号的原因：run 日志表的绿灯与数据是否真的进来无关。
+
 **Dagster 旁车**（`orchestration/definitions.py`，实际部署）：`pull_shard`（`StaticPartitionsDefinition` 静态分片，scheduled `0 {run_hour}`=06:00）+ `extract_all`（单 run、单批预算，scheduled `30 {run_hour}`=06:30）+ `core_daily`（按需）。`docker-compose.yml` 增 `dagster` 服务，宿主端口 **`:3001`**（UI / run 历史 / 重试），带 `dagster_home` 卷；**仅 app 容器**跑 `xar init`（schema owner）。
+
+**实例治理（2026-07-29 补，`deploy/dagster/dagster.yaml` 由 compose 只读挂载到 `$DAGSTER_HOME/dagster.yaml`）**：此前 `DAGSTER_HOME` 下**根本没有 dagster.yaml**，全部走默认值——其中 `run_monitoring` **默认关闭**。配合 `DefaultRunLauncher`（run worker 是 dagster 容器内的子进程），容器一被重建/停机，在飞的 run 父进程被杀、**永远停在 STARTED**，每发生一次就永久泄漏一个并发槽；累计 10 个即撞满默认 `max_concurrent_runs=10`，**整个队列锁死**（实测 2026-07-22 起 68 个 run 全卡 QUEUED、夜间 pull/extract 连续 7 天零执行）。现在：
+- **`run_monitoring.enabled=true` 且必须显式设 `max_runtime_seconds=28800`**——`DefaultRunLauncher.supports_check_run_worker_health` 为 `False`，健康检查那条路径根本不执行，真正回收僵尸的是 `check_run_timeout()`，它只认 `max_runtime_seconds`（设 0 = 不回收）。
+- **并发从单一全局闸改为分 job 限额**（`tag_concurrency_limits`：`pull_schedule=6` / `extract_schedule=1`，总闸 7）——单一系数是错的抽象：约束不是"同时几个 run"，而是 **extract_all 与 pull 天然重叠**（extract 06:30 触发时 pull 还要跑到 08:50），两者内存画像差一个量级（见下方内存实测）。
+- 三个单步 asset job 改用 **`in_process_executor`**（省掉每 run 一个 multiprocess 子进程的 ~220MB）；dagster 容器加 **`init: true`**（tini 做 reaper，收僵尸进程）。
+- **为什么放仓库而不是写进 `dagster_home` 卷**：卷里的手改不受版本控制，且在容器重建/换机时丢失——与 CLAUDE.md 里"`docker update` 的限额会被 compose 冲回"是同一类教训。
+
+**内存实测（容器硬限 8G，2026-07-30 夜）**：固定开销约 580MB；worker import 基线 214MB；fastembed 模型 +618MB（**仅 `parse_pending` 加载**⇒ 只有 `extract_all` 付这笔）；`pull_shard` 约 730MB/run（in_process）/ 951MB（multiprocess）；`extract_all` 约 1759MB。故 `6×730 + 1759 + 580 = 6719MB` 留 18% 余量，而 8 片并发 `8179MB` 必爆——**这正是修复队列死锁后 8 个分片全部启动、9 个 run 里 4 个被 memcg OOM 杀的实测依据**。**不提高 8G 限额**：`docker.slice` 软闸 24G 已被打满、各容器限额之和已 22.5G，提限会把聚合推向 28G 硬闸，冲顶时受害的是整个栈（本机 7×24 交易机）。
+
+**监控**：本旁车的守护进程与夜间 run 结果已纳入 §5.16 任务监控（`dagster.daemons` / `dagster.runs` 两个任务，队列死锁与部分 run 失败经 `Probe.degrade` 表达）。
 
 **Finnhub/FMP 新闻源**（补上真实源缺口）：`providers/finnhub.pull_news`(+`pull_general_news`) 与 `providers/fmp.pull_news` 把公司新闻落 `documents`（source=`finnhub`/`fmp`，permission=`grey`，**抽取事实自用——存摘要非全文**，内容哈希去重）。`api/ops.py` 注册 `finnhub_news` 源 + `run_source` 分支；`kg/expert.ALT_SOURCES` 纳入 `finnhub`/`fmp`，使新闻同时流入 `build_kg` 与专家层。
 
@@ -396,7 +409,7 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 - **CN 补齐**：cninfo 研报元数据的**确定性评级解析**（买入/增持等 5 档 + 目标价 → `analyst_ratings`，零 LLM，姿态仍"仅元数据"）；`kg/repair.py` 孤儿 `kg_events` 保守重指（与 `kg/resolve` 同阈值）+ theme/segment 锚回填，幂等。
 - **RSS 框架**：`ingestion/feeds.py` code-as-truth 注册的 **16 条人工核验行业源 × 8 主题** + `providers/rss.py`（stdlib 解析、礼貌抓取、内容哈希幂等）→ 主题标注 `documents(source=rss)`；CLI `xar pull-rss`，`rss` 已入每日链默认源。
 
-**Schema（加性、幂等）**：`company_thesis`（版本化论点：stance/conviction/content/quality）· `thesis_evidence`（逐条类型化证据行，FK→`company_thesis`）· `holdings`（13F 机构持仓）。**Ops 补刀**：Dagster 调度改**默认 RUNNING**（`DefaultScheduleStatus.RUNNING`——此前调度默认 STOPPED，夜间增量从未自动触发过）；夜跑 no-op 的另一根因是边车环境缺 provider key（compose 两容器均 `env_file: .env`，FMP key 已在本地 `.env` 激活）。
+**Schema（加性、幂等）**：`company_thesis`（版本化论点：stance/conviction/content/quality）· `thesis_evidence`（逐条类型化证据行，FK→`company_thesis`）· `holdings`（13F 机构持仓）。**Ops 补刀**：Dagster 调度改**默认 RUNNING**（`DefaultScheduleStatus.RUNNING`——此前调度默认 STOPPED，夜间增量从未自动触发过）；当时把夜跑 no-op 的另一根因归为"边车环境缺 provider key"，**2026-07-29 审计更正：这是错的**——真因是 **Dagster 队列死锁**（`DAGSTER_HOME` 无 `dagster.yaml` → `run_monitoring` 关闭 → 容器重建打死的 run 永停 `STARTED`，每次泄漏一个并发槽，攒满默认 `max_concurrent_runs=10` 即全队列锁死，见 §5.7）；而 FMP 更是**上游 403 永久下线**，填 key 也点不亮（见 §4.1）。
 
 **前端（Company 360）**：`CompanyPage` 新增 **ThesisSection**（立场/信念度/支柱带证据 chip + 证伪框 + 健康度灯、多空/风险/估值/watch 时间线/缺口/质量条 + 就地 build/rebuild）、**CoverageRing**（16 维径向环）、**CompanyDataPanels**（预期/持仓/日历面板）；`/ops/coverage` = **CoveragePage** 主题×维度热力（枚举访问 crash-proof，敌意 payload SSR 冒烟 11/11）。
 
@@ -497,6 +510,30 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 
 **默认关**：`XAR_WECHAT_DISCOVER_ENABLED=false` + 空 `WECHAT_SEARCH_BASE_URL` → 整体 no-op（延续 twitter 默认关纪律）。**接线**：`daily.py` wechat 段（发现是重活——多查询+多抓取，放每日拉取、不放常驻每轮）+ `promote_candidates`；CLI `xar ingest-wechat-discover [--dry-run-promote]`；`POST /api/ingest/wechat-discover`；Jarvy Fetchy 页 `wechatDiscover` 观测。**测试** `tests/test_wechat_discover.py`（查询/轮转/去重/短文跳过/落库口径/归一化/晋升门，11 项）。**部署** `hardware-solutions/apply-minis-wechat-search.sh`。**未来**（`WECHAT_DISCOVERY_PLAN.md`）：F1 付费 API 发现（newrank）/ F2 NRI 热度入 triage / F3 Sogou 直爬兜底。
 
+### 5.16 任务监控（As-Built，2026-07-29，`monitoring/{catalog,detector,sweep,alerts,actions,control,dagster_gql}.py` + `api/monitor.py`）
+
+**起因（2026-07-29 审计）**：夜间 ingest 因 Dagster 队列死锁**连续 7 天零执行，无人察觉**；同期 wechat / futu / gangtise 分别静默哑火 **6.5 / 24 / 4 天**，而各源的 cadence 戳**全是绿的**。平台此前只有"跑没跑过"的自证，没有"跑出东西没有"的他证——**静默故障是默认行为，不是意外**。
+
+**双信号判定（`detector.py`）**：每个任务同时取两个信号——**心跳**（最近一次*尝试*）与**产出**（最近一次*真的落库*），状态取**两者较坏**。三个陷阱各由一层挡住：
+
+- **尝试即盖戳**：心跳只证明进程跑过，不证明拉到了东西——wechat/futu/gangtise 正是死在这里，戳绿而源已死；
+- **产出空 ≠ 故障**：只看产出分不清"源本来就没新东西"与"根本没去拉"，心跳补上这一半；取较坏者 = 谁也漂白不了谁；
+- **不属于新鲜度的坏消息**：守护进程 unhealthy、队列死锁、部分 run 失败时，新鲜度可能仍在窗内——另设 **`Probe.degrade`** 独立表达，不硬塞进新鲜度轴（不伪造一个假时间戳来触发告警）。
+
+**抖动纪律**：恶化需**连续 2 轮确认**才升级，**恢复立即**生效——报警宁可晚 2 分钟，也不因一次抓取超时刷 critical；恢复不拖，是为了不让人对着已经好了的红点做无用功。
+
+**覆盖**：巡检是 **app 容器内的后台线程**，每 **120s** 一轮，覆盖 **22 个任务** = 3 个常驻 worker（glmworker / qwendrain / subpool）+ **13 个拉取源** + Dagster（守护进程 + 夜间调度执行，经 GraphQL `dagster_gql.py` 取数）+ slx 宏观连接器 + 平台（telegram / werss / **监控自身**）。任务清单与各自阈值是 `catalog.py` 的 code-as-truth。
+
+**告警分级与去重（`alerts.py`）**：critical 经**专用 Telegram bot**（`XAR_MONITOR_BOT` + `XAR_MONITOR_TELEGRAM_CHAT`）推手机、warn 只进页内——告警与业务播报分流，互不淹没、互不牵连。去重靠**部分唯一索引 `(task_id) WHERE state <> 'resolved'`**：同一任务在未解决期间最多一条告警行，每 120s 重复检出不会刷屏；`ack` / `resolve` / `mute` 就是这一行的状态迁移。
+
+**带外兜底（`deploy/monitor/deadman.sh`，主机 crontab 每 10 分钟）**：巡检线程住在 app 容器里，**app 整个挂掉时进程内报警会一起陪葬**——这一层跑在容器之外，是那种场景下唯一还能发声的东西。凡是进程内监控，都必须配一个不在该进程里的死人开关。
+
+**Schema（加性）**：`task_status_history`（逐轮状态轨迹，供事后复盘"什么时候开始坏的"）+ `monitor_alerts`（告警行 + 上述部分唯一索引）。
+
+**表面**：`GET /api/ops/monitor{,/summary,/alerts,/history}` + ack / resolve / actions / mute（`actions.py` 一键重启·重跑，`control.py` 静音与开关）；前端 `web/src/pages/ops/MonitorPage.tsx` 挂 **`/jarvy/monitor`**，Jarvy 侧栏新增 **"Monitor 任务监控"** 项，带未解决 critical 的红点计数。**Runbook**：`deploy/monitor/README.md`。
+
+> 触发本模块的那次队列死锁，其治理修复（`deploy/dagster/dagster.yaml`：run_monitoring / 分 job 并发 / 僵尸回收）见 §5.7。
+
 ## 6. 多 Agent 报告流水线
 
 **可控 LangGraph DAG**（确定性、检查点、低温、结构化输出、LiteLLM 单次预算），仅含**一个受限自治岛**（多空辩论子图）。RAG + 时序 KG + 实时数据是 Agent 调用的**工具**；**无源不出结论**（每条挂 RAGFlow chunk / EDGAR-cninfo filing ID / 双时态图谱事实 + 有效期）。模型路由经 **LLM 任务管理器**（§6.1）按 `TaskClass` 分派：抽取/摘要/分类（`kg_extract`/`expert`/`analyst`/`judge`）走快/廉价候选链，论点/批判/辩论（`debate`/`editor`/`synth`）走强 token 候选链（默认 `deepseek-v4-pro`，high effort、结构化输出，跨厂回退）；运行时经 `route_overrides` 或一行 env 即可切 `claude-haiku-4-5` / `claude-opus-4-8` / GLM / Kimi。
@@ -528,6 +565,8 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 - **`models/codex_cli.py`——ChatGPT/Codex 订阅执行器（第三执行路径，2026-07）**：与 `agent_sdk` 同构的第三条执行路径,`ModelSpec.executor=="codex_cli"` 的订阅条目 `codex-sub`(STRONG/REASONING/LONG_CONTEXT、`Billing.SUBSCRIPTION`、0/0 价、`litellm_model="codex-cli/codex-sub"` 避与 `openai/` token 版索引撞车;`codex_cli._real_model` 从 config `codex_model` 取真实模型,默认 gpt-5.5)经 **Codex CLI**(`codex exec`)复用 ChatGPT Plus/Pro 的 OAuth 登录(`~/.codex/auth.json`)跑**单次补全**、**零 token 计费**。**非 agent 运行**:`--sandbox read-only` + `--cd <临时空目录>` + `--skip-git-repo-check` + `--ephemeral` + `--output-last-message`(稳态取答复,不解析事件流)——即便模型试图跑命令也只读、且在临时目录里碰不到本仓库;system 前置进 prompt(exec 无独立 --system)。**订阅强制**:子进程剥掉 `OPENAI_API_KEY`/`OPENAI_BASE_URL` + `-c preferred_auth_method="chatgpt"`,父 `os.environ` 不动、与 app 侧计量 OpenAI 调用并发安全。`available()` 闸 `codex_enabled` + `codex` CLI 在 PATH + `auth.json` 在位 → **仅宿主机**;docker 缺任一即 `False`,`llm` 跳过、回退 GLM/DeepSeek。**默认 OFF**(`codex_enabled=False`):ChatGPT 订阅面向交互式 Codex,headless 研究后端属 off-label(低量、质量任务),需 `XAR_CODEX_ENABLED=true` 显式 arm。**路由**:与 Claude-Max 同——仅进 STRONG/REASONING 链(深度研究任务,如 audit/synth/debate)作 token+GLM lead 之后的候选(`prefer_billing=TOKEN` 保 token 优先)、缺席批量;`complete_stream()` 跳过(单次)。便捷钉扎链 `llm.CODEX_PIN=("codex-sub","claude-opus-max","glm-5.2-sub")`。`llm` 的执行器分派经 `_executor_module(name)` 统一 agent_sdk/codex_cli 两路;`config` 增 `codex_enabled`(False)/`codex_model`(gpt-5.5)/`codex_effort`(high)/`codex_timeout_s`(600);`/api/ops/llm` 增 `codexSub` 块;`tests/test_codex.py`(9 项离线)。实机 E2E 已验:`route audit -> codex-sub [subscription/codex_cli]`,真出对冲基金级答复。
 
 - **本地 ollama 条目——glmworker 零成本本地优先（Phase 3+4，2026-07-19）**：非新执行器（仍走 litellm 的 `openai/` 兼容路径），而是第 6 个 provider `ollama`（`api_base=http://host.docker.internal:11434/v1`，key=占位 `OLLAMA_API_KEY`，key_env==sub_key_env → `used_sub=True`、`usd=0`、永不触预算闸）+ 一组**仅钉扎**的本地 spec（`capabilities=()`——防 price=0 挤进通用 CHEAP_BULK 回退链越权接量；`llm.pinned`/`registry.get` 不看 capabilities 故钉扎可达）。现役 **`qwen3-14b-local`**（→ ollama tag `qwen3-14b-xar`，Qwen3-14B q4_K_M + 空 think 模板 + 16k ctx，VRAM 11.17G @ RTX 3090；**2026-07-19 40 篇黄金集赛马胜者**：ok 0.825 唯一超云锚 GLM-5.2，一致性 F1=旧 glm4 基线 2.6×）；`glm4-local` 保持 ACTIVE 为回滚位，3 个赛马败者 spec 为 PREVIEW 待 soak 后清理。**接线**：`glm_worker._fetchy_pin` 在 `XAR_GLM_WORKER_LOCAL_FIRST` + 占位 key + 云订阅 key 三条件齐备且 Fetchy 未显式选型时，把 `XAR_GLM_WORKER_LOCAL_MODEL`（默认 glm4-local；**换代/回滚 = 改 env + 容器 recreate，零代码**）前插到 `GLM_PIN` 链首；本地候选带 `llm_local_timeout_s`(180s) 短超时 + **`extra_body={"reasoning_effort":"none"}`**（ollama 对 thinking-capable 模型默认开思考，/v1 分离 reasoning/content → 预算耗尽即空;顶层参数会被 `litellm.drop_params` 静默丢弃，必须 extra_body——Phase 4 实测连环坑）；连接拒绝/超时/空 → 候选轮转自动回落云 GLM（`mlrun --exclusive` 抢占协议的消费端，代码**不得假设本地端点常在**）。**评测 runbook**：`scripts/bench_local_llm.py`（黄金集赛马：接地打分复用 `kg.extract._grounded`、prompt 经 `build_extraction_prompt`/`json_instruction` 与生产字节一致、云锚一致性 F1 相对基线晋升门），数据在 `~/Project/XAR/bench/phase4/`（仓外）；选型方法论沉淀 `~/JakeOS/memory/ml/`。
+
+- **本地 drain 的配额与停机纪律（`orchestration/qwen_drain.py` + `pipeline_priority.py`，2026-07-29）**：`qwendrain` 是消费本地 qwen 的 KG 抽取工人——**头部严格 100% 抢占**（alphapai > gangtise > aifinmarket），剩余产能才切给尾部。**尾部配额从纯质量权重改为「信息质量 × 队列深度」**：旧权重（`TAIL_QUALITY_WEIGHTS` = 实测 expert kept_rate）对**积压有多深零感知**，于是占尾部 backlog **1.3%** 的 edgar 与占 **64.7%** 的 finnhub 拿到相同绝对份额，深队列长期不收敛；现为 `effective_tail_weight = 质量权重 × pending^α`（`qwen_drain_depth_alpha=0.5`，开方阻尼——既跟随积压深度，又不让大源饿死高质量小源；**α=0 逐位退回旧行为**，即回滚位）。**部署不变量：`qwendrain` 的 compose 必须带 `stop_grace_period: 180s`**——它是全栈唯一「**领取即盖戳**」的消费者（`_claim_sql` 在同一条 UPDATE 里盖 `kg_extracted_at` 以防并发双抽），**无回滚、无重试**，而默认 10s 宽限 ≪ 一批约 74s：于是每次 `docker compose up -d` 都在静默丢文档。
 
 **运营接入**：`api/ops.py` 的 `/api/ops/llm` 现呈现注册表 vendors/models/路由表 + 按 billing/provider/task 的花费（历史行标 `legacy`、无 null 桶）+ `set_route()`；`api/app.py` 暴露 `POST /api/ops/llm/route`（不重部署的运行时**换代**）。`config.py` 增 `glm_api_key`/`moonshot_api_key` + 订阅 key/base + `model_bulk`；`schema.sql` 增 `llm_usage` 列 + `route_overrides` 表。调用点 `kg/extract.py`/`kg/expert.py` 已由 `tier="fast"` 迁移到 `task="kg_extract"`/`"expert"`；每日 bulk 拉取链（`orchestration/daily.py`）自动经 `task=` 路由。
 
@@ -581,13 +620,14 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 │   ├── kg/                     # store(双时态) + resolve(实体消解) + extract(主题感知 LLM 抽取, _focus_for, 填 narrative/time_orientation/drivers) + resolve_claims(前瞻声明 hit/miss/stale) + expert(专家加工) + signals(结构化→事件) + repair(【新, 2026-07】孤儿事件重指+锚回填)
 │   ├── research/               # 【新, 2026-07】thesis(dossier→build→版本化 company_thesis/thesis_evidence + 零 LLM 健康度)
 │   ├── mining/                 # 【新, 2026-07】微信多层级挖掘：targeting(T0 论点驱动目标, 零 LLM) + roster(T1 策展名册/wechat_accounts, 名册空退回 /rss) + triage(T2 抽取前 SNR 闸→documents.triage_score + WECHAT_TRIAGE + wechat_pending_clause 两条 NULL 安全守卫)
+│   ├── monitoring/             # 【新, 2026-07-29】任务监控(§5.16)：catalog(22 任务 code-as-truth) + detector(心跳∧产出双信号 + Probe.degrade) + sweep(app 内后台线程 120s/轮 + 2 轮确认) + alerts(critical→专用 TG bot/warn→页内, 部分唯一索引去重) + actions(重启·重跑) + control(静音/开关) + dagster_gql(Dagster GraphQL 取数)
 │   ├── chathy/                   # 【新, 2026-07】tools(工具注册表) + sessions(chat_sessions/messages) + agent(≤8 轮工具循环)——Chathy 流式工具调用分析师
 │   ├── fenny/                  # 【新, 2026-07】blotter_pg(PgBlotterStore→fenny_blotter)——Fenny Postgres blotter
 │   ├── exploration/            # 【新】domains(6 前沿领域) + ingest(arxiv/journals/voices→documents) + synthesis(研究前沿合成→frontier_fronts/_state)
 │   ├── retrieval/              # vector(RRF 混合) + graphrag(双时态遍历)
 │   ├── agents/                 # state/nodes/debate/evidence_gate/report/graph（可控 DAG）
 │   ├── backtest/ eval/ orchestration/   # 催化剂回测(driven by semantic_facts) / 评测金标 / daily(run_daily 每日链) + definitions(Dagster pull_shard/extract_all/core_daily)
-│   ├── api/                    # app(FastAPI 路由) + dashboard(投研 UI) + ops(运营控制台) + exploration(前沿探索) + chathy(SSE 对话) + dataroom(数据室) + fenny_mount(挂 /api/fenny 子应用) + andy_mount(【新, 2026-07】挂 /api/andy slx 子应用) + andy_links(【新, 2026-07】原生勾稽路由 /api/andy/link/*，注册于 mount 之上) + static/index.html（回退原生 UI）
+│   ├── api/                    # app(FastAPI 路由) + dashboard(投研 UI) + ops(运营控制台) + exploration(前沿探索) + chathy(SSE 对话) + dataroom(数据室) + fenny_mount(挂 /api/fenny 子应用) + andy_mount(【新, 2026-07】挂 /api/andy slx 子应用) + andy_links(【新, 2026-07】原生勾稽路由 /api/andy/link/*，注册于 mount 之上) + monitor(【新, 2026-07-29】/api/ops/monitor{,/summary,/alerts,/history} + ack/resolve/actions/mute) + static/index.html（回退原生 UI）
 │   ├── (src/fcn/)              # 【vendored, 2026-07】fenny fcn 包（定价/greeks/期权分析），子应用挂 /api/fenny，见 FENNY_UPSTREAM.md
 │   └── (src/slx/)              # 【vendored, 2026-07】Andy siliconomics 硅基经济指标库（registry 10 锚/43 指标/9 过度宣称 + engine 识别/PIT + ingestion 18 连接器 + api），独立 slx schema，子应用挂 /api/andy，见 ANDY_UPSTREAM.md
 ├── web/                        # 【新】React + TS + Tailwind SPA（FastAPI 托管编译产物）
@@ -599,6 +639,9 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 │       ├── components/         # Layout/AppShell + Sidebar + TopBar + DecisionRail + AdminLayout + ExplorationLayout + ExplorationSidebar + ModuleNav(Chathy|Andy|Genny|Fenny) + chathy/*(ChatMessage/Composer/SessionList/ToolChip) + MacroStrip(Genny 宏观带，反向勾稽 pill) + charts/PlotlyChart(Andy/Fenny 共享懒加载 plotly 分片) + ThesisSection/CoverageRing/CompanyDataPanels(【新, 2026-07】Company 360)
 │       ├── pages/              # chathy/ChathyPage + andy/*(5 页：Overview/Metrics/MetricDetail/Overclaims/Walls，懒加载) + genny/DataRoomPage + fenny/*(4 工作区，懒加载 plotly) + DashboardPage/SegmentPage/CompanyPage + ops/*(9 页，含 CoveragePage 覆盖度热力) + exploration/*(Overview/Section/_shared)
 │       └── lib/, types-*.ts    # lib/exploration.ts + types-exploration.ts 等
+├── deploy/                     # 【新, 2026-07-29】运维配置与带外脚本（进仓库、受版本控制，勿留在容器卷里）
+│   ├── dagster/dagster.yaml    # Dagster 实例配置(compose 只读挂载)：run_monitoring + max_runtime_seconds=28800 + 分 job tag_concurrency_limits；另 unstick_run_queue.py 应急解锁
+│   └── monitor/                # deadman.sh(主机 crontab 每 10 分钟带外兜底) + verify_nightly.sh + README.md(§5.16 runbook)
 ├── tests/                      # test_units + test_pipeline(DB-gated, LLM-mocked) + andy/(vendored 28) + test_macro_links + test_macro_bridge
 ├── scripts/check_licenses.py   # 许可洁净
 └── .github/workflows/ci.yml    # 许可闸 + ruff + pytest
