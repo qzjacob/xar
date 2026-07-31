@@ -346,8 +346,16 @@ print(t[0]['state'] if t else 'missing')" "$SNAP")
     [ "$DAG" = "ok" ] && good "dagster.runs = ok,与实况一致" \
                       || bad "实况全绿但监控报 $DAG —— 监控误报,查阈值"
   else
-    [ "$DAG" = "ok" ] && bad "实况有失败而监控仍报 ok —— **漏报**,正是 2026-07-30 那个漏洞复发" \
-                      || good "dagster.runs = $DAG,如实反映了本窗口的失败(检测在干活)"
+    # unknown 与 down/stale 要分开说:unknown = **窗内没有任何终态 run**(信号缺失),
+    # 不等于「跑失败了」。刚迁完存储、或刚部署完的那一夜就是这个状态,把它说成
+    # 「如实反映了失败」是把第三态又塌回二元 —— 那正是这套检测器刻意要避免的事。
+    if [ "$DAG" = "ok" ]; then
+      bad "实况有失败而监控仍报 ok —— **漏报**,正是 2026-07-30 那个漏洞复发"
+    elif [ "$DAG" = "unknown" ]; then
+      good "dagster.runs = unknown(窗内无终态 run = 信号缺失,非停摆)—— 第三态判对了"
+    else
+      good "dagster.runs = $DAG,如实反映了本窗口的失败(检测在干活)"
+    fi
   fi
 fi
 
