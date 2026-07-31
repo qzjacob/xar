@@ -39,21 +39,64 @@ def resolve_chat() -> str:
     return next((c.strip() for c in raw.split(",") if c.strip()), "")
 
 
-def channel_status() -> str:
+def resolve_token() -> str:
+    """报警用的 bot token:优先专用告警 bot,回退 Chathy 的对话 bot。
+
+    分开的理由:告警不该混进聊天流,而且换掉其中一个不会连累另一个。"""
     from ..config import get_settings
-    if not get_settings().telegram_bot_token:
+    s = get_settings()
+    return (getattr(s, "monitor_telegram_token", "") or "").strip() or s.telegram_bot_token
+
+
+def channel_status() -> str:
+    if not resolve_token():
         return "no_token"
     return "ok" if resolve_chat() else "no_chat"
 
 
+def discover_chats() -> list[str]:
+    """问告警 bot 自己「谁跟我说过话」,返回可用的数字 chat id。
+
+    存在的理由:**Telegram bot 不能主动发起会话** —— 必须先由人给 bot 发一条消息,
+    它才拿得到那个数字 chat id。这是配置这条链路时唯一不直观的一步,所以让面板
+    直接把答案显示出来,而不是让人去翻 API 文档。
+    """
+    import json as _json
+    import urllib.request
+    tok = resolve_token()
+    if not tok:
+        return []
+    try:
+        with urllib.request.urlopen(                       # noqa: S310 — 固定官方端点
+                f"https://api.telegram.org/bot{tok}/getUpdates", timeout=8) as r:
+            body = _json.loads(r.read())
+    except Exception:  # noqa: BLE001 — 发现失败不影响任何告警功能
+        return []
+    if not body.get("ok"):
+        return []
+    out: list[str] = []
+    for u in body.get("result") or []:
+        chat = ((u.get("message") or u.get("channel_post") or {}).get("chat") or {})
+        cid = chat.get("id")
+        if cid is not None and str(cid) not in out:
+            out.append(str(cid))
+    return out
+
+
 def known_chats() -> list[str]:
-    """给未配置时的页面横幅用:库里已有的 telegram chat id,复制即可填进 env。"""
+    """未配置时给页面横幅用的候选 chat id。
+
+    先问告警 bot 自己(那才是要发到的那个 bot);拿不到再列 Chathy 的 chat_channels ——
+    注意后者是**另一个 bot** 的会话,填错了会 400 chat not found,所以放在后面并在
+    面板上标注来源。"""
+    found = discover_chats()
     try:
         rows = db.query("SELECT DISTINCT external_id FROM chat_channels "
                         "WHERE channel='telegram' ORDER BY external_id")
-        return [str(r["external_id"]) for r in rows]
+        found += [str(r["external_id"]) for r in rows if str(r["external_id"]) not in found]
     except Exception:  # noqa: BLE001
-        return []
+        pass
+    return found
 
 
 def push(text: str, *, transport=None) -> str:
@@ -63,7 +106,10 @@ def push(text: str, *, transport=None) -> str:
         return st
     try:
         from ..chathy.telegram import TelegramBot
-        bot = TelegramBot(transport=transport) if transport else TelegramBot()
+        # 显式传 token:默认构造会取 Chathy 的对话 bot,而告警要走专用告警 bot。
+        # allowed_chats 传空集合 —— 那是**收**消息的白名单,与发送无关,
+        # 不显式给的话会去读 Chathy 的配置,徒增耦合。
+        bot = TelegramBot(token=resolve_token(), allowed_chats=set(), transport=transport)
         bot.send(resolve_chat(), text)
         return "ok"
     except Exception as e:  # noqa: BLE001 — 推送失败不得影响台账

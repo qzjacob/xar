@@ -463,9 +463,16 @@ class Settings(BaseSettings):
     # 数周而 cadence 戳仍绿。巡检跑在 app 容器后台线程(同 telegram.start_background)。
     monitor_enabled: bool = Field(default=True, validation_alias="XAR_MONITOR_ENABLED")
     monitor_sweep_seconds: int = 120       # 一轮 ≈15 条带索引 SQL + 2 次 dagster GraphQL
-    # 停摆报警推给哪个 Telegram chat。留空则回退 telegram_allowed_chats 首项;两者皆空 =
-    # 只有页内告警(面板会提示,并列出 chat_channels 里已知的 chat id 供复制)。
-    monitor_telegram_chat: str = Field(default="", validation_alias="XAR_MONITOR_TELEGRAM_CHAT")
+    # 报警走**专用 bot**(与 Chathy 的对话 bot 分开:告警不该混进聊天流,且换其中一个
+    # 不会影响另一个)。留空则回退 Chathy 的 telegram_bot_token。
+    monitor_telegram_token: str = Field(
+        default="", validation_alias=AliasChoices("XAR_MONITOR_BOT", "XAR_MONITOR_BOT_TOKEN"))
+    # 推给哪个 chat。**必须是数字 chat id,不是 bot 用户名** —— Telegram bot 无法主动发起
+    # 会话,所以要先由人给 bot 发一条消息,再从 getUpdates 里取到这个数字。
+    # 留空则回退 telegram_allowed_chats 首项;两者皆空 = 只有页内告警(面板会提示)。
+    monitor_telegram_chat: str = Field(
+        default="", validation_alias=AliasChoices("XAR_MONITOR_TELEGRAM_CHAT",
+                                                  "XAR_MONITOR_CHAT_ID"))
     monitor_remind_hours: int = 24         # 持续 down 且未 ack 时的提醒间隔(防告警疲劳)
     dagster_graphql_url: str = Field(default="", validation_alias="XAR_DAGSTER_GRAPHQL_URL")
 

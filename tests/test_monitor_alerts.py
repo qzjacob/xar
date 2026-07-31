@@ -171,6 +171,53 @@ def test_falls_back_to_first_allowed_chat(monkeypatch):
     assert alerts.resolve_chat() == "42"
 
 
+def test_dedicated_alert_bot_token_wins(monkeypatch):
+    """告警走**专用 bot**,不混进 Chathy 的对话 bot ——
+    换掉其中一个不该连累另一个。"""
+    class S:
+        monitor_telegram_token = "alert-bot-token"
+        telegram_bot_token = "chathy-bot-token"
+        monitor_telegram_chat = "42"
+        telegram_allowed_chats = ""
+        enable_telegram = True
+    monkeypatch.setattr("xar.config.get_settings", lambda: S())
+    assert alerts.resolve_token() == "alert-bot-token"
+
+    seen: list[str] = []
+
+    def transport(method, payload, token, timeout):
+        seen.append(token)
+        return {"ok": True}
+
+    assert alerts.push("hi", transport=transport) == "ok"
+    assert seen == ["alert-bot-token"], "推送必须用告警 bot 的 token"
+
+
+def test_falls_back_to_chathy_bot_when_no_dedicated_token(monkeypatch):
+    class S:
+        monitor_telegram_token = ""
+        telegram_bot_token = "chathy-bot-token"
+        monitor_telegram_chat = "42"
+        telegram_allowed_chats = ""
+    monkeypatch.setattr("xar.config.get_settings", lambda: S())
+    assert alerts.resolve_token() == "chathy-bot-token"
+    assert alerts.channel_status() == "ok"
+
+
+def test_bot_username_is_not_a_valid_chat_id(monkeypatch):
+    """回归:XAR_MONITOR_ID 填的是 bot 用户名(xar_alertbot)而不是数字 chat id。
+    这条链路唯一不直观的一步就是「bot 无法主动发起会话」,所以 chat 必须是人先发消息后
+    才拿得到的那个数字。这里只守住「用户名不会被当成 chat 用」这个最小契约。"""
+    class S:
+        monitor_telegram_token = "tok"
+        telegram_bot_token = ""
+        monitor_telegram_chat = ""          # 用户名不该被写进这里
+        telegram_allowed_chats = ""
+    monkeypatch.setattr("xar.config.get_settings", lambda: S())
+    assert alerts.channel_status() == "no_chat"
+    assert alerts.push("x") == "no_chat", "没有数字 chat id 就不该尝试发送"
+
+
 def test_no_token_reported_distinctly(monkeypatch):
     class S:
         monitor_telegram_chat = "42"

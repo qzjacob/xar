@@ -316,12 +316,17 @@ export function MonitorPage() {
               </div>
               <div className="mt-0.5 text-brand-500">
                 {data.monitor.telegram === "no_token"
-                  ? "缺 BOT_HTTP_API(Telegram bot token)。"
+                  ? <>缺 bot token:在 .env 设 <code className="text-brand-700">XAR_MONITOR_BOT</code>
+                    (专用告警 bot;留空则回退 Chathy 的 <code className="text-brand-700">BOT_HTTP_API</code>)。</>
                   : <>缺推送目标:在 .env 设 <code className="text-brand-700">XAR_MONITOR_TELEGRAM_CHAT</code>
+                    ——<b>必须是数字 chat id,不是 bot 用户名</b>。
                     {data.knownChats?.length
-                      ? <> —— 库里已知的 chat id:{data.knownChats.map((c) => (
+                      ? <> 可用的:{data.knownChats.map((c) => (
                           <code key={c} className="ml-1 text-brand-700">{c}</code>))}</>
-                      : "(库里还没有已知的 telegram chat)"}</>}
+                      : <> 目前一个都发现不了:Telegram bot <b>无法主动发起会话</b>,
+                          请先在 Telegram 里给这个告警 bot 发一条消息(如 <code
+                          className="text-brand-700">/start</code>),它才拿得到你的 chat id,
+                          这里就会自动列出来。</>}</>}
               </div>
             </div>
           </div>

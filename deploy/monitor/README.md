@@ -48,15 +48,32 @@ wechat/futu 静默哑火 6.5/24 天而 cadence 戳**至今仍是绿的**。
 - **手机**:Telegram。`severity=critical` 的任务转 `down` 时推一次;此后未 ack 则**每 24h**
   提醒一次;恢复推一次。`warn` 级只进页内,不打扰手机。
 
-接通手机推送(**目前缺的就是这一步**):
+接通手机推送(三个键,顺序有讲究):
 
 ```bash
-# bot token 已在 .env 的 BOT_HTTP_API;只缺「推给谁」
-echo 'XAR_MONITOR_TELEGRAM_CHAT=<你的 chat id>' >> .env
-docker compose up -d app
+XAR_MONITOR_BOT=<专用告警 bot 的 token>     # 留空则回退 Chathy 的 BOT_HTTP_API
+XAR_MONITOR_TELEGRAM_CHAT=<数字 chat id>    # ⚠️ 不是 bot 用户名
 ```
-chat id 可以从面板顶部的提示横幅直接复制(它会列出 `chat_channels` 里已知的 telegram chat)。
-未配置时页内告警照常工作,只是不推手机 —— 面板会明确提示。
+
+⚠️ **这条链路唯一不直观的一步**:Telegram bot **无法主动发起会话**。所以
+`XAR_MONITOR_TELEGRAM_CHAT` 那个数字,必须**先由你在 Telegram 里给该 bot 发一条消息**
+(如 `/start`)之后,才能从 `getUpdates` 里拿到。在那之前它根本不存在 ——
+把 bot 的用户名(如 `xar_alertbot`)填进去是不行的,发送会 400 chat not found。
+
+发完消息后,面板顶部横幅会**自动列出**发现到的 chat id(`alerts.discover_chats()` 直接问
+告警 bot「谁跟我说过话」),复制填进 .env 即可。命令行等价物:
+
+```bash
+TOK=$(grep -E '^XAR_MONITOR_BOT=' .env | cut -d= -f2-)
+curl -s "https://api.telegram.org/bot${TOK}/getUpdates" \
+  | python3 -c "import json,sys; [print((u.get('message') or {}).get('chat',{}).get('id')) for u in json.load(sys.stdin)['result']]"
+```
+
+改完 .env 必须 `docker compose up -d app` —— compose 的 `env_file` 是在**创建容器时**注入的,
+改文件不会自动生效(容器里没有 .env 文件本身)。
+
+**为什么用专用 bot**:告警不该混进 Chathy 的聊天流,而且换掉其中一个不会连累另一个。
+未配置时页内告警照常工作,只是不推手机 —— 面板会明确提示缺哪一个。
 
 静音(维护窗):面板上的静音开关,或 `PUT /api/ops/monitor/mute {"hours": 2}`。
 **静音只压推送,历史与台账照记** —— 否则静音期间的停摆会彻底消失在记录里。
