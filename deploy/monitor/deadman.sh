@@ -25,9 +25,13 @@ RENOTIFY_H="${DEADMAN_RENOTIFY_H:-6}"
 
 mkdir -p "$(dirname "$STATE")"
 
-# 只从 .env 取这两个值,不 source 整个文件(里面全是密钥,source 会污染环境)。
+# 只从 .env 取需要的值,不 source 整个文件(里面全是密钥,source 会污染环境)。
 get_env() { grep -E "^$1=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'"'\r'; }
-TOKEN="$(get_env BOT_HTTP_API)"
+# 与 app 内的 alerts.resolve_token() 保持同一优先级:专用告警 bot 优先,回退 Chathy 的。
+# 两边必须一致 —— 否则「app 活着时的告警」与「app 死了时的告警」来自不同 bot,
+# 收报警的人要在两个会话里找线索,而后者恰恰是最慌乱的时刻。
+TOKEN="$(get_env XAR_MONITOR_BOT)"
+[ -n "$TOKEN" ] || TOKEN="$(get_env BOT_HTTP_API)"
 CHAT="$(get_env XAR_MONITOR_TELEGRAM_CHAT)"
 [ -n "$CHAT" ] || CHAT="$(get_env TELEGRAM_ALLOWED_CHATS | cut -d, -f1)"
 
