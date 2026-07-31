@@ -277,19 +277,26 @@ def reconcile(task, state: str, detail: dict, *, now: datetime | None = None,
                            (now, cur["id"]))
         return {"action": "escalated", "id": cur["id"], "push": pushed}
 
-    # ── 持续异常:未 ack 且超过提醒间隔 → 每日提醒 ──
+    # ── 持续异常:未 ack 且(从未推送过 或 超过提醒间隔)→ 推送 ──
     from ..config import get_settings
     remind_h = int(getattr(get_settings(), "monitor_remind_hours", 24))
     last_note = cur.get("last_notified_at")
-    due = (severity == _SEV_CRITICAL and cur["state"] == "open" and not muted
-           and last_note is not None
-           and (now - last_note) >= timedelta(hours=remind_h))
+    # last_notified_at 为 NULL = **从未成功推送过**:告警开出来的时候通道还没配好
+    # (或推送失败)。这种必须补发首条 —— 否则「通道修好之前开的告警永远不会通知」,
+    # 而那恰恰是最需要被通知的情形(2026-07-31 实测踩到:dagster.runs 的 critical 告警
+    # 在配通 Telegram 之前就已开启,若不补发,今夜的失败会一直静默)。
+    ready = severity == _SEV_CRITICAL and cur["state"] == "open" and not muted
+    first_delivery = ready and last_note is None
+    due = ready and (first_delivery
+                     or (now - last_note) >= timedelta(hours=remind_h))
     if due:
-        pushed = push(f"[XAR] STILL {state.upper()} {title}\n"
+        head = "DOWN" if first_delivery else f"STILL {state.upper()}"
+        pushed = push(f"[XAR] {head} {title}\n"
                       f"已持续 {_fmt_age((now - cur['opened_at']).total_seconds())}"
                       f"(ack 可停止提醒)", transport=transport)
         if pushed == "ok":
             db.execute("UPDATE monitor_alerts SET last_notified_at=%s WHERE id=%s",
                        (now, cur["id"]))
-        return {"action": "reminded", "id": cur["id"], "push": pushed}
+        return {"action": "first_delivery" if first_delivery else "reminded",
+                "id": cur["id"], "push": pushed}
     return {"action": "unchanged", "id": cur["id"]}

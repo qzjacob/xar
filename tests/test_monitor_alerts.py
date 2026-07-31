@@ -110,6 +110,32 @@ def test_reminder_fires_after_remind_window(isolated_db, pushes):
     assert any("STILL" in p for p in pushes)
 
 
+def test_alert_opened_while_channel_down_is_delivered_once_channel_returns(isolated_db, pushes,
+                                                                          monkeypatch):
+    """回归(2026-07-31 实测踩到):告警在通道配通**之前**开出来,last_notified_at 为 NULL。
+    若提醒逻辑要求「上次推送时间非空」,这条告警将**永远不会通知** —— 而它恰恰是最需要
+    被通知的那一类(dagster.runs 的 critical 在配通 Telegram 前就已开启)。"""
+    t = _task()
+    # 通道未配:开告警但推不出去
+    monkeypatch.setattr(alerts, "push", lambda text, *, transport=None: "no_chat")
+    r = alerts.reconcile(t, DOWN, DETAIL, now=NOW)
+    assert r["action"] == "opened" and r["push"] == "no_chat"
+    rows = isolated_db.query("SELECT last_notified_at FROM monitor_alerts WHERE task_id=%s",
+                             (t.id,))
+    assert rows[0]["last_notified_at"] is None
+
+    # 通道修好:下一轮必须补发首条,不必等 24h
+    monkeypatch.setattr(alerts, "push", lambda text, *, transport=None:
+                        (pushes.append(text) or "ok"))
+    r2 = alerts.reconcile(t, DOWN, DETAIL, now=NOW + timedelta(minutes=2))
+    assert r2["action"] == "first_delivery", "通道恢复后必须补发,否则永远静默"
+    assert len(pushes) == 1 and "DOWN" in pushes[0]
+
+    # 补发之后回归正常节流:不再每轮推
+    r3 = alerts.reconcile(t, DOWN, DETAIL, now=NOW + timedelta(minutes=4))
+    assert r3["action"] == "unchanged" and len(pushes) == 1
+
+
 def test_ack_stops_reminders_but_keeps_alert_open(isolated_db, pushes):
     t = _task()
     r = alerts.reconcile(t, DOWN, DETAIL, now=NOW)
