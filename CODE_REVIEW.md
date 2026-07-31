@@ -1518,7 +1518,7 @@ cgroup 当晚**零 memcg OOM**(按 `oom_memcg=` 精确归因;那 5 次全是 glm
 | 守护健康 | 7/7 healthy |
 | `database is locked` | 切换后 **0 次** |
 | 守护心跳 | 7 个全部持续推进(SQLite 时代正是这里饿死) |
-| 端到端 | 真实 `core_daily_job` run,事件落 Postgres `event_logs` |
+| 端到端 | 真实 run 全生命周期走通(见下) |
 | 调度 | 2 个 schedule 均 RUNNING,今夜 02:00 会照常触发 |
 | 前端 | `tsc --noEmit` + `vite build` 通过;SPA 200(资源哈希与本次构建产物一致),监控 4 个端点均 200 |
 | 后端全量测试 | **1148 passed / 0 failed**(11m56s) |
@@ -1535,6 +1535,68 @@ cgroup 当晚**零 memcg OOM**(按 `oom_memcg=` 精确归因;那 5 次全是 glm
 `recent_print_companies` / `sweep` 读的仍是**真实论点行**,断言等于在考生产数据的状态。
 已改用库里不存在的哨兵公司 `zz_qf_test` + 事务内补 `companies` 行(有 FK),`isolated_db` 回滚不留痕。
 这是本次会话修掉的**第三例**同类问题(前两例见附录 O)。
+
+### 端到端:一个真实 run 的完整生命周期(不是「起来了就算」)
+
+先跑了 `core_daily_job`:36.6 分钟真实拉取、90 分钟内入库 **822 篇文档**,
+随后主动终止以观察终态写入。Postgres 里事件序列完整:
+
+```
+STEP_START → …36.6 分钟真实工作… → PIPELINE_CANCELING → STEP_FAILURE
+           → PIPELINE_CANCELED → ENGINE_EVENT
+runs.status = CANCELED   并发槽已释放(queued=0 started=0 deadlock=False)
+```
+
+**为什么中途终止它,而不是等它跑完** —— 这里有个值得记下的发现:
+`core_daily` 的 docstring 自称「Optional **lighter** job: pull+extract the curated
+**core basket** only」,我当初正是据此挑它做「轻量端到端验证」。**实际不是这样**:
+`run_daily(full_universe=False)` 里的 `full_universe` **只控制要不要分片**,
+不缩小公司集合 —— `ids = all_ids` 恒等于全部 **1062 家**。
+于是 `core_daily` 是全宇宙**不分片**单跑,是三个 job 里**最重的一个**
+(每个 `pull_shard` 只做 1062/8 ≈ 133 家)。实测速率约 20 秒/家,
+光 edgar 一段就要约 6.6 小时,还会与今夜 02:00 的夜跑抢资源。
+**docstring 与行为不符**,是独立于本次迁移的一处待修项。
+
+因此改用 `pull_shard_job`(partition `shard-0`)—— 那才是今夜真正会跑的那个单元。
+
+### 意外收获:**单个 pull_shard 就能打满 NVMe** —— 而且是受控实验证明的
+
+为拿「完整跑通」的证据,又启了一个真实 `pull_shard_job`(partition `shard-0`,133 家,
+即今夜真正会跑的那个单元)。它跑了约 7 分钟就把整机拖垮:
+
+```
+nvme0n1  %util 152、868 MB/s 读、13.4k r/s      而 db 容器 CPU 仅 15%、内存 269MB/3GB
+IO PSI   some avg10=99.00  full avg10=91        load average 219
+main-db-1 → unhealthy;psql 连一条平凡查询 280 秒都跑不完;dagster 日志静止 24 分钟
+```
+
+⚠️ **我一度按 CLAUDE.md 的告诫先怀疑多租户争抢** —— 当时 `phantom-appsmith`
+以 52.7% CPU 高居所有容器之首,而 dagster 只有 41%,看起来正是「别默认是 XAR」的经典场景。
+**这个判断是错的。** `docker stop main-dagster-1` 之后 60 秒:
+
+```
+IO PSI   some avg10: 99.00 → 0.46
+load     219 → 83
+```
+
+appsmith 是 **CPU** 头号消耗者,dagster 是 **IO** 头号消耗者,而**当时的约束是 IO 不是 CPU**。
+按 CPU 排序去找 IO 瓶颈,排出来的第一名恰恰是无辜的那个。
+**受控停机是这里唯一可靠的归因手段** —— 看排行榜会得出相反结论。
+
+这条独立复现并强化了 CLAUDE.md 里「真正的约束是磁盘 IO,不是内存」:
+原记录是 6 片并发时 %util 174,现在证明**一片就够**。直接推论:
+- 夜跑 6 并发是**深度 IO 过载**,不是刚好压线;想缩短墙钟,加内存/提并发都是反向操作。
+- ⚠️ **迁到 Postgres 之后这条的权重变了**:dagster 的 run/event/心跳存储现在与
+  被 IO 打爆的是**同一个** Postgres。SQLite 的单写锁没了(那是结构性死锁),
+  换来的是「存储与业务负载共享 IO」的耦合。心跳写入极小、Postgres 并发远好于单写锁,
+  今夜是第一次真实检验 —— **要专门看夜跑期间 daemon_heartbeats 的时间戳有没有断档**。
+
+### 顺带查出:werss 的 headless 浏览器已卡死 11 天
+
+`main-werss-1` 里的 `WPEWebProcess`(headless WebKit MiniBrowser)处于 **D 状态、
+已运行 10 天 23 小时**、累计 17.5 分钟 CPU、VIRT 75 GB。
+这正是监控面板长期把 `platform.werss` 判 **stale** 的物理原因 ——
+面板一直在如实报告,只是此前没人去追它为什么。属独立待处置项(重启 werss 容器可清)。
 
 **未做压力测试并非疏忽**:`docker.slice` 距 28G 硬闸只剩约 4G,而 subpool 无 `mem_limit`
 且已占 13.4G。再拉起 7 个并发 run(约 +5.5G)会把聚合推过硬闸,**代价是 OOM 掉生产容器**。
