@@ -374,6 +374,12 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 
 **内存实测（容器硬限 8G，2026-07-30 夜）**：固定开销约 580MB；worker import 基线 214MB；fastembed 模型 +618MB（**仅 `parse_pending` 加载**⇒ 只有 `extract_all` 付这笔）；`pull_shard` 约 730MB/run（in_process）/ 951MB（multiprocess）；`extract_all` 约 1759MB。故 `6×730 + 1759 + 580 = 6719MB` 留 18% 余量，而 8 片并发 `8179MB` 必爆——**这正是修复队列死锁后 8 个分片全部启动、9 个 run 里 4 个被 memcg OOM 杀的实测依据**。**不提高 8G 限额**：`docker.slice` 软闸 24G 已被打满、各容器限额之和已 22.5G，提限会把聚合推向 28G 硬闸，冲顶时受害的是整个栈（本机 7×24 交易机）。
 
+**复测与修正（2026-07-31 夜）**：治理生效——`memory.peak` **6.68 / 8 GiB**（模型算 6.7G，几乎分毫不差）、**memcg OOM 0 次**（对照 07-30 那晚 9 次 / 4 个 run 被杀）。**但那一夜真正的约束是磁盘 IO，不是内存**：同时段 `nvme0n1` 打到 **%util 174、831 MB/s 读、13.6k r/s**，而内存尚余 18% 余量。故**再上调并发先撞的是 IO，不是那道 8G 内存闸**——想缩短夜跑墙钟，加内存或提限额都无效，须从 IO 侧下手（优先摘掉 FMP 每片约 45min 的 403 空转，其次让 8 个分片错峰起而非齐发）。
+
+由此暴露一处**跨子系统耦合**：夜间拉取与 GPU 抽取共用同一个 Postgres 与同一块 NVMe——IO 饱和期 Postgres 被拖成 `unhealthy`，qwendrain 的 `_claim()`（`UPDATE … FOR UPDATE SKIP LOCKED`）拿不到连接，**GPU 空转约 30 分钟（19W / 0% util）**，db 恢复后自愈。这是内存预算模型覆盖不到的一类失效，记在此处以免下次又只盯内存。
+
+⚠️ 诊断纪律：那晚 host load 冲到 215，但归因查下来 **phantom-appsmith（mongo+java+caddy，02:59 起）才是主因**（mongod 单进程 19.7% CPU），XAR 夜跑只是叠加项。**本机是多租户，别默认高负载就是 XAR 的锅。**
+
 **监控**：本旁车的守护进程与夜间 run 结果已纳入 §5.16 任务监控（`dagster.daemons` / `dagster.runs` 两个任务，队列死锁与部分 run 失败经 `Probe.degrade` 表达）。
 
 **Finnhub/FMP 新闻源**（补上真实源缺口）：`providers/finnhub.pull_news`(+`pull_general_news`) 与 `providers/fmp.pull_news` 把公司新闻落 `documents`（source=`finnhub`/`fmp`，permission=`grey`，**抽取事实自用——存摘要非全文**，内容哈希去重）。`api/ops.py` 注册 `finnhub_news` 源 + `run_source` 分支；`kg/expert.ALT_SOURCES` 纳入 `finnhub`/`fmp`，使新闻同时流入 `build_kg` 与专家层。
@@ -514,6 +520,13 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 
 **起因（2026-07-29 审计）**：夜间 ingest 因 Dagster 队列死锁**连续 7 天零执行，无人察觉**；同期 wechat / futu / gangtise 分别静默哑火 **6.5 / 24 / 4 天**，而各源的 cadence 戳**全是绿的**。平台此前只有"跑没跑过"的自证，没有"跑出东西没有"的他证——**静默故障是默认行为，不是意外**。
 
+> **2026-07-31 的活体标本（gangtise）**——这套判定不是为假想的失效写的：
+> `cadence.gangtise` 戳停在 **8 分钟前**（每 12h 忠实尝试、`fn()` 不抛异常、于是次次盖绿戳），
+> 而 `documents(source='gangtise')` 的最后一行停在 **07-25 11:27，即 137.4 小时前**。
+> 只看 cadence，它此刻"完全健康"。监控判 `stale`（`worstBy = yield`）；产出 SLA 72h、
+> 超 **2×** 才升 `down`，故 137.4h 尚在 `stale` 与 `down` 之间。
+> **这正是"取较坏者"存在的唯一理由：任何只读心跳的检测器都会漏掉它。**
+
 **双信号判定（`detector.py`）**：每个任务同时取两个信号——**心跳**（最近一次*尝试*）与**产出**（最近一次*真的落库*），状态取**两者较坏**。三个陷阱各由一层挡住：
 
 - **尝试即盖戳**：心跳只证明进程跑过，不证明拉到了东西——wechat/futu/gangtise 正是死在这里，戳绿而源已死；
@@ -567,6 +580,8 @@ React SPA（`web/`）由 FastAPI 托管，路由顶层划分为**三个对等模
 - **本地 ollama 条目——glmworker 零成本本地优先（Phase 3+4，2026-07-19）**：非新执行器（仍走 litellm 的 `openai/` 兼容路径），而是第 6 个 provider `ollama`（`api_base=http://host.docker.internal:11434/v1`，key=占位 `OLLAMA_API_KEY`，key_env==sub_key_env → `used_sub=True`、`usd=0`、永不触预算闸）+ 一组**仅钉扎**的本地 spec（`capabilities=()`——防 price=0 挤进通用 CHEAP_BULK 回退链越权接量；`llm.pinned`/`registry.get` 不看 capabilities 故钉扎可达）。现役 **`qwen3-14b-local`**（→ ollama tag `qwen3-14b-xar`，Qwen3-14B q4_K_M + 空 think 模板 + 16k ctx，VRAM 11.17G @ RTX 3090；**2026-07-19 40 篇黄金集赛马胜者**：ok 0.825 唯一超云锚 GLM-5.2，一致性 F1=旧 glm4 基线 2.6×）；`glm4-local` 保持 ACTIVE 为回滚位，3 个赛马败者 spec 为 PREVIEW 待 soak 后清理。**接线**：`glm_worker._fetchy_pin` 在 `XAR_GLM_WORKER_LOCAL_FIRST` + 占位 key + 云订阅 key 三条件齐备且 Fetchy 未显式选型时，把 `XAR_GLM_WORKER_LOCAL_MODEL`（默认 glm4-local；**换代/回滚 = 改 env + 容器 recreate，零代码**）前插到 `GLM_PIN` 链首；本地候选带 `llm_local_timeout_s`(180s) 短超时 + **`extra_body={"reasoning_effort":"none"}`**（ollama 对 thinking-capable 模型默认开思考，/v1 分离 reasoning/content → 预算耗尽即空;顶层参数会被 `litellm.drop_params` 静默丢弃，必须 extra_body——Phase 4 实测连环坑）；连接拒绝/超时/空 → 候选轮转自动回落云 GLM（`mlrun --exclusive` 抢占协议的消费端，代码**不得假设本地端点常在**）。**评测 runbook**：`scripts/bench_local_llm.py`（黄金集赛马：接地打分复用 `kg.extract._grounded`、prompt 经 `build_extraction_prompt`/`json_instruction` 与生产字节一致、云锚一致性 F1 相对基线晋升门），数据在 `~/Project/XAR/bench/phase4/`（仓外）；选型方法论沉淀 `~/JakeOS/memory/ml/`。
 
 - **本地 drain 的配额与停机纪律（`orchestration/qwen_drain.py` + `pipeline_priority.py`，2026-07-29）**：`qwendrain` 是消费本地 qwen 的 KG 抽取工人——**头部严格 100% 抢占**（alphapai > gangtise > aifinmarket），剩余产能才切给尾部。**尾部配额从纯质量权重改为「信息质量 × 队列深度」**：旧权重（`TAIL_QUALITY_WEIGHTS` = 实测 expert kept_rate）对**积压有多深零感知**，于是占尾部 backlog **1.3%** 的 edgar 与占 **64.7%** 的 finnhub 拿到相同绝对份额，深队列长期不收敛；现为 `effective_tail_weight = 质量权重 × pending^α`（`qwen_drain_depth_alpha=0.5`，开方阻尼——既跟随积压深度，又不让大源饿死高质量小源；**α=0 逐位退回旧行为**，即回滚位）。**部署不变量：`qwendrain` 的 compose 必须带 `stop_grace_period: 180s`**——它是全栈唯一「**领取即盖戳**」的消费者（`_claim_sql` 在同一条 UPDATE 里盖 `kg_extracted_at` 以防并发双抽），**无回滚、无重试**，而默认 10s 宽限 ≪ 一批约 74s：于是每次 `docker compose up -d` 都在静默丢文档。
+
+  **生产验证（2026-07-31 实测 24h）**：深度配额按设计生效——finnhub 拿到 **5393 / 尾部约 8746 ≈ 62%**（与上线前按其 64.7% backlog 占比推算的 62% 吻合；改动前是 38%）。头部严格抢占同样成立——**alphapai 461 篇、aifinmarket 648 篇，抽取率均 100%、零积压**，尾部再忙也插得进队。qwendrain 24h 抽约 **9870 篇**（rate ≈ 7/min），积压 **424k** 仍缓涨，与 §5.7「有界历史回填期堆积、非发散」的判定一致。
 
 **运营接入**：`api/ops.py` 的 `/api/ops/llm` 现呈现注册表 vendors/models/路由表 + 按 billing/provider/task 的花费（历史行标 `legacy`、无 null 桶）+ `set_route()`；`api/app.py` 暴露 `POST /api/ops/llm/route`（不重部署的运行时**换代**）。`config.py` 增 `glm_api_key`/`moonshot_api_key` + 订阅 key/base + `model_bulk`；`schema.sql` 增 `llm_usage` 列 + `route_overrides` 表。调用点 `kg/extract.py`/`kg/expert.py` 已由 `tier="fast"` 迁移到 `task="kg_extract"`/`"expert"`；每日 bulk 拉取链（`orchestration/daily.py`）自动经 `task=` 路由。
 

@@ -1266,3 +1266,34 @@ K.3.2 记录了 `test_calibration_buckets` / `test_link_idempotent_cursor` 两�
 
 > 处置建议:N.1 关闭;N.2 单列一轮讨论「run 视图收敛」;N.3 两项应进 daily 源清单的清理
 > (摘掉 fmp)与 `ingest_runs` 的去留决策;N.4 已在本轮新测试中落实;N.5 待独立评审。
+
+### N.6 治理落地的生产复测(2026-07-31)
+
+对 N.1–N.5 所依据的三项治理做了一夜的生产复测,结论与两处**对先前归因的更正**:
+
+**成立的部分**
+- Dagster 内存治理:`memory.peak` **6.68 / 8 GiB**(预算模型算 6.7G),**memcg OOM 0 次**
+  (对照 07-30 那晚 9 次、4/9 个 run 被杀)。`in_process` + 分 job 限额按预期生效。
+- qwen_drain 深度配额:finnhub 拿到 **5393 / 尾部约 8746 ≈ 62%**(上线前按其 64.7% backlog
+  占比推算 62%,改动前 38%)。头部严格抢占同样成立:alphapai 461 / aifinmarket 648,
+  **抽取率均 100%、零积压**。
+- 监控双信号:当夜逮到 `gangtise` —— cadence 戳 8 分钟前(每 12h 忠实尝试、不抛异常),
+  而最后一篇文档停在 07-25,**137.4 小时零产出**。判 `stale`(依据 = yield)。
+  **这是"只读心跳的检测器必然漏掉"的活体证明。**
+
+**更正一:真正的约束是磁盘 IO,不是内存。**
+同一夜 `nvme0n1` 打到 **%util 174 / 831 MB/s 读 / 13.6k r/s**,而内存尚余 18%。
+先前所有并发系数推导都建立在内存预算上,**方向对但抓错了闸**:再上调并发先撞 IO。
+由此暴露一处跨子系统耦合 —— 夜间拉取与 GPU 抽取共用同一个 Postgres 与同一块 NVMe,
+IO 饱和期 Postgres 被拖成 `unhealthy`,qwendrain 的 `_claim()` 拿不到连接,
+**GPU 空转约 30 分钟(19W / 0% util)**,db 恢复后自愈。内存预算模型完全覆盖不到这一类。
+
+**更正二:高负载不等于 XAR 的锅。**
+那晚 host load 冲到 215,归因查下来 **phantom-appsmith(mongo+java+caddy,02:59 起)
+才是主因**(mongod 单进程 19.7% CPU),XAR 夜跑只是叠加项。本机是多租户,
+**诊断时先做归因再下结论**——这一条对后续任何性能评审都适用。
+
+**附带发现(未修):** `documents` 无 `ingested_at` 索引(现有仅 pkey / source / company /
+theme_segment / 两个部分索引),任何「过去 N 小时按源统计」都要全扫 46 万行 1.4GB 表,
+IO 一紧即查不动(07-31 实测全部超时)。这也是监控刻意读**单行快照**而非现场聚合的原因;
+若要支持交互式时间窗查询,应补 `CREATE INDEX CONCURRENTLY ON documents(ingested_at DESC)`。
