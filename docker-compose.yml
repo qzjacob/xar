@@ -112,6 +112,29 @@ services:
     volumes:
       - xar_data:/data
       - xar_models:/root/.cache
+    # ⚠️ 内存硬上限(2026-08-01 加)。此前 subpool 是全栈唯一**完全无限额**的大户,
+    # 41 小时长到 14.85 GiB,把 docker.slice 顶过 memory.high(24G)。
+    # 后果不是它自己被杀,而是**整个栈陪葬**:内核为压回软闸持续回收所有容器的页缓存,
+    # 于是人人 refault、人人重读磁盘 —— 实测 `workingset_refault_file` 增速换算
+    # 831 MB/s,与全盘实测读 834 MB/s 分毫不差,%util 打满、IO PSI 98、
+    # db 转 unhealthy、qwendrain 拿不到连接、**GPU 停摆 40 分钟(0% / 6MiB / 19W)**。
+    # 单纯重启 subpool 即验证:slice 24.02G → 9.28G、refault 834 → 0 MB/s、
+    # IO PSI 98.33 → 0.02、db 转 healthy、GPU 秒回 96% / 336W。
+    #
+    # ⚠️ 归因提醒:当时读量榜首是 phantom-appsmith(452 MB/s),但它是**受害者**——
+    # 工作集大、被反复驱逐、于是反复重读;真凶 subpool 自己只读 16 MB/s,却占着 14.85G。
+    # **排行榜指向症状最重的,不是原因**;定位靠的是 memory.high 越界 + refault 计数对账。
+    #
+    # 取 4g:它刚起来时仅 957 MiB,14.85G 更像泄漏而非工作集。4g 把「无界的全栈级危害」
+    # 换成「有界、可自愈的单容器重启」—— subpool **没有** qwendrain 那种领取即盖戳语义
+    # (无 SKIP LOCKED / 无 stamp),被杀时在飞的 thesis 只是没写成,下轮自然重来,不丢数据。
+    # 若它频繁撞顶,应当去查那 14.85G 的增长本身,而不是继续抬高这个数字。
+    #
+    # ⚠️ **不要照抄给 qwendrain**:它是全栈唯一「领取即盖戳、无回滚无重试」的消费者,
+    # memcg OOM 是 SIGKILL、不走 stop_grace_period,在飞文档会被**永久跳过**。
+    # 给它加限额等于给静默丢数据开了一条新路径,要加必须先解决领取语义。
+    mem_limit: 4g
+    memswap_limit: 4g
     depends_on:
       db:
         condition: service_healthy
