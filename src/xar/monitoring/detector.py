@@ -82,6 +82,16 @@ def evaluate(*, now: datetime,
 
     if hb.ts is None:
         # 信号缺失 ≠ 停摆。可能从未初始化(只在变化时写的 key),也可能表/端点不可读。
+        # ⚠️ 但**显式的坏消息断言优先于「没有时间戳」**(2026-08-01 补):
+        # 探针可能既拿不到「上次成功」的戳、又明确知道「这一窗全失败了」——
+        # 迁 dagster 存储到 Postgres 后正是这个形态:新库里从未有过 SUCCESS ⇒ ts 恒为 None,
+        # 于是哪怕每一个 run 都失败,这里也只会报 unknown,**永远不会翻 down**。
+        # 「没数据」和「有数据且是坏的」是两回事;后者必须压过前者,否则一个
+        # 永久失败的调度可以无限期躲在 unknown 后面(告警一次都不会发)。
+        if hb.degrade:
+            return hb.degrade, {**detail, "reason": (hb.detail or {}).get("reason")
+                                or "no heartbeat signal, but probe asserts failure",
+                                "worstBy": "signal"}
         return UNKNOWN, {**detail, "reason": "no heartbeat signal"}
 
     hb_age = _age_s(hb.ts, now)

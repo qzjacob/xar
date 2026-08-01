@@ -36,6 +36,14 @@ services:
     volumes:
       - xar_data:/data
       - xar_models:/root/.cache  # fastembed model cache (persist across restarts)
+      # 宿主 cgroup 只读挂载(2026-08-01):给监控看 `docker.slice` 的聚合内存水位。
+      # 容器默认只看得见**自己**的 cgroup,而 07-31 那场全栈事故的根因恰恰在聚合层:
+      # subpool 无限额把 docker.slice 顶过 memory.high → 内核持续回收所有容器的页缓存
+      # → refault 风暴(磁盘读 834MB/s 全是 refault)→ IO 饱和 → db unhealthy → GPU 停摆。
+      # ⚠️ 关键点:越过 high **不杀进程、memory.pressure 也只有个位数**(回收是成功的),
+      # 代价全转移到 IO —— 所以没有任何内存指标会报警,不挂这个就永远看不见根因。
+      # 只读、只读数字,不写不改;IO PSI 走 /proc/pressure/io(容器内即可见宿主全局值)。
+      - /sys/fs/cgroup:/host/cgroup:ro
     ports:
       # 监听地址可配(2026-07-31 审核 P2-1)。默认 0.0.0.0 = 保持既有行为不变。
       # ⚠️ 但要清楚这意味着什么:`/api/ops/monitor/actions` 能重启 worker、终止 dagster run,

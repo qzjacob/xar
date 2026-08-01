@@ -474,6 +474,12 @@ class Settings(BaseSettings):
         default="", validation_alias=AliasChoices("XAR_MONITOR_TELEGRAM_CHAT",
                                                   "XAR_MONITOR_CHAT_ID"))
     monitor_remind_hours: int = 24         # 持续 down 且未 ack 时的提醒间隔(防告警疲劳)
+    # 死锁金丝雀的**最小在飞时长**:队列占满且最老的在飞 run 超过这么久才算死锁。
+    # ⚠️ 必须小于 dagster.yaml 的 run_monitoring.max_runtime_seconds(现 8h),
+    # 否则回收器先把僵尸清了,金丝雀永远等不到该叫的那一刻。
+    # 也不能太小:夜跑刚起时 6 pull + 1 extract 正好占满 7 槽、第二波 2 片排队,
+    # 那是**健康的满队列**;没有这个限定词,每晚 06:00 都会误报一次(2026-08-01 实测)。
+    monitor_deadlock_min_age_h: float = 6.0
     dagster_graphql_url: str = Field(default="", validation_alias="XAR_DAGSTER_GRAPHQL_URL")
 
     # --- Posture / politeness ---

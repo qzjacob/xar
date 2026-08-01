@@ -36,7 +36,8 @@ _Q_DAEMONS = """
 _Q_RUNS = """
 { instance { runQueueConfig { maxConcurrentRuns } }
   q: runsOrError(filter: {statuses: [QUEUED]}, limit: 1) { ... on Runs { count } }
-  s: runsOrError(filter: {statuses: [STARTED]}, limit: 1) { ... on Runs { count } }
+  s: runsOrError(filter: {statuses: [STARTED]}, limit: 50) {
+        ... on Runs { count results { startTime } } }
   ok: runsOrError(filter: {statuses: [SUCCESS]}, limit: 1) {
         ... on Runs { results { runId jobName endTime } } }
   winOk: runsOrError(filter: {statuses: [SUCCESS], createdAfter: %(after)f}, limit: 1) {
@@ -116,6 +117,13 @@ def run_stats(*, max_concurrent: int | None = None, window_hours: float = 26.0) 
         return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:120]}"}
     queued = int(((data.get("q") or {}).get("count")) or 0)
     started = int(((data.get("s") or {}).get("count")) or 0)
+    # 在飞 run 里最老的那个跑了多久 —— 死锁金丝雀的**限定词**(2026-08-01 加)。
+    # 没有它,`queued>0 且 started>=cap` 在**每晚夜跑刚起的那一刻**都成立
+    # (6 pull + 1 extract 占满 7 槽、第二波 2 片排队),于是每天误报一次。
+    # 告警每天狼来一次,真出事那次就没人信了 —— 这比漏报更难修。
+    st_rows = ((data.get("s") or {}).get("results")) or []
+    st_times = [float(x["startTime"]) for x in st_rows if x.get("startTime")]
+    oldest_h = round((_time.time() - min(st_times)) / 3600, 2) if st_times else 0.0
     live_max = (((data.get("instance") or {}).get("runQueueConfig") or {})
                 .get("maxConcurrentRuns"))
     cap = int(max_concurrent if max_concurrent is not None
@@ -126,14 +134,61 @@ def run_stats(*, max_concurrent: int | None = None, window_hours: float = 26.0) 
     win_fail = int(((data.get("winFail") or {}).get("count")) or 0)
     win_cancel = int(((data.get("winCancel") or {}).get("count")) or 0)
     total = win_ok + win_fail
+    # 死锁判据 = 队列占满 **且** 最老的在飞 run 已经跑过头。
+    # 阈值取自 settings(默认 6h),必须**小于** run_monitoring.max_runtime_seconds(8h)——
+    # 否则回收器先动手,金丝雀永远等不到自己该叫的那一刻。
+    from ..config import get_settings
+    min_age_h = float(getattr(get_settings(), "monitor_deadlock_min_age_h", 6.0))
     return {"ok": True, "queued": queued, "started": started,
             "maxConcurrent": cap, "maxConcurrentSource": "live" if live_max else "fallback",
-            "queueDeadlock": bool(queued > 0 and started >= cap),
+            "oldestInFlightH": oldest_h, "deadlockMinAgeH": min_age_h,
+            "queueDeadlock": bool(queued > 0 and started >= cap and oldest_h >= min_age_h),
             "lastSuccessAt": _epoch_iso(last.get("endTime")),
             "lastSuccessJob": last.get("jobName"),
             "windowHours": window_hours,
             "windowOk": win_ok, "windowFailed": win_fail, "windowCanceled": win_cancel,
             "windowFailRatio": round(win_fail / total, 3) if total else 0.0}
+
+
+_Q_LOCATIONS = """
+{ workspaceOrError { __typename ... on Workspace { locationEntries {
+      name loadStatus
+      locationOrLoadError { __typename ... on PythonError { message } } } } } }
+"""
+
+
+def code_locations() -> dict:
+    """代码位置(code location)能否加载 —— 2026-08-01 补的探针,补的是一个**真实漏报**。
+
+    那天 06:00 UTC 的夜跑一个 run 都没创建,`job_ticks` 全空。而当时:
+      · `dagster.daemons` = ok(7 个守护确实都在心跳)
+      · `dagster.runs`    = unknown(窗内确实没有终态 run)
+    **没有任何一个信号说得出「今后永远不会再有 run」**。真因是 dagster 的 gRPC code server
+    在夜里被 IO 饥饿拖死(心跳超时 30–45s),而 `dagster dev` 不会把它拉起来:
+    日志里每 50 秒刷一次 `Error loading repository location xar.orchestration.definitions`,
+    调度器手里没有任何可评估的对象 → 零 tick → 夜跑静默消失。
+
+    这就是「守护活着 ≠ 调度活着」:守护线程与代码位置是**两个独立的存活面**,
+    少查一个就会出现「全绿但什么都不会发生」。任一位置加载失败 ⇒ 直接判 down。
+    """
+    try:
+        data = _post(_Q_LOCATIONS)
+    except (urllib.error.URLError, OSError, RuntimeError, ValueError) as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:120]}"}
+    w = data.get("workspaceOrError") or {}
+    if w.get("__typename") != "Workspace":
+        return {"ok": False, "error": f"workspaceOrError={w.get('__typename')}"}
+    out, bad = [], []
+    for e in w.get("locationEntries") or []:
+        err = e.get("locationOrLoadError") or {}
+        broken = err.get("__typename") not in ("RepositoryLocation",)
+        row = {"name": e.get("name"), "loadStatus": e.get("loadStatus"),
+               "error": (err.get("message") or "")[:200] if broken else None}
+        out.append(row)
+        # LOADING 是过渡态(容器刚起来那几十秒),不算故障;只有明确的加载错误才算。
+        if broken and e.get("loadStatus") != "LOADING":
+            bad.append(row)
+    return {"ok": True, "locations": out, "broken": bad}
 
 
 def terminate_runs(run_ids: list[str]) -> dict:

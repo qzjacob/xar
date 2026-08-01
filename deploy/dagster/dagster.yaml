@@ -83,13 +83,23 @@ run_coordinator:
     # ⚠️ 不要靠提高容器内存限额来解决:docker.slice 的软闸 24G 昨夜已被打满,而各容器
     #    限额之和已 22.5G。提到 12G 会把聚合推向 28G 硬闸,冲顶时受害的是整个栈
     #    (db 峰值已 100%、werss 已 100%)—— 本机是 7×24 交易机,不可接受。
-    max_concurrent_runs: 7            # 总闸 = 6 pull + 1 extract
+    # ⚠️ 2026-08-01 下调 6→5:**迁 Postgres 之后每 run 的内存变大了,旧预算不再成立**。
+    # 实测(6 个 pull 在飞):dagster memory.current 6.33G,扣固定开销 0.58G ⇒
+    # **每 run ≈ 0.96G**,而旧模型写的是 0.73G(+31%)。多出来的是 dagster-postgres 的
+    # psycopg2 连接与连接池 —— 每个 run worker 现在都要自己连一次库,SQLite 时代是直接读文件。
+    # 于是 6 pull + 1 extract = 0.58 + 6×0.96 + 1.76 = **8.09G > 8G 硬限**,
+    # 当夜 extract_all 的 worker 被 memcg OOM 杀掉(memory.peak 顶到 8.00G、oom_kill=1),
+    # run 被 run_monitoring 标记 "marked as failed from outside the execution context"。
+    # 按实测重算:0.58 + 5×0.96 + 1.76 = **7.14G**,留 0.86G 余量。
+    # ⚠️ 这条是「修好 A 暴露 B」的又一例:换存储解决了 SQLite 单写锁,却抬高了每 run 内存。
+    # 改并发前请重新实测 `memory.current ÷ 在飞 run 数`,不要沿用文档里的旧系数。
+    max_concurrent_runs: 6            # 总闸 = 5 pull + 1 extract
     tag_concurrency_limits:
       # key 用 dagster/schedule_name:实测 run 上确实带此 tag(runs.db 的 run_tags 已验证);
       # 没有 dagster/job_name 这个 tag,别改成那个。
       - key: "dagster/schedule_name"
         value: "pull_schedule"
-        limit: 6
+        limit: 5
       - key: "dagster/schedule_name"
         value: "extract_schedule"
         limit: 1
