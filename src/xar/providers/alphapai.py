@@ -80,28 +80,91 @@ def _cn_today() -> str:
 
 
 def _quota_roll() -> None:
-    """沪日切换即重置额度状态(新的一天额度恢复)。"""
+    """沪日切换即重置**进程内镜像**(权威在 provider_quota 表,那边换日即换行、无需重置)。"""
     if _QUOTA["cn_date"] != _cn_today():
         _QUOTA.update({"cn_date": _cn_today(), "daily_exhausted": False,
                        "backoff_until": 0.0, "last_code": None})
 
 
+# 谓词读的 TTL 缓存:热路径每次调用都查库没必要,而跨进程传播延迟几秒无所谓
+# (dagster 夜批得知 glmworker 吃了 203 晚 ≤_SNAP_TTL 秒,代价仅是几次空转调用)。
+_SNAP_TTL = 8.0
+_snap_cache: dict = {"at": 0.0, "row": {}}
+
+
+def _row() -> dict:
+    """今日本源(单席位)的权威行;读不到则回落进程内镜像 —— **fail-open**。
+
+    额度门是优化信号(省调用),不是预算帽(省钱):DB 抖动时必须放行继续抓,
+    绝不能因为读不到额度状态就把抓取链停掉。
+    """
+    now = time.time()
+    if now - float(_snap_cache["at"]) < _SNAP_TTL:
+        return _snap_cache["row"]
+    from ..storage import quota as q
+    row = (q.snapshot("alphapai") or {}).get("-") or {}
+    _snap_cache.update({"at": now, "row": row})
+    return row
+
+
+def _invalidate() -> None:
+    """自己刚写过 → 立刻让缓存失效,保证本进程读到的是自己写后的值。"""
+    _snap_cache["at"] = 0.0
+
+
 def quota_exhausted() -> bool:
-    """当日额度已耗尽(收到 203)——本沪日剩余时间 alphapai 段应让位 fallback。"""
+    """当日额度已耗尽(收到 203)——本沪日剩余时间 alphapai 段应让位 fallback。
+
+    ⚠️ 权威在 `provider_quota` 表,不再是进程内变量(2026-08-02)。此前 glmworker
+    一天重启 14 次、每次都忘掉今天已经 203,于是抓取链重新把 alphapai 排到链首、
+    继续打已耗尽的付费 API —— fetch_chain 的 drain_first(榨干才交棒)整个语义
+    都建立在这个活不过重启的变量上。落库之后重启即续。
+    """
     _quota_roll()
-    return bool(_QUOTA["daily_exhausted"])
+    row = _row()
+    if row:
+        return bool(row.get("exhausted"))
+    return bool(_QUOTA["daily_exhausted"])          # fail-open:读不到就用镜像
 
 
 def quota_backing_off() -> bool:
-    """系统繁忙(204)短退避中——暂停但不判当日耗尽,退避到期自动恢复。"""
+    """系统繁忙(204/42900)短退避中——暂停但不判当日耗尽,退避到期自动恢复。"""
     _quota_roll()
+    row = _row()
+    if row:
+        return bool(row.get("backing_off"))
     return time.time() < float(_QUOTA["backoff_until"])
 
 
+def _persist_exhausted(code) -> None:
+    """203 落库。写失败只记日志 —— 退化为改造前的「仅进程内」现状,不制造新的失败模式。"""
+    try:
+        from ..storage import quota as q
+        q.mark_exhausted("alphapai", code=str(code))
+        _invalidate()
+    except Exception as e:  # noqa: BLE001
+        log.warning("alphapai 额度耗尽状态落库失败(仅进程内生效): %s", str(e)[:120])
+
+
+def _persist_backoff(seconds: float, code) -> None:
+    try:
+        from ..storage import quota as q
+        q.set_backoff("alphapai", seconds=float(seconds), code=str(code))
+        _invalidate()
+    except Exception as e:  # noqa: BLE001
+        log.warning("alphapai 退避状态落库失败(仅进程内生效): %s", str(e)[:120])
+
+
 def _reset_quota_state() -> None:
-    """清空额度状态(测试用;进程内状态需在用例间复位防泄漏)。"""
+    """清空额度状态(测试用;进程内状态需在用例间复位防泄漏)。
+
+    ⚠️ 必须连带清 `_snap_cache` —— 它也是模块级进程内状态。忘了这一条,上一个用例
+    缓存的「已耗尽」会泄漏进下一个用例,表现为 `_post` 莫名其妙秒返回 203(实测踩到)。
+    「新增了进程内状态就要在复位钩子里一起清」是这类模块的固定义务。
+    """
     _QUOTA.update({"cn_date": None, "daily_exhausted": False,
                    "backoff_until": 0.0, "last_code": None})
+    _snap_cache.update({"at": 0.0, "row": {}})
 
 
 def available() -> bool:
@@ -206,7 +269,9 @@ def _post(endpoint: str, payload: dict, *, stream: bool = False, timeout: float 
             return _post(endpoint, payload, stream=stream, timeout=timeout, _attempt=_attempt + 1)
         _quota_roll()
         _QUOTA["last_code"] = code
-        _QUOTA["backoff_until"] = time.time() + get_settings().alphapai_ratelimit_sleep_seconds
+        nap2 = get_settings().alphapai_ratelimit_sleep_seconds
+        _QUOTA["backoff_until"] = time.time() + nap2
+        _persist_backoff(nap2, code)               # 落库:重启后仍知道在退避
         log.warning("alphapai %s 短窗限流重试仍失败(code=%s)→ 短退避",
                     endpoint.rsplit("/", 1)[-1], code)
         return {"_rate_limited": True, "code": code}
@@ -215,8 +280,11 @@ def _post(endpoint: str, payload: dict, *, stream: bool = False, timeout: float 
         _QUOTA["last_code"] = code
         if code == 203:                                  # 用户当日超限 → 锁死当日
             _QUOTA["daily_exhausted"] = True
+            _persist_exhausted(code)                     # 落库:**重启后仍记得今天已耗尽**
         else:                                            # 204 系统繁忙 → 短退避
-            _QUOTA["backoff_until"] = time.time() + get_settings().alphapai_backoff_seconds
+            secs = get_settings().alphapai_backoff_seconds
+            _QUOTA["backoff_until"] = time.time() + secs
+            _persist_backoff(secs, code)
         log.warning("alphapai %s rate-limited (code=%s) — %s",
                     endpoint.rsplit("/", 1)[-1], code,
                     "当日耗尽" if code == 203 else "退避")

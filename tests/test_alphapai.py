@@ -11,9 +11,15 @@ from xar.providers import alphapai
 
 
 @pytest.fixture(autouse=True)
-def _reset_quota():
-    """额度状态是进程内模块级全局 —— 每个用例前后复位,防 203/204 测试污染后续用例
-    (否则 _post 入口短路会让之后的 pull_* 全部秒返回 0)。"""
+def _reset_quota(isolated_db):
+    """额度状态复位 —— 每个用例前后清进程内状态,防 203/204 测试污染后续用例
+    (否则 _post 入口短路会让之后的 pull_* 全部秒返回 0)。
+
+    ⚠️ 依赖 `isolated_db`(2026-08-02 加):额度权威已从进程内变量移到 `provider_quota`
+    表,于是 `_post` 里的 203/204 处理会**真的写库**。没有事务隔离时,先跑的用例写下的
+    「已耗尽」会被后面所有用例读到(实测 17 个用例连锁失败),而且这些行会**留在生产库里**。
+    单元测试一旦开始写共享状态,就必须同时拿到隔离 —— 这是本轮把状态落库的连带义务。
+    """
     alphapai._reset_quota_state()
     yield
     alphapai._reset_quota_state()
@@ -224,6 +230,13 @@ def test_quota_204_backs_off_not_daily(monkeypatch):
     assert alphapai.quota_exhausted() is False      # 但非当日耗尽
     assert alphapai.pull_recall("y", ["comment"], scope="company") == 0
     assert len(calls) == 1                          # 退避窗口内不再发起请求
+    # ⚠️ 退避的权威时钟已在 **DB**(provider_quota.backoff_until 与 now() 比较),
+    # 所以不能再靠 patch Python 的 time.time 快进 —— 那只动了进程内镜像。
+    # 把 DB 里的到期时刻推到过去,测的才是真正生效的那条路径。
+    from xar.storage import db as _db
+    _db.execute("UPDATE provider_quota SET backoff_until = now() - interval '1 second' "
+                "WHERE provider='alphapai'")
+    alphapai._invalidate()
     now[0] += 901                                   # 退避(900s)到期
     assert alphapai.quota_backing_off() is False
 
@@ -236,6 +249,12 @@ def test_quota_resets_on_new_cn_day(monkeypatch):
     monkeypatch.setattr(alphapai, "_cn_today", lambda: day[0])
     assert alphapai.pull_recall("x", ["comment"], scope="company") == 0
     assert alphapai.quota_exhausted() is True
+    # ⚠️ 沪日已进 `provider_quota` 的主键(换日即换行),由 **DB** 计算 ——
+    # patch Python 的 _cn_today 只动进程内镜像,动不了权威。把今天那行挪到昨天,
+    # 等价于「过了一天」,测的才是真正生效的换日机制。
+    from xar.storage import db as _db
+    _db.execute("UPDATE provider_quota SET cn_date = cn_date - 1 WHERE provider='alphapai'")
+    alphapai._invalidate()
     day[0] = "2026-07-25"                            # 沪日切换 → 额度恢复
     assert alphapai.quota_exhausted() is False
 

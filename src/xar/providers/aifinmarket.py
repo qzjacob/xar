@@ -73,6 +73,40 @@ def _today() -> str:
     return datetime.datetime.now(_CN_TZ).date().isoformat()
 
 
+# ── 席位额度的**权威在 provider_quota 表**(2026-08-02)──────────────────────────
+# 此前 _usage/_cooldown 都是进程内的:重启即归零 ⇒ 每个账号的日帽重新开始计,可以一路
+# 超发到供应商真的拒绝为止;而 all_seats_exhausted() 也随之假阴 —— 抓取链以为还有额度,
+# 不 fallback。更要命的是本源有**两个调用进程**(glmworker 抓取链 + dagster 夜批分片),
+# 两份进程内存互不知情,「每账号每日 N 次」这个帽从来就没真正生效过。
+# 现在:调用即 bump(DB 端原子累加,返回写后值判帽)、额度错即 mark_exhausted;
+# 进程内的 _usage/_cooldown 降级为**镜像**,只在 DB 读不到时兜底(fail-open)。
+_SNAP_TTL = 8.0
+_snap_cache: dict = {"at": 0.0, "seats": {}}
+
+
+def _seats() -> dict:
+    """今日各席位的权威状态 {seat: {calls, exhausted, backing_off}};读不到返回 {} → 回落镜像。"""
+    now = time.time()
+    if now - float(_snap_cache["at"]) < _SNAP_TTL:
+        return _snap_cache["seats"]
+    from ..storage import quota as q
+    seats = q.snapshot("aifinmarket") or {}
+    _snap_cache.update({"at": now, "seats": seats})
+    return seats
+
+
+def _invalidate() -> None:
+    _snap_cache["at"] = 0.0
+
+
+def _seat_blocked(tid: str, cap: int) -> bool:
+    """该席位今天还能不能用 —— DB 优先,读不到用进程内镜像。"""
+    row = _seats().get(tid)
+    if row is not None:
+        return bool(row.get("exhausted")) or bool(cap and int(row.get("calls", 0)) >= cap)
+    return tid in _cooldown or bool(cap and _usage.get(tid, 0) >= cap)
+
+
 def _reset_if_new_day() -> None:
     global _usage_date, _usage, _cooldown
     d = _today()
@@ -80,10 +114,34 @@ def _reset_if_new_day() -> None:
         _usage_date, _usage, _cooldown = d, {}, set()
 
 
+def _bump_seat(tid: str) -> None:
+    """记一次席位调用。写失败只记日志 —— 退化为改造前的「仅进程内」现状。"""
+    try:
+        from ..storage import quota as q
+        q.bump("aifinmarket", seat=tid)
+        _invalidate()
+    except Exception as e:  # noqa: BLE001
+        log.warning("aifinmarket 席位计数落库失败(仅进程内生效): %s", str(e)[:120])
+
+
+def _persist_seat_exhausted(tid: str, payload) -> None:
+    try:
+        from ..storage import quota as q
+        q.mark_exhausted("aifinmarket", seat=tid, code=str(payload)[:160])
+        _invalidate()
+    except Exception as e:  # noqa: BLE001
+        log.warning("aifinmarket 席位耗尽落库失败(仅进程内生效): %s", str(e)[:120])
+
+
 def _reset_state() -> None:
-    """Clear dispatcher state (rotation/usage/cooldown). For tests."""
+    """Clear dispatcher state (rotation/usage/cooldown). For tests.
+
+    ⚠️ 连带清 `_snap_cache`(席位快照)—— 新增的进程内状态必须在复位钩子里一起清,
+    否则上一个用例的席位状态会泄漏进下一个。
+    """
     global _rr, _cooldown, _usage, _usage_date, _last_call
     _rr, _cooldown, _usage, _usage_date, _last_call = 0, set(), {}, None, [0.0]
+    _snap_cache.update({"at": 0.0, "seats": {}})
 
 
 def _pool() -> list[str]:
@@ -102,8 +160,9 @@ def all_seats_exhausted() -> bool:
     if not pool:
         return True
     cap = get_settings().aifinmarket_daily_calls_per_account
-    return all(_tok_id(t) in _cooldown or (cap and _usage.get(_tok_id(t), 0) >= cap)
-               for t in pool)
+    # ⚠️ 必须是 all(...) 而非 any(...):多账号语义是「**每个**席位都触顶才算耗尽」,
+    # 任一账号还有额度就不准交棒(fetch_chain 的 drain_first 依赖这条)。
+    return all(_seat_blocked(_tok_id(t), cap) for t in pool)
 
 
 def _throttle() -> None:
@@ -131,9 +190,7 @@ def _pick_token() -> str | None:
         tok = pool[_rr % n]
         _rr += 1
         tid = _tok_id(tok)
-        if tid in _cooldown:
-            continue
-        if cap and _usage.get(tid, 0) >= cap:
+        if _seat_blocked(tid, cap):
             continue
         return tok
     return None
@@ -195,7 +252,8 @@ def _mcp_call(server_type: str, tool: str, arguments: dict, timeout: float = 90)
                         len(pool), server_type, tool)
             return None
         tid = _tok_id(tok)
-        _usage[tid] = _usage.get(tid, 0) + 1
+        _usage[tid] = _usage.get(tid, 0) + 1        # 镜像(DB 不可达时的兜底)
+        _bump_seat(tid)                             # 权威计数:DB 端原子累加
         _throttle()
         headers = {"Authorization": f"Bearer {tok}",
                    "Accept": "application/json, text/event-stream",
@@ -210,7 +268,8 @@ def _mcp_call(server_type: str, tool: str, arguments: dict, timeout: float = 90)
             return None
         payload = _parse_sse(r.text)
         if _is_quota_error(payload):
-            _cooldown.add(tid)
+            _cooldown.add(tid)                      # 镜像
+            _persist_seat_exhausted(tid, payload)   # 权威:重启后该席位仍被跳过
             log.warning("aifinmarket seat %s hit quota on %s.%s → cooling + failover",
                         tid, server_type, tool)
             continue
@@ -225,20 +284,6 @@ def _mcp_call(server_type: str, tool: str, arguments: dict, timeout: float = 90)
                 return {"raw": inner_text}
         return res or None
     return None
-
-
-def _persist_usage(usage: dict) -> None:
-    """Best-effort snapshot of per-seat daily usage for observability (keeps ~14 days)."""
-    try:
-        from ..storage import kvstate
-
-        st = kvstate.get_state("aifin_usage", {})
-        st[_today()] = usage
-        for old in sorted(st)[:-14]:
-            st.pop(old, None)
-        kvstate.save_state("aifin_usage", st)
-    except Exception as e:  # noqa: BLE001
-        log.debug("aifin usage persist skipped: %s", e)
 
 
 def _cn_code(company_id: str) -> str | None:
@@ -450,8 +495,10 @@ def pull_research_sweep(*, company_universe: list[str] | None = None) -> dict:
     for k in ("industry", "strategy", "macro"):
         counts[k] += g.get(k, 0)
 
+    # 席位用量的权威账本已是 provider_quota 表(每次调用 DB 端累加),
+    # 原来的 `aifin_usage` kvstate 快照就此删除:它**从来没有读者**,而且自身也是
+    # 读-改-写整块 blob —— 正是本轮要消灭的写法。观测改查 provider_quota。
     usage = dict(_usage)
-    _persist_usage(usage)
     log.info("aifinmarket research sweep: %s | seats=%d usage=%s cooling=%s",
              counts, len(_pool()), usage, sorted(_cooldown))
     return {"counts": counts, "seats": len(_pool()), "usage": usage, "cooling": sorted(_cooldown)}

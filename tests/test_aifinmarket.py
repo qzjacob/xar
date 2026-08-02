@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from xar.config import get_settings
 from xar.providers import aifinmarket
 
@@ -47,6 +49,19 @@ class _FakeS:
 
 
 # ── 席位池派生 ────────────────────────────────────────────────────────────────
+@pytest.fixture(autouse=True)
+def _isolate_seat_quota(isolated_db):
+    """席位额度权威已移到 `provider_quota` 表(2026-08-02)⇒ `_mcp_call` 的额度错处理
+    会**真的写库**。没有事务隔离时,先跑的用例写下的席位状态会被后面所有用例读到
+    (实测:轮询用例拿到 ['B','C','B',...] 而不是 ['A','B','C',...]),而且这些行会
+    留在生产库里。单元测试一旦开始写共享状态,就必须同时拿到隔离。
+    `_reset_state()` 连带清席位快照缓存 —— 那也是模块级进程内状态。
+    """
+    aifinmarket._reset_state()
+    yield
+    aifinmarket._reset_state()
+
+
 def test_token_pool_dedup_and_order(monkeypatch):
     # 先清掉任何泄漏的 AIFINMARKET{i}_TOKEN(全量套件里前序测试/宿主 env 可能残留),
     # 否则 aifinmarket_tokens 会扫到它们污染断言(隔离防污)。
@@ -132,7 +147,6 @@ def test_daily_cap_per_seat(monkeypatch):
 def test_research_sweep_scoped_docs(monkeypatch):
     aifinmarket._reset_state()
     monkeypatch.setattr(aifinmarket, "_pool", lambda: ["A", "B"])
-    monkeypatch.setattr(aifinmarket, "_persist_usage", lambda u: None)
 
     def fake_mcp(server, tool, args, timeout=90):
         q = args.get("query", "")
