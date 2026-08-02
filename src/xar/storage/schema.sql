@@ -217,6 +217,33 @@ CREATE TABLE IF NOT EXISTS api_spend (
     PRIMARY KEY (provider, month)
 );
 
+-- 沪日额度账本(2026-08-02):按国内日历日重置额度的源 —— alphapai(单席位)/
+-- aifinmarket(多 API 账号)。范本 = 上面的 api_spend:**日界进主键**。
+--
+-- 为什么必须落库:此前这两个源的额度状态是**进程内模块级变量**
+-- (alphapai._QUOTA / aifinmarket._usage+_cooldown)。glmworker 一天重启 14 次,
+-- 每次重启都忘掉「今天已经 203(当日额度耗尽)」→ 抓取链重新把 alphapai 排到链首、
+-- 继续打已经耗尽的付费 API,直到再吃一串 203 才重新学会。
+-- 这条直接架空了 fetch_chain 的 drain_first(榨干才交棒)语义 —— 那个功能的正确性
+-- 建立在一个活不过重启的变量上。而且 alphapai/aifinmarket 有**两个调用进程**
+-- (glmworker 的抓取链 + dagster 夜批分片),两份进程内存互不知情,日帽根本管不住。
+--
+-- ⚠️ cn_date 进主键 = **换日即换行**:没有「重置」这个动作,也就没有重置竞态、
+-- 没有 _quota_roll()/_reset_if_new_day() 两套换日代码。今天的行不存在 ⇒ 额度全新。
+-- ⚠️ 沪日一律由**数据库**算(`(now() AT TIME ZONE 'Asia/Shanghai')::date`),不由 Python 算 ——
+-- 五个容器对「今天」的判定从此由同一个时钟给出,容器时区/时钟漂移不再能造成分歧。
+CREATE TABLE IF NOT EXISTS provider_quota (
+    provider      TEXT    NOT NULL,               -- 'alphapai' | 'aifinmarket'
+    seat          TEXT    NOT NULL DEFAULT '-',   -- 席位 id(aifinmarket=_tok_id;单席位源='-')
+    cn_date       DATE    NOT NULL,               -- 沪日(SQL 端统一计算)
+    calls         BIGINT  NOT NULL DEFAULT 0,     -- 当沪日调用数(DB 端原子累加)
+    exhausted     BOOLEAN NOT NULL DEFAULT false, -- 当日锁死(alphapai 203 / aifin 席位额度错)
+    backoff_until TIMESTAMPTZ,                    -- 短退避(alphapai 204/42900),到期自动失效
+    last_code     TEXT,                           -- 最近限流码/额度错片段(便于事后归因)
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (provider, seat, cn_date)
+);
+
 -- ===========================================================================
 -- STRUCTURED DATA LAYER
 -- Multi-provider (Finnhub / FMP / Polygon / Yahoo / Wind / EDGAR) numeric facts,
