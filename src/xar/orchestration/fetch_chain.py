@@ -5,8 +5,15 @@
 
 实现 = 一个**日内接力状态机**(状态存 kvstate `fetch_chain`),由 glm_worker 的 `alt_fetch_chain`
 站点每 `fetch_chain_step_seconds` 驱动一步 `step()`;每步消耗一个 `fetch_chain_slice_seconds` 时间片
-(item 之间检查预算,不抢占单个慢调用),不阻塞 worker 主循环。**进位条件 = 源当日额度耗尽
-OR 当日清单跑完**(后者保证 alphapai 额度充裕的日子里 gangtise/aifinmarket 也不被饿死)。
+(item 之间检查预算,不抢占单个慢调用),不阻塞 worker 主循环。
+
+⚠️ **进位条件已改(2026-08-02 用户裁定)**:标了 `drain_first` 的源(alphapai 三棒 +
+aifinmarket)**只有当日额度真正耗尽才准交棒**;「清单跑完」不再算数 —— 清单跑完但额度还在,
+改为把回看窗往前推、让清单重新长出来继续榨(`_deepen`);短退避也不再累计弃权。
+起因是审计实测:alphapai 的 203 在 2.7 天日志里出现 **0 次**,却天天早上 05:00–08:46 沪时
+就以 `complete`/`backoff_giveup` 交棒,之后 15–18 小时零产出 —— 付费额度大量剩在桌上。
+代价是下游可能被饿久一点,由墙钟安全阀 `fetch_chain_drain_max_hours` 兜底(设 0 则永不放行)。
+未标 drain_first 的源(gangtise 等无额度信号)仍是「清单跑完即进位」。
 
 链序(`fetch_chain_order` CSV,可配置、未来源追加):
   1. alphapai        —— 纪要 recall(roadShow*)逐公司(相关性序)→ 主题 recall → 头部公司其余类型
@@ -87,6 +94,14 @@ class Stage:
     run_item: Callable[[list, dict], int]    # (item, state) → 落库文档数
     exhausted: Callable[[], bool] = (lambda: False)      # 源当日额度耗尽
     backing_off: Callable[[], bool] = (lambda: False)    # 源短退避中(暂停不进位)
+    # ── 榨干优先(2026-08-02 用户裁定)────────────────────────────────────────
+    # True = **只有 exhausted() 为真才准进位**;清单跑完 / 短退避连击都不再让位。
+    # 起因是审计实测:alphapai 的 203(当日额度耗尽)在 2.7 天日志里出现 **0 次**,
+    # 每天早上 05:00–08:46 沪时就因 `complete` 或 `backoff_giveup` 交棒,
+    # 之后 15–18 小时零产出 —— 付费额度大量剩在桌上没用。
+    # 清单跑完但额度仍在 ⇒ 不交棒,改为**加深回看窗**继续榨(见 _deepen);
+    # 短退避 ⇒ 不计连击、原地等,42900 是瞬时节流,不该升级成当天弃权。
+    drain_first: bool = False
 
 
 # --- alphapai(纪要首要 + 主题 + 头部其余类型)---
@@ -145,7 +160,8 @@ def _alphapai_stage() -> Stage:
     return Stage(name="alphapai",
                  available=lambda: alphapai.available() and get_settings().enable_alphapai,
                  build_worklist=_alphapai_worklist, run_item=_alphapai_run,
-                 exhausted=alphapai.quota_exhausted, backing_off=alphapai.quota_backing_off)
+                 exhausted=alphapai.quota_exhausted, backing_off=alphapai.quota_backing_off,
+                 drain_first=True)
 
 
 # --- alphapai_backfill(过去一年逐窗回溯,新→旧;量的主杠杆)---
@@ -204,7 +220,8 @@ def _bf_stage() -> Stage:
                  available=lambda: (alphapai.available() and get_settings().enable_alphapai
                                     and get_settings().alphapai_backfill_enabled),
                  build_worklist=_bf_worklist, run_item=_bf_run,
-                 exhausted=alphapai.quota_exhausted, backing_off=alphapai.quota_backing_off)
+                 exhausted=alphapai.quota_exhausted, backing_off=alphapai.quota_backing_off,
+                 drain_first=True)
 
 
 # --- alphapai_agents(SSE 合成,链尾)---
@@ -227,7 +244,8 @@ def _agents_stage() -> Stage:
     return Stage(name="alphapai_agents",
                  available=lambda: alphapai.available() and get_settings().enable_alphapai,
                  build_worklist=_agents_worklist, run_item=_agents_run,
-                 exhausted=alphapai.quota_exhausted, backing_off=alphapai.quota_backing_off)
+                 exhausted=alphapai.quota_exhausted, backing_off=alphapai.quota_backing_off,
+                 drain_first=True)
 
 
 # --- gangtise(clues → 纪要 → 券商研报 → MD&A → 评级;零信用,无额度信号)---
@@ -330,7 +348,9 @@ def _aifin_stage() -> Stage:
     from ..providers import aifinmarket
     return Stage(name="aifinmarket", available=aifinmarket.available,
                  build_worklist=_aifin_worklist, run_item=_aifin_run,
-                 exhausted=aifinmarket.all_seats_exhausted)
+                 # 多账号:all_seats_exhausted() 要求**每个席位**都到当日上限或冷却中,
+                 # 所以「榨干」在这里天然是「榨干全部账号」,不是任一账号触顶就走。
+                 exhausted=aifinmarket.all_seats_exhausted, drain_first=True)
 
 
 def stages() -> dict[str, Stage]:
@@ -362,7 +382,8 @@ def _load_state() -> dict:
     st = {"date": today, "stage": 0, "cursor": 0, "b204": 0, "order": order,
           "pinned_ids": universe_priority_order(), "alphapai_start": start,
           "last_done_date": raw.get("last_done_date"), "passes": 1, "done_at_epoch": 0.0,
-          "counts": {name: {} for name in order}, "stage_log": [], "done": False}
+          "counts": {name: {} for name in order}, "stage_log": [], "done": False,
+          "drain_rounds": 0, "stage_since": {order[0]: _cn_now_iso()} if order else {}}
     save_state(STATE_KEY, st)
     return st
 
@@ -376,9 +397,55 @@ def _new_pass(st: dict) -> dict:
           "passes": int(st.get("passes", 1)) + 1,
           "alphapai_start": (datetime.fromisoformat(st["date"]).date()
                              - timedelta(days=lookback)).isoformat(),
-          "counts": {name: {} for name in st["order"]}, "stage_log": []}
+          "counts": {name: {} for name in st["order"]}, "stage_log": [],
+          "drain_rounds": 0,
+          "stage_since": {st["order"][0]: _cn_now_iso()} if st.get("order") else {}}
     save_state(STATE_KEY, st)
     return st
+
+
+def _drain_valve_expired(st: dict, sname: str) -> bool:
+    """榨干模式的**墙钟安全阀**:这一棒已经霸着链多久了。
+
+    为什么必须有:用户要的是「额度不耗尽不许交棒」,而这条规则的字面执行有一个尖锐后果 ——
+    只要供应商坏掉(持续 42900、或额度谓词永远不为真),这一棒就会把整条链**吊死一整天**,
+    下游 gangtise / aifinmarket / agents 一粒米都吃不到。那比"额度没榨干"更糟。
+    所以设一个上限:超过 `fetch_chain_drain_max_hours` 仍未耗尽,放行并大声记一笔。
+    设成 0 = 关闭安全阀 = 纯粹的硬阻塞(真想要「除非耗尽否则永不交棒」就配 0)。
+    """
+    hours = float(getattr(get_settings(), "fetch_chain_drain_max_hours", 10.0) or 0)
+    if hours <= 0:
+        return False                                  # 显式关阀:永不放行
+    since = (st.get("stage_since") or {}).get(sname)
+    if not since:
+        return False
+    try:
+        held = (datetime.now(_CN_TZ) - datetime.fromisoformat(since)).total_seconds() / 3600
+    except ValueError:
+        return False
+    return held >= hours
+
+
+def _deepen(st: dict, sname: str) -> None:
+    """清单跑完但额度还在 → 把回看窗往前推一段,让清单重新长出来继续榨。
+
+    只对 alphapai 家族有意义(它的清单长度由 `alphapai_start` 决定);其余段没有这个旋钮,
+    退化成「把游标归零、重扫一遍」——对 aifinmarket 这类轮询源同样能继续消耗额度。
+    """
+    st["cursor"] = 0
+    st["drain_rounds"] = int(st.get("drain_rounds", 0)) + 1
+    if sname.startswith("alphapai"):
+        step_days = max(1, int(getattr(get_settings(), "alphapai_lookback_days", 30) or 30))
+        try:
+            cur = datetime.fromisoformat(st["alphapai_start"]).date()
+        except (KeyError, TypeError, ValueError):
+            cur = datetime.now(_CN_TZ).date()
+        st["alphapai_start"] = (cur - timedelta(days=step_days)).isoformat()
+        log.info("fetch_chain %s 清单跑完但额度未耗尽 → 回看窗推到 %s(第 %d 轮加深)",
+                 sname, st["alphapai_start"], st["drain_rounds"])
+    else:
+        log.info("fetch_chain %s 清单跑完但额度未耗尽 → 游标归零重扫(第 %d 轮)",
+                 sname, st["drain_rounds"])
 
 
 def _advance(st: dict, sname: str, ended: str) -> None:
@@ -387,6 +454,11 @@ def _advance(st: dict, sname: str, ended: str) -> None:
     st["stage"] = int(st["stage"]) + 1
     st["cursor"] = 0
     st["b204"] = 0
+    st["drain_rounds"] = 0
+    # 给下一棒起表 —— 榨干模式的安全阀按「这一棒霸着链多久」计时,没有起点就没有阀。
+    order = st.get("order") or []
+    if int(st["stage"]) < len(order):
+        st.setdefault("stage_since", {})[order[int(st["stage"])]] = _cn_now_iso()
 
 
 def _merge_count(st: dict, sname: str, item: list, n: int) -> None:
@@ -426,8 +498,18 @@ def step(*, budget_seconds: float | None = None) -> dict:
             advanced.append({"stage": sname, "ended": "unavailable"})
             save_state(STATE_KEY, st)
             continue
-        if _safe(stage.backing_off, False):                  # 204 退避:暂停不进位(3 连击弃权)
+        if _safe(stage.backing_off, False):                  # 短退避:暂停不进位
             st["b204"] = int(st.get("b204", 0)) + 1
+            # drain_first 段**不因退避连击弃权**(2026-08-02):42900/204 是瞬时节流,
+            # 把它升级成「当天放弃这一棒」正是额度剩在桌上的主因之一 —— 实测 alphapai
+            # 天天以 backoff_giveup 收场,而 203 从未出现过。原地等,下一片再来。
+            # 唯一例外是墙钟安全阀(见 _drain_valve_expired):否则一个病态供应商
+            # 能把整条链吊死一整天,下游 gangtise/aifinmarket 一粒米都吃不到。
+            if stage.drain_first and not _drain_valve_expired(st, sname):
+                save_state(STATE_KEY, st)
+                return {"date": st["date"], "stage": sname, "paused": "backoff_drain",
+                        "b204": st["b204"], "ran": ran, "advanced": advanced,
+                        "counts": st["counts"]}
             if st["b204"] >= getattr(get_settings(), "fetch_chain_backoff_strikes", _B204_STRIKES_DEFAULT):
                 _advance(st, sname, "backoff_giveup")
                 advanced.append({"stage": sname, "ended": "backoff_giveup"})
@@ -442,6 +524,20 @@ def step(*, budget_seconds: float | None = None) -> dict:
             log.warning("fetch_chain %s build_worklist failed: %s", sname, str(e)[:120])
             break
         if int(st["cursor"]) >= len(wl):
+            # 清单跑完 —— 但 drain_first 段**额度没耗尽就不准交棒**(2026-08-02 用户裁定)。
+            # 「跑完」不等于「榨干」:清单是由 pinned 公司 × 类型 × 回看窗生成的,
+            # 窗越深清单越长。所以这里不进位,而是**把回看窗往前推**再来一轮 —— 既继续
+            # 消耗额度,拿到的又是有用的历史纪要,不是空转重复。
+            if stage.drain_first and not _safe(stage.exhausted, False):
+                if _drain_valve_expired(st, sname):
+                    _advance(st, sname, "drain_timeout")     # 安全阀:见 _drain_valve_expired
+                    advanced.append({"stage": sname, "ended": "drain_timeout"})
+                    log.warning("fetch_chain %s 到达榨干安全阀仍未耗尽额度 → 放行下一棒", sname)
+                    save_state(STATE_KEY, st)
+                    continue
+                _deepen(st, sname)
+                save_state(STATE_KEY, st)
+                continue
             _advance(st, sname, "complete")
             advanced.append({"stage": sname, "ended": "complete"})
             save_state(STATE_KEY, st)
