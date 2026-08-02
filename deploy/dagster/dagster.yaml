@@ -83,7 +83,21 @@ run_coordinator:
     # ⚠️ 不要靠提高容器内存限额来解决:docker.slice 的软闸 24G 昨夜已被打满,而各容器
     #    限额之和已 22.5G。提到 12G 会把聚合推向 28G 硬闸,冲顶时受害的是整个栈
     #    (db 峰值已 100%、werss 已 100%)—— 本机是 7×24 交易机,不可接受。
-    # ⚠️ 2026-08-01 下调 6→5:**迁 Postgres 之后每 run 的内存变大了,旧预算不再成立**。
+    # ⚠️⚠️ 2026-08-02 再下调 5→4:**上一次(6→5)的账算错了,extract 被严重低估。**
+    # 错在沿用了文档里的 extract=1.76G。当天用一次「extract 独自跑」的受控观测量到实值:
+    #   01:05→05:59 只有 extract_all 在飞,dagster 2.08G→2.89G ⇒ **extract ≈ 2.31G**(扣 0.58 固定);
+    #   06:00 夜跑 5 个 pull 一进来,06:05 即跳到 7.50G ⇒ 2.89 + 5×0.96 = 7.54,几乎分毫不差;
+    #   随后爬到 7.99G 顶格,extract 的 worker 被 memcg OOM 杀掉(oom_kill=1),run 跑了 425 分钟白费。
+    # 按实测口径(固定 0.58 / pull 0.958 / extract 2.31,留 7% 余量 ⇒ 可用 7.44G):
+    #   6 pull + 1 extract = 8.64G ✗    5 pull + 1 extract = 7.68G ✗(就是这次死法)
+    #   **4 pull + 1 extract = 6.72G ✓**  3 pull + 1 extract = 5.76G ✓
+    # ⚠️ 教训:上一版注释里 extract 那个 1.76G 是**从旧文档抄来的、没有实测**,
+    # 而 pull 的 0.96 是实测的 —— 一半实测一半抄袭,算出来的总账自然是错的。
+    # 改这个系数前,**两个量都要现测**:memory.current ÷ 在飞 run 数,且要分别在
+    # 「只有 pull」和「只有 extract」两种状态下各测一次,不要混着测再去解方程。
+    #
+    # 2026-08-01 下调 6→5 的原始记录(保留以便追溯):
+    # **迁 Postgres 之后每 run 的内存变大了,旧预算不再成立**。
     # 实测(6 个 pull 在飞):dagster memory.current 6.33G,扣固定开销 0.58G ⇒
     # **每 run ≈ 0.96G**,而旧模型写的是 0.73G(+31%)。多出来的是 dagster-postgres 的
     # psycopg2 连接与连接池 —— 每个 run worker 现在都要自己连一次库,SQLite 时代是直接读文件。
@@ -93,13 +107,13 @@ run_coordinator:
     # 按实测重算:0.58 + 5×0.96 + 1.76 = **7.14G**,留 0.86G 余量。
     # ⚠️ 这条是「修好 A 暴露 B」的又一例:换存储解决了 SQLite 单写锁,却抬高了每 run 内存。
     # 改并发前请重新实测 `memory.current ÷ 在飞 run 数`,不要沿用文档里的旧系数。
-    max_concurrent_runs: 6            # 总闸 = 5 pull + 1 extract
+    max_concurrent_runs: 5            # 总闸 = 4 pull + 1 extract(实测口径 6.72G/8G)
     tag_concurrency_limits:
       # key 用 dagster/schedule_name:实测 run 上确实带此 tag(runs.db 的 run_tags 已验证);
       # 没有 dagster/job_name 这个 tag,别改成那个。
       - key: "dagster/schedule_name"
         value: "pull_schedule"
-        limit: 5
+        limit: 4
       - key: "dagster/schedule_name"
         value: "extract_schedule"
         limit: 1
