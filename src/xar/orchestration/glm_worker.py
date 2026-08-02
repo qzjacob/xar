@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from ..logging import get_logger
 from ..models import llm
 from ..storage import db
-from ..storage.kvstate import get_state, save_state
+from ..storage.kvstate import get_state, save_state, set_state_field
 
 log = get_logger("xar.glm_worker")
 
@@ -271,12 +271,16 @@ def _due(key: str, every_seconds: int) -> bool:
 def _stamp(key: str, every_seconds: int, *, ok: bool) -> None:
     from datetime import timedelta
 
-    st = get_state("cadence")
     ts = datetime.now(timezone.utc)
     if not ok:                                  # 失败:回退 3/4 间隔 → 1/4 间隔后重试
         ts -= timedelta(seconds=every_seconds * 0.75)
-    st[key] = ts.isoformat(timespec="seconds")
-    save_state("cadence", st)
+    # ⚠️ 单字段原子写,**不要退回读-改-写**(2026-08-02)。
+    # cadence 一块 blob 装着 13 个源的心跳戳;原来是 `get_state → st[key]=... → save_state`,
+    # 只要那次读拿到空字典,回写就把其余 12 个源的戳一起抹掉 —— 监控面板上表现为
+    # 一批源集体翻 unknown(实测 15 个任务同时失联),而源本身其实好好的。
+    # 这类「整块回写」在本会话已经酿过两次事故,判据很简单:
+    # **blob 里装的是多个互不相干的写入方时,就不能整块回写。**
+    set_state_field("cadence", key, ts.isoformat(timespec="seconds"))
 
 
 def _pull_fresh(cfg: dict | None = None) -> dict:
