@@ -107,3 +107,98 @@ def test_stamp_uses_atomic_write():
     src = inspect.getsource(glm_worker._stamp)
     assert "set_state_field" in src, "_stamp 必须用单字段原子写"
     assert 'save_state("cadence"' not in src, "_stamp 不得整块回写 cadence"
+
+
+# ── merge_state_field:两层状态的跨进程安全合并(2026-08-02)────────────────────
+# `sub_quota` 是 {provider: {status, exhaust_count, ...}} 的两层 blob,有**三个进程**
+# 在写(subpool 容器 / glmworker / app 的 on-demand phanny),而 subpool._STATE_LOCK
+# 是 threading.Lock —— 对跨容器并发一直无能为力。合并必须放到数据库端做。
+def test_merge_creates_nested_object_when_absent(_key):
+    """中间层不存在时也要能建出来 —— 这正是 jsonb_set 深 path 会**静默 no-op** 的地方。"""
+    from xar.storage.kvstate import merge_state_field
+    merge_state_field(_K, "zhipu", {"status": "ok"})
+    assert get_state(_K) == {"zhipu": {"status": "ok"}}
+
+
+def test_merge_does_not_touch_sibling_providers(_key):
+    """核心不变量:冷却 minimax 不得动 zhipu —— 整块回写下这正是丢更新的形态。"""
+    from xar.storage.kvstate import merge_state_field
+    save_state(_K, {"zhipu": {"status": "ok"}, "minimax": {"status": "ok"}})
+    merge_state_field(_K, "minimax", {"status": "exhausted"})
+    got = get_state(_K)
+    assert got["zhipu"] == {"status": "ok"}
+    assert got["minimax"]["status"] == "exhausted"
+
+
+def test_merge_preserves_unpatched_fields_of_same_provider(_key):
+    """浅合并:只覆盖 patch 里出现的字段,exhaust_count 这类过渡计数不能被抹掉。"""
+    from xar.storage.kvstate import merge_state_field
+    save_state(_K, {"zhipu": {"status": "exhausted", "exhaust_count": 3,
+                              "last_reason": "quota"}})
+    merge_state_field(_K, "zhipu", {"status": "ok", "resumed_at": "t1"})
+    got = get_state(_K)["zhipu"]
+    assert got["status"] == "ok" and got["resumed_at"] == "t1"
+    assert got["exhaust_count"] == 3 and got["last_reason"] == "quota"
+
+
+def test_merge_creates_blob_when_key_absent(_key):
+    from xar.storage.kvstate import merge_state_field
+    merge_state_field(_K, "kimi", {"status": "exhausted"})
+    assert get_state(_K)["kimi"]["status"] == "exhausted"
+
+
+def test_merge_does_not_read_before_write():
+    """与 set_state_field 同理:合并在 DB 端做,实现里不得先读 —— 读是整块覆盖的源头。"""
+    import ast
+    import inspect
+    import textwrap
+
+    from xar.storage import kvstate
+
+    fn = ast.parse(textwrap.dedent(inspect.getsource(kvstate.merge_state_field))).body[0]
+    body = fn.body[1:] if (fn.body and isinstance(fn.body[0], ast.Expr)
+                           and isinstance(fn.body[0].value, ast.Constant)) else fn.body
+    code = "\n".join(ast.unparse(n) for n in body)
+    assert "jsonb_set" in code and "get_state" not in code and "SELECT" not in code.upper()
+
+
+def test_subpool_mark_uses_merge_not_wholesale_write():
+    """护栏:_mark 不得退回整块回写 —— 那会同时带回跨进程丢更新与整块抹除两个问题。"""
+    import inspect
+
+    from xar.models import subpool
+
+    src = inspect.getsource(subpool._mark)
+    assert "merge_state_field" in src
+    assert "save_state(STATE_KEY" not in src
+
+
+# ── PR4 护栏:cursor 四写方与 cadence 写法的统一(2026-08-02)────────────────────
+def test_no_wholesale_cursor_writes_anywhere():
+    """`cursor` 这块 blob 有 **4 个写入点**(glmworker 的 futu/gangtise、futu_flow、flow_si)。
+    整块回写时任一次读到空/陈旧就会抹掉其余源的游标 —— 与 cadence 那次事故同型。
+    这条护栏扫全仓源码,防止将来任何一处悄悄改回去。
+    """
+    import pathlib
+    hits = []
+    for f in pathlib.Path("src/xar").rglob("*.py"):
+        if 'save_state("cursor"' in f.read_text():
+            hits.append(str(f))
+    assert not hits, f"这些文件仍在整块回写 cursor:{hits}"
+
+
+def test_cadence_has_exactly_one_write_implementation():
+    """同一个不变量只能有一个实现。此前 monitoring/actions.py 另写了一份裸 SQL jsonb_set,
+    与 kvstate.set_state_field 语义相同但措辞不同,且漏了 coalesce —— 键不存在时行为分叉。
+    修一处补不到另一处,正是这类重复实现的代价。
+    """
+    import pathlib
+    # 判据是「谁直接写 glm_worker_state 表」——不是散文里提没提 jsonb_set
+    # (注释解释事故时必然会提到它,那不算实现)。
+    raw = []
+    for f in pathlib.Path("src/xar").rglob("*.py"):
+        if f.name == "kvstate.py":
+            continue
+        if "INSERT INTO glm_worker_state" in f.read_text():
+            raw.append(str(f))
+    assert not raw, f"kvstate 之外不得再写一份 glm_worker_state 的写入实现:{raw}"

@@ -17,13 +17,17 @@ from ..config import get_settings
 from ..logging import get_logger
 from ..models import llm
 from ..models import registry as reg
-from ..storage.kvstate import get_state, save_state
+from ..storage.kvstate import get_state, merge_state_field
 
 log = get_logger("xar.subpool")
 
 STATE_KEY = "sub_quota"
 _MAX_PROVIDER_FAILS = 3    # 连续失败(额度/鉴权失效/持续返空)达此数 → 冷却该 provider 退出,不再抢单
-_STATE_LOCK = threading.Lock()   # sub_quota 是单个 JSON blob:读-改-写必须互斥(见 _mark)
+# ⚠️ 职责已收窄(2026-08-02):它只保证**进程内**的「读-判定」串行(run_parallel 的三个
+# provider 线程会同时走 _mark 这条路径)。**跨进程安全由 `merge_state_field` 的单语句
+# 合并承担** —— 它是 threading.Lock,对 subpool/glmworker/app 三个容器同时写 sub_quota
+# 这件事一直无能为力,而那正是真实的并发面。
+_STATE_LOCK = threading.Lock()
 # 额度/限流标记(与 glm_worker._QUOTA_MARKERS 同族;刻意不含 exceed/429 之类 —— 预算帽≠订阅额度)。
 _QUOTA_MARKERS = ("余额不足", "无可用资源包", "rate limit", "ratelimit", "too many requests",
                   "quota", "额度", "配额", "限额", "超限", "insufficient")
@@ -61,27 +65,36 @@ def status() -> dict:
 
 
 def _mark(prov: str, *, ok: bool, reason: str = "") -> None:
-    """标记某 provider 的额度状态。**必须持锁**:整张状态表是一个 JSON blob,
-    读-改-写没有互斥时,两个 worker 线程同时冷却会丢一次更新 —— 被丢掉的那家仍被当作可用,
-    继续派活直到再失败三次。run_parallel 里三个 provider 线程恰恰会同时触发这条路径。"""
+    """标记某 provider 的额度状态 —— **合并在数据库端做,不整块回写**(2026-08-02)。
+
+    原来是「持锁 → 读整张 blob → 改一个 provider → 整块写回」。那个写法有两层问题:
+      ① 进程内锁挡不住**跨进程**:sub_quota 有三个写入方(subpool 容器 / glmworker /
+         app 的 on-demand phanny),两个容器同时冷却不同 provider 会丢一次更新 ——
+         被丢掉的那家仍被当作可用,继续派活直到再失败三次(注释自述的那个场景,
+         在跨进程下从来没被真正修复过);
+      ② 整块回写还会在读到空/陈旧 blob 时抹掉其余 provider(cadence 已经因此出过事故)。
+    现在:读只用于**判断过渡**(ok↔exhausted、算 count),真正的写是
+    `merge_state_field` 的单语句浅合并 —— 并发写不同 provider 互不覆盖,
+    写同一 provider 时也只交织字段、不整体丢失。
+    """
     with _STATE_LOCK:
-        st = get_state(STATE_KEY)
-        p = st.setdefault(prov, {})
+        # 读只用于**判断过渡**(ok↔exhausted、算 count);真正的写走 merge_state_field,
+        # 由数据库端做浅合并 —— 见下面那段关于跨进程的说明。
+        p = (get_state(STATE_KEY).get(prov) or {})
+        patch: dict = {"last_probe_at": _now()}
         if ok:
             if p.get("status") == "exhausted":
-                p["resumed_at"] = _now()
-                p["resume_count"] = int(p.get("resume_count", 0)) + 1
+                patch["resumed_at"] = _now()
+                patch["resume_count"] = int(p.get("resume_count", 0)) + 1
                 log.info("subpool provider %s quota RECOVERED", prov)
-            p["status"] = "ok"
+            patch["status"] = "ok"
         else:
             if p.get("status") != "exhausted":
-                p["status"] = "exhausted"
-                p["exhausted_at"] = _now()
-                p["exhaust_count"] = int(p.get("exhaust_count", 0)) + 1
-                p["last_reason"] = reason[:160]
+                patch.update({"status": "exhausted", "exhausted_at": _now(),
+                              "exhaust_count": int(p.get("exhaust_count", 0)) + 1,
+                              "last_reason": reason[:160]})
                 log.warning("subpool provider %s quota EXHAUSTED — cooling (%s)", prov, reason[:100])
-        p["last_probe_at"] = _now()
-        save_state(STATE_KEY, st)
+        merge_state_field(STATE_KEY, prov, patch)
 
 
 def probe(prov: str, pin: tuple[str, ...]) -> bool:

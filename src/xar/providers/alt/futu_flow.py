@@ -55,7 +55,7 @@ def pull(limit: int | None = None, *, days: int | None = None) -> dict:
     futu_flow_lookback_days 做一次性回填)。返回统计。"""
     import time
 
-    from ...storage.kvstate import get_state, save_state
+    from ...storage.kvstate import get_state, set_state_field
     from ..futu import _quote_ctx, close
 
     ctx = _quote_ctx()
@@ -82,9 +82,9 @@ def pull(limit: int | None = None, *, days: int | None = None) -> dict:
     if limit and bound:
         off = int(get_state("cursor").get("futu_flow", 0)) % len(bound)
         todo = bound[off:off + limit]
-        cur = get_state("cursor")
-        cur["futu_flow"] = (off + len(todo)) % len(bound)
-        save_state("cursor", cur)
+        # 单字段原子写:cursor 这块 blob 有 **4 个写入点**(glmworker 的 futu/gangtise、
+        # futu_flow、flow_si),整块回写时任一次读到空/陈旧都会抹掉其余源的游标。
+        set_state_field("cursor", "futu_flow", (off + len(todo)) % len(bound))
     else:
         todo = bound
     for i, (cid, code) in enumerate(todo):

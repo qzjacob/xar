@@ -29,7 +29,14 @@ class _Spec:
 def mem(monkeypatch):
     store: dict = {}
     monkeypatch.setattr(subpool, "get_state", lambda k, d=None: store.get(k, d if d is not None else {}))
-    monkeypatch.setattr(subpool, "save_state", lambda k, v: store.__setitem__(k, v))
+    def _merge(k, field, patch):
+        """如实模拟 `merge_state_field` 的**浅合并**语义(2026-08-02):
+        只覆盖 patch 里出现的字段,不整体替换子对象 —— 桩若写成整体替换,
+        测出来的就不是线上行为(exhaust_count 这类过渡计数会被悄悄抹掉)。"""
+        blob = store.setdefault(k, {})
+        blob[field] = {**blob.get(field, {}), **patch}
+
+    monkeypatch.setattr(subpool, "merge_state_field", _merge)
     monkeypatch.setattr(subpool, "get_settings", lambda: _S())
     monkeypatch.setattr(subpool.reg, "get", lambda mid: _Spec(_PROV.get(mid, mid)))
     monkeypatch.setattr(subpool.llm, "pinned", lambda pin: contextlib.nullcontext())

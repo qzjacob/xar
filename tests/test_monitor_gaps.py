@@ -249,3 +249,70 @@ def test_hardware_tasks_registered():
     assert {"hw.docker_slice", "hw.io_pressure"} <= ids
     t = next(x for x in catalog.all_tasks() if x.id == "hw.docker_slice")
     assert t.severity == "critical", "根因信号必须能推手机"
+
+
+# ── PR5:事实统一(2026-08-02)──────────────────────────────────────────────────
+def test_every_consumed_stage_is_in_the_catalog():
+    """**通用护栏**,杀死整类 bug:`run_once` 里出现的每个 `stages_on.get("X")`,
+    X 都必须在 `FETCHY_STAGES` 目录里。
+
+    实测踩到的那一个:`phanny` 一直被消费却不在目录里,而 `save_fetchy` 按
+    `k in FETCHY_STAGES` 过滤未知键 ⇒ 面板上「关闭 phanny」的动作被静默丢弃,
+    `stages_on.get("phanny", True)` 恒为 True —— **这个阶段永远关不掉**。
+    偏偏它是最重的一段(实测把 glmworker 单线程 run_once 拖死 3.5 小时、全库零新文档)。
+    「目录」与「实际消费点」是同一事实的两处表述,分叉了就会出现关不掉的开关。
+    """
+    import inspect
+    import re
+
+    from xar.orchestration import glm_worker as gw
+
+    used = set(re.findall(r'stages_on\.get\("([a-z_]+)"', inspect.getsource(gw.run_once)))
+    missing = used - set(gw.FETCHY_STAGES)
+    assert not missing, f"这些阶段被消费却不在 FETCHY_STAGES 里,面板永远关不掉:{sorted(missing)}"
+
+
+def test_phanny_stage_is_switchable():
+    """回归:phanny 必须可以从面板关掉 —— 它是最重的一段。"""
+    from xar.orchestration import glm_worker as gw
+    assert "phanny" in gw.FETCHY_STAGES
+    assert gw.fetchy_defaults()["stages"].get("phanny") is True     # 默认开,但可关
+
+
+def _coherence(fetchy_on: dict, nightly: str, monkeypatch):
+    """探针在函数体内 import,所以打桩要打到**被 import 的那个模块**上。"""
+    import xar.config as cfgmod
+    import xar.orchestration.glm_worker as gw
+    from xar.monitoring import catalog as c
+
+    monkeypatch.setattr(gw, "fetchy_config", lambda: {"sources": fetchy_on})
+    monkeypatch.setattr(cfgmod, "get_settings",
+                        lambda: type("S", (), {"daily_enabled_sources": nightly})())
+    return c._config_coherence_hb()
+
+
+def test_coherence_flags_only_the_dangerous_direction(monkeypatch):
+    """面板关、夜批开 = 「以为关了其实在拉」→ 必须报。"""
+    p = _coherence({"twitter": False}, "twitter,edgar", monkeypatch)
+    assert p.degrade == "stale" and p.detail["leaking"] == ["twitter"]
+
+
+def test_coherence_ignores_the_benign_direction(monkeypatch):
+    """面板开、夜批清单里没有 = **设计如此**(夜批清单本就窄于常驻拉取路径)。
+
+    把它也当分歧会一次报出 11 个源(实测),几天内就会把人对这条告警练钝 ——
+    到时候真正危险的那一个也没人看了。
+    """
+    p = _coherence({"gangtise": True, "flow": True, "alt": True}, "edgar,finnhub", monkeypatch)
+    assert p.degrade is None and p.detail["leaking"] == []
+
+
+def test_coherence_handles_source_name_aliases(monkeypatch):
+    """两处命名不一致:Fetchy 用 cadence key `twitter`,夜批清单里可能写作 `x`。"""
+    p = _coherence({"twitter": False}, "x,edgar", monkeypatch)
+    assert p.detail["leaking"] == ["twitter"]
+
+
+def test_coherence_probe_registered():
+    from xar.monitoring import catalog as c
+    assert "platform.config_coherence" in {t.id for t in c.all_tasks()}

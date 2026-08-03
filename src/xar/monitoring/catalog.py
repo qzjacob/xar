@@ -200,6 +200,51 @@ def _monitor_hb() -> Probe:
 
 
 # ── Dagster(只认 runs,不认 job_ticks —— 陷阱②)──────────────────────────────────
+def _config_coherence_hb() -> Probe:
+    """同一个源的启用状态在**两处独立定义**,不一致时报异常(2026-08-02)。
+
+    实测分歧:`x`(twitter)在 Fetchy 面板(`FETCHY_SOURCES` + kvstate `fetchy`,glmworker
+    的 cadence 拉取路径)是**关**的,而 `config.daily_enabled_sources`(dagster 夜批
+    `run_daily` 的清单)里**开着** —— 于是面板把 `fetchy.twitter` 判为 `unconfigured`,
+    夜批却在 3 小时里拉了 600 篇。三件事互相矛盾,而没有任何信号说得出这一点。
+
+    ⚠️ 这里**刻意不做「二选一」**:两条路径各有合理性(夜批批量 vs 日内 cadence),
+    合并哪一个都是架构决定,不该由一个探针替人做。探针的职责是**把分歧本身变成可见的异常**
+    —— 否则它会以「面板说没配置、数据却在进来」的形式无限期潜伏下去。
+    另一面同样危险:哪天这个源真停了,面板仍会显示 unconfigured 而不是 down,**永不报警**;
+    而它还是个 $20/月的付费闸,「以为关了其实在拉」是要花钱的。
+    """
+    try:
+        from ..config import get_settings
+        from ..orchestration import glm_worker as gw
+        cfg = gw.fetchy_config()
+        nightly = {x.strip() for x in (get_settings().daily_enabled_sources or "").split(",")
+                   if x.strip()}
+    except Exception as e:  # noqa: BLE001 — 探针必须自兜异常
+        return Probe(None, {"reason": f"配置读取失败: {type(e).__name__}"})
+
+    # 两处命名不完全一致:fetchy 用 cadence key(twitter),夜批用源名(twitter/x)。
+    _ALIAS = {"twitter": {"twitter", "x"}}
+    # ⚠️ **只报一个方向**:面板上关着、夜批却开着 ——「以为关了,其实还在拉」。
+    # 反方向(面板开、夜批清单里没有)是**设计如此**:夜批清单本就窄于常驻 cadence 路径,
+    # 大多数源只走常驻拉取、不进夜批。把它也当分歧会一次报出 11 个源(实测),
+    # 那种噪声会在几天内把人对这条告警练钝 —— 到时候真正危险的那一个也没人看。
+    leaking = []
+    for key, on in (cfg.get("sources") or {}).items():
+        if on:
+            continue                                  # 面板开着 → 不管夜批有没有,都不是危险方向
+        if _ALIAS.get(key, {key}) & nightly:
+            leaking.append(key)
+    detail = {"checked": len(cfg.get("sources") or {}), "leaking": leaking}
+    if leaking:
+        detail["reason"] = (
+            f"{len(leaking)} 个源在 Fetchy 面板上已关闭,但仍在夜批清单 "
+            f"daily_enabled_sources 中,实际仍会被拉取:{leaking}。"
+            "面板会把它判成 unconfigured(而非 down),故该源一旦真停也不会报警;"
+            "若是计费源,还会持续产生费用。")
+    return Probe(datetime.now(timezone.utc), detail, degrade=STALE if leaking else None)
+
+
 # ── 硬件/资源(2026-08-01 补)────────────────────────────────────────────────────
 # 补的是 07-31 夜那场事故:面板上 22 个任务全都只看得见**果**(qwendrain 停摆、db 慢),
 # 没有一个看得见**因**。真实链条是:
@@ -486,6 +531,11 @@ def _static_tasks() -> list[Task]:
                  detail={"table": "company_thesis"})),
              yield_sla_s=48 * HOUR,
              actions=("restart:subpool",)),
+        Task(id="platform.config_coherence", label="config coherence",
+             label_cn="配置一致性(源开关双定义)", group="platform", severity=WARN,
+             heartbeat=_config_coherence_hb, hb_sla_s=30 * 60,
+             note="同一个源的启用状态在 Fetchy 面板与夜批清单两处独立定义;"
+                  "分歧本身就是异常 —— 不二选一,只把它变可见"),
         # ── 硬件/资源(2026-08-01 补):看的是**因**,不是果 ────────────────────
         Task(id="hw.docker_slice", label="docker.slice memory", label_cn="容器栈聚合内存",
              group="hardware", severity=CRITICAL,

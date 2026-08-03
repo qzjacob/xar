@@ -230,7 +230,7 @@ def _pc_stage() -> dict:
 def _short_interest_stage() -> dict:
     """空头持仓(双周)—— 核心覆盖游标轮转切片;未 entitle 全空 → 上层显示未接入。"""
     from ..providers import massive
-    from ..storage.kvstate import get_state, save_state
+    from ..storage.kvstate import get_state, set_state_field
 
     if not massive.available():
         return {"skipped": "no MASSIVE_API_KEY"}
@@ -256,9 +256,9 @@ def _short_interest_stage() -> dict:
                 log.warning("flow short_interest %s: %s", tkr, str(e)[:120])
     finally:
         # 游标必须前进(即便中途异常),否则毒切片每轮重试、轮转永久卡死(评审 #23)
-        cur = get_state("cursor")
-        cur["flow_si"] = (off + len(todo)) % len(uni)
-        save_state("cursor", cur)
+        # 单字段原子写:cursor 这块 blob 有 **4 个写入点**(glmworker 的 futu/gangtise、
+        # futu_flow、flow_si),整块回写时任一次读到空/陈旧都会抹掉其余源的游标。
+        set_state_field("cursor", "flow_si", (off + len(todo)) % len(uni))
     return {"companies": len(todo), "rows": rows} if rows else {
         "companies": len(todo), "rows": 0, "note": "no data — endpoint not entitled?"}
 

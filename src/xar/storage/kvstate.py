@@ -63,6 +63,35 @@ def set_state_field(key: str, field: str, value) -> None:
         (key, field, payload, field, payload))
 
 
+def merge_state_field(key: str, field: str, patch: dict) -> None:
+    """把 `patch` **浅合并**进 blob 的一个二层子对象,不碰兄弟子对象、也不碰该子对象里
+    未出现在 patch 中的字段。用于 `sub_quota` 这类 `{provider: {...}}` 的两层状态。
+
+    ⚠️ **为什么不用 `jsonb_set(value, ARRAY['zhipu','status'], ...)` 这种深 path**:
+    jsonb_set 的 `create_missing` **只创建路径的最后一段**。当 `value->'zhipu'` 还不存在时,
+    整条语句会**静默 no-op**(返回原值、不报错)—— 这是最难查的一类 bug:写了、没报错、
+    数据没进去。所以这里 path 只到一层(provider),第二层用 `||` 做浅合并,
+    并用 `coalesce(... -> field, '{}')` 兜住子对象不存在的情况。
+
+    ⚠️ 为什么 `sub_quota` 需要它:那块 blob 有**三个进程**在写(subpool 容器 / glmworker /
+    app 的 on-demand phanny),而 `subpool._STATE_LOCK` 是 `threading.Lock` —— 跨容器完全无效。
+    整块读-改-写下,两个容器同时冷却不同 provider 会丢一次更新:被丢掉的那家仍被当作可用,
+    继续派活直到再失败三次。合并放到 DB 端做,这个窗口才真正关掉。
+    """
+    _ensure()
+    payload = json.dumps(patch, ensure_ascii=False, default=str)
+    db.execute(
+        "INSERT INTO glm_worker_state(key, value, updated_at) "
+        "VALUES (%s::text, jsonb_build_object(%s::text, %s::jsonb), now()) "
+        "ON CONFLICT (key) DO UPDATE SET "
+        "  value = jsonb_set(coalesce(glm_worker_state.value, '{}'::jsonb), "
+        "                    ARRAY[%s::text], "
+        "                    coalesce(glm_worker_state.value -> %s::text, '{}'::jsonb) "
+        "                    || %s::jsonb, true), "
+        "  updated_at = now()",
+        (key, field, payload, field, field, payload))
+
+
 def delete_state(key: str) -> None:
     _ensure()
     db.execute("DELETE FROM glm_worker_state WHERE key=%s", (key,))

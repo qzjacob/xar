@@ -50,29 +50,28 @@ def trigger_pull(source: str) -> dict:
        回拨到间隔之外同样立即到期;而删除会让 `cadence[key]` 消失,于是监控的心跳探针
        读到「信号缺失」→ 判 unknown —— **处置动作把它要修的那个信号弄瞎了**。
 
-    ② **必须在 SQL 里原子改单个字段,不可 read-modify-write 整个 blob**。
-       `cadence` 是一个 JSONB blob,glmworker 的 `_stamp` 每轮都在读-改-写它。
+    ② **必须原子改单个字段,不可 read-modify-write 整个 blob**。
+       `cadence` 一块 JSONB blob 里装着 13 个源的戳,glmworker 的 `_stamp` 每轮都在写它。
        本函数若也读整份再写回,两边就会互相丢更新 —— 实测一次就抹掉了 7 个源的戳
-       (它们随后被 worker 重新盖上,但那是白跑一轮拉取)。`jsonb_set` 在行级原子完成,
-       不存在这个窗口。
+       (它们随后被 worker 重新盖上,但那是白跑一轮拉取)。
+       2026-08-02 起统一走 `kvstate.set_state_field`:此前这里另写了一份语义相同、
+       措辞不同的裸 SQL,且漏了 `coalesce(value,'{}')` —— 键不存在时与另一份行为分叉。
+       **同一个不变量只能有一个实现**,否则修一处补不到另一处。
 
     非 fetchy 源(ops.SOURCES 里的可运行源)走既有的 ops.run_source。"""
     from datetime import datetime, timedelta, timezone
 
     from ..orchestration import glm_worker as gw
-    from ..storage import db
     if source in gw.FETCHY_SOURCES:
         hours = gw.FETCHY_SOURCES[source].get("hours") or 1
         back = (datetime.now(timezone.utc)
                 - timedelta(hours=hours + 1)).isoformat(timespec="seconds")
-        db.execute(
-            "INSERT INTO glm_worker_state(key, value, updated_at) "
-            "VALUES ('cadence', jsonb_build_object(%s::text, to_jsonb(%s::text)), now()) "
-            "ON CONFLICT (key) DO UPDATE "
-            "  SET value = jsonb_set(glm_worker_state.value, ARRAY[%s::text], "
-            "                        to_jsonb(%s::text), true), "
-            "      updated_at = now()",
-            (source, back, source, back))
+        # 走 kvstate 的统一原语,而不是在这里另写一份裸 SQL(2026-08-02 收敛)。
+        # 原来这段与 `kvstate.set_state_field` 是**两份语义相同、措辞不同**的 jsonb_set,
+        # 其中一份还漏了 `coalesce(value,'{}')` —— 键不存在时行为与另一份不一致。
+        # 同一个不变量(单字段原子写)只能有一个实现,否则修一处补不到另一处。
+        from ..storage.kvstate import set_state_field
+        set_state_field("cadence", source, back)
         return {"status": "due_now", "source": source, "stampedTo": back,
                 "note": "cadence 戳已原子回拨到间隔之外,worker 下一轮即拉取"}
     try:

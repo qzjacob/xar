@@ -132,6 +132,14 @@ FETCHY_STAGES: dict[str, str] = {     # run_once 阶段 → 标签
     "alt_correction": "信号校正 + 论点重建",
     "research_audit": "独立抓取审计(每日)",
     "earnings": "季报裁决 + 盘后回验",
+    # ⚠️ 2026-08-02 补:`phanny` 一直在 run_once 里被 `stages_on.get("phanny", True)` 消费,
+    # 却**不在本目录里**。而 `save_fetchy` 按 `k in FETCHY_STAGES` 过滤未知键 ⇒
+    # 面板上把它关掉的动作被静默丢弃,`stages_on.get("phanny", True)` 恒为 True ——
+    # **这个阶段永远关不掉**。偏偏它是最重的一段:实测把 glmworker 的单线程 run_once
+    # 拖死 3.5 小时、全库零新文档(phanny_book_max_seconds 就是为它加的)。
+    # 「目录」与「实际消费点」是同一事实的两处表述,分叉了就会出现这种关不掉的开关;
+    # 已加护栏测试:run_once 里出现的每个 stages_on key 都必须在本目录中。
+    "phanny": "季报多空辩论(最重;单轮墙钟受 phanny_book_max_seconds 限制)",
 }
 
 
@@ -360,9 +368,9 @@ def _pull_fresh(cfg: dict | None = None) -> dict:
         off = int(get_state("cursor").get("futu", 0)) % len(ids)
         sl = ids[off:off + n]
         docs = sum(futu.pull_news(cid) for cid in sl)
-        cur = get_state("cursor")
-        cur["futu"] = (off + len(sl)) % len(ids)
-        save_state("cursor", cur)
+        # 单字段原子写:cursor 这块 blob 有 **4 个写入点**(glmworker 的 futu/gangtise、
+        # futu_flow、flow_si),整块回写时任一次读到空/陈旧都会抹掉其余源的游标。
+        set_state_field("cursor", "futu", (off + len(sl)) % len(ids))
         return {"news": docs, "companies": len(sl), "offset": off}
     def _gangtise():
         # 富途/万得之外的深度投研:CN 名单轮转切片拉 Gangtise 财报/估值/一致预期/投研文本
@@ -393,9 +401,9 @@ def _pull_fresh(cfg: dict | None = None) -> dict:
                 ok += 1
             except Exception as e:  # noqa: BLE001 — 单公司失败不沉整轮
                 log.warning("gangtise %s: %s", cid, str(e)[:120])
-        cur = get_state("cursor")                  # advance cursor AFTER the slice runs
-        cur["gangtise"] = (off + len(todo)) % len(cn)
-        save_state("cursor", cur)
+        # 单字段原子写:cursor 这块 blob 有 **4 个写入点**(glmworker 的 futu/gangtise、
+        # futu_flow、flow_si),整块回写时任一次读到空/陈旧都会抹掉其余源的游标。
+        set_state_field("cursor", "gangtise", (off + len(todo)) % len(cn))
         return {"attempted": len(todo), "ok": ok, "off": off}
 
     def _gangtise_backfill():
