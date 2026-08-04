@@ -180,8 +180,13 @@ def test_no_wholesale_cursor_writes_anywhere():
     这条护栏扫全仓源码,防止将来任何一处悄悄改回去。
     """
     import pathlib
+    root = pathlib.Path(__file__).resolve().parents[1] / "src" / "xar"
+    files = list(root.rglob("*.py"))
+    # ⚠️ 先证明扫到了东西:原来用 CWD 相对路径,从仓库根以外跑 pytest 时 rglob 产出空集,
+    # assert 对空列表恒真 —— **护栏会静默变绿**,而它正是 PR4 的主要交付物。
+    assert len(files) > 50, f"源码树扫描失败(只扫到 {len(files)} 个文件),护栏无效"
     hits = []
-    for f in pathlib.Path("src/xar").rglob("*.py"):
+    for f in files:
         if 'save_state("cursor"' in f.read_text():
             hits.append(str(f))
     assert not hits, f"这些文件仍在整块回写 cursor:{hits}"
@@ -195,8 +200,11 @@ def test_cadence_has_exactly_one_write_implementation():
     import pathlib
     # 判据是「谁直接写 glm_worker_state 表」——不是散文里提没提 jsonb_set
     # (注释解释事故时必然会提到它,那不算实现)。
+    root = pathlib.Path(__file__).resolve().parents[1] / "src" / "xar"
+    files = list(root.rglob("*.py"))
+    assert len(files) > 50, f"源码树扫描失败(只扫到 {len(files)} 个文件),护栏无效"
     raw = []
-    for f in pathlib.Path("src/xar").rglob("*.py"):
+    for f in files:
         if f.name == "kvstate.py":
             continue
         if "INSERT INTO glm_worker_state" in f.read_text():

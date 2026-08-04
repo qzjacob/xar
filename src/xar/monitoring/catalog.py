@@ -199,7 +199,7 @@ def _monitor_hb() -> Probe:
     return kv_field("monitor_beat", "at")
 
 
-# ── Dagster(只认 runs,不认 job_ticks —— 陷阱②)──────────────────────────────────
+# ── 平台/配置 ────────────────────────────────────────────────────────────────────
 def _config_coherence_hb() -> Probe:
     """同一个源的启用状态在**两处独立定义**,不一致时报异常(2026-08-02)。
 
@@ -217,7 +217,11 @@ def _config_coherence_hb() -> Probe:
     try:
         from ..config import get_settings
         from ..orchestration import glm_worker as gw
-        cfg = gw.fetchy_config()
+        # ⚠️ 必须 strict=True:非 strict 时 fetchy_config 会**自己吞掉 DB 异常并返回
+        # fetchy_defaults()**,于是探针拿一份默认配置冒充权威结论、还带着新鲜心跳戳 ——
+        # 运营者刚在面板上关掉的源,这里报出的分歧完全是编造的。
+        # 违反本模块头部那条「拿不到值就返回 Probe(None) → 判 unknown」。
+        cfg = gw.fetchy_config(strict=True)
         nightly = {x.strip() for x in (get_settings().daily_enabled_sources or "").split(",")
                    if x.strip()}
     except Exception as e:  # noqa: BLE001 — 探针必须自兜异常
@@ -355,6 +359,40 @@ def _chain_reached(name: str) -> Callable[[], bool]:
     return needed
 
 
+def _quota_ledger_hb() -> Probe:
+    """额度账本自身是否活着(2026-08-02 审核补)。
+
+    补的是一个**完全静默的失效面**:`quota.snapshot` 读失败会吞异常返回 {},三个写入点
+    各自 try/except 只打日志,于是「表没建成 / 权限不对 / 连接持续失败」这类问题会让
+    alphapai/aifinmarket 的行为 **100% 退回改造之前**(重启即失忆、双进程互不知情),
+    而面板上没有任何一个任务看得见 —— 日志里只有每几秒一条 warning。
+    这正是「静默哑火必须可判、可报」那条纪律要消灭的形态。
+
+    判据取「今日有没有任何一行」:两个源全天都在调用,今日零行 = 写入链路断了。
+    ⚠️ 沪日刚换日的头几分钟天然零行,所以那个窗口不判 —— 否则每天固定误报一次。
+    """
+    from ..storage import db
+    try:
+        rows = db.query(
+            "SELECT count(*) AS n, coalesce(sum(calls), 0) AS calls, "
+            "       count(*) FILTER (WHERE exhausted) AS exhausted_seats "
+            "  FROM provider_quota "
+            " WHERE cn_date = (now() AT TIME ZONE 'Asia/Shanghai')::date")
+        cn_hour = db.query(
+            "SELECT extract(hour from (now() AT TIME ZONE 'Asia/Shanghai')) AS h")[0]["h"]
+    except Exception as e:  # noqa: BLE001
+        return Probe(None, {"reason": f"账本不可读: {type(e).__name__}: {str(e)[:100]}"})
+    r = rows[0] if rows else {"n": 0, "calls": 0, "exhausted_seats": 0}
+    detail = {"rowsToday": int(r["n"]), "callsToday": int(r["calls"]),
+              "exhaustedSeats": int(r["exhausted_seats"]), "cnHour": int(cn_hour)}
+    if int(r["n"]) == 0 and int(cn_hour) >= 1:      # 换日头一小时不判(天然零行)
+        detail["reason"] = ("provider_quota 今日零行 —— 额度记账链路可能已断,"
+                            "alphapai/aifinmarket 会退回「重启即失忆」的旧行为")
+        return Probe(datetime.now(timezone.utc), detail, degrade=STALE)
+    return Probe(datetime.now(timezone.utc), detail)
+
+
+# ── Dagster(只认 runs,不认 job_ticks —— 陷阱②)──────────────────────────────────
 def _dagster_locations_hb() -> Probe:
     """代码位置能否加载。补的是 2026-08-01 那次**真实漏报**:06:00 夜跑零 run,
     而 daemons=ok、runs=unknown,没有任何信号说得出「今后永远不会再有 run」。
@@ -531,8 +569,17 @@ def _static_tasks() -> list[Task]:
                  detail={"table": "company_thesis"})),
              yield_sla_s=48 * HOUR,
              actions=("restart:subpool",)),
+        Task(id="platform.quota_ledger", label="quota ledger", label_cn="额度账本(付费源)",
+             group="platform", severity=CRITICAL,
+             heartbeat=_quota_ledger_hb, hb_sla_s=30 * 60,
+             actions=("quota:clear:alphapai", "quota:clear:aifinmarket"),
+             note="账本断了不会自己喊 —— 读写两侧都是 fail-open/只记日志,"
+                  "断掉时两个付费源静默退回「重启即失忆」"),
         Task(id="platform.config_coherence", label="config coherence",
              label_cn="配置一致性(源开关双定义)", group="platform", severity=WARN,
+             # 探针非异常路径恒返回 now() ⇒ 心跳年龄恒为 0 ⇒ 按龄判定永不触发,
+             # 本任务的唯一有效信号是 degrade(读不到配置时是 Probe(None) → unknown)。
+             # 这里的 SLA 只是个形式上的下限,别误以为「30 分钟没跑就会报」。
              heartbeat=_config_coherence_hb, hb_sla_s=30 * 60,
              note="同一个源的启用状态在 Fetchy 面板与夜批清单两处独立定义;"
                   "分歧本身就是异常 —— 不二选一,只把它变可见"),

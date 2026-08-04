@@ -121,19 +121,20 @@ def quota_exhausted() -> bool:
     都建立在这个活不过重启的变量上。落库之后重启即续。
     """
     _quota_roll()
-    row = _row()
-    if row:
-        return bool(row.get("exhausted"))
-    return bool(_QUOTA["daily_exhausted"])          # fail-open:读不到就用镜像
+    # ⚠️ **取较坏者**,不是「有行就只信行」(2026-08-02 审核修正)。
+    # 原写法是 `if row: return row['exhausted']` —— 一旦今日行因为别的原因已经存在
+    # (例如上午一次 204 建了行),而下午那次 203 的落库恰好失败,镜像里的 True 就被
+    # 彻底丢弃、谓词返回 False,drain_first 会把 alphapai 继续吊在链首打已耗尽的付费 API。
+    # 那正是本轮要修的原始事故原样复现 —— 「写失败只退化为改造前现状」在那个写法下不成立。
+    # 两个来源都是「耗尽」的证据,任一为真即为真。
+    return bool(_row().get("exhausted")) or bool(_QUOTA["daily_exhausted"])
 
 
 def quota_backing_off() -> bool:
     """系统繁忙(204/42900)短退避中——暂停但不判当日耗尽,退避到期自动恢复。"""
     _quota_roll()
-    row = _row()
-    if row:
-        return bool(row.get("backing_off"))
-    return time.time() < float(_QUOTA["backoff_until"])
+    # 同上:取较坏者。DB 说不在退避,不代表本进程刚写失败的那次退避不存在。
+    return bool(_row().get("backing_off")) or time.time() < float(_QUOTA["backoff_until"])
 
 
 def _persist_exhausted(code) -> None:

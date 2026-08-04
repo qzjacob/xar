@@ -285,7 +285,8 @@ def _coherence(fetchy_on: dict, nightly: str, monkeypatch):
     import xar.orchestration.glm_worker as gw
     from xar.monitoring import catalog as c
 
-    monkeypatch.setattr(gw, "fetchy_config", lambda: {"sources": fetchy_on})
+    # 探针现在按 strict=True 调用(不许它吞掉 DB 异常返回默认值),桩要接住这个参数
+    monkeypatch.setattr(gw, "fetchy_config", lambda **kw: {"sources": fetchy_on})
     monkeypatch.setattr(cfgmod, "get_settings",
                         lambda: type("S", (), {"daily_enabled_sources": nightly})())
     return c._config_coherence_hb()

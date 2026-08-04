@@ -42,11 +42,17 @@ def test_actions_are_well_formed():
     for t in catalog.all_tasks():
         for a in t.actions:
             kind, _, arg = a.partition(":")
-            assert kind in ("restart", "dagster", "pull"), f"{t.id}: {a}"
+            assert kind in ("restart", "dagster", "pull", "quota"), f"{t.id}: {a}"
             if kind == "restart":
                 assert arg in mon_actions.RESTARTABLE, f"{t.id}: {a} 不在可重启白名单"
             if kind == "pull":
                 assert arg in gw.FETCHY_SOURCES, f"{t.id}: {a} 不是已知的 fetchy 源"
+            if kind == "quota":
+                # 形如 quota:clear:<provider> —— 声明的动作必须真的能被 dispatch 认出来,
+                # 否则面板上会出现一个点了没反应的按钮。
+                op, _, prov = arg.partition(":")
+                assert op == "clear", f"{t.id}: {a} 未知的 quota 操作"
+                assert prov in ("alphapai", "aifinmarket"), f"{t.id}: {a} 不是已知的付费源"
 
 
 def test_critical_tasks_cover_the_audit_blind_spots():

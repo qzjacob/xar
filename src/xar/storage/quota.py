@@ -63,7 +63,9 @@ def bump(provider: str, seat: str = "-", n: int = 1) -> dict:
     由数据库仲裁,而不是各自数各自的(那种数法在双进程下必然超发)。
     """
     _ensure()
-    rows = db.query(
+    # 用 execute_returning(显式 commit)而不是 query(只读辅助、无 commit)——
+    # 后者能落库只是靠连接池的隐式提交,是个会被将来的读路径卫生悄悄打断的依赖。
+    rows = db.execute_returning(
         "INSERT INTO provider_quota(provider, seat, cn_date, calls) "
         f"VALUES (%s, %s, {_CN_TODAY}, %s) "
         "ON CONFLICT (provider, seat, cn_date) DO UPDATE SET "
@@ -117,3 +119,23 @@ def snapshot(provider: str) -> dict[str, dict]:
         return {}
     return {r["seat"]: {"calls": int(r["calls"]), "exhausted": bool(r["exhausted"]),
                         "backing_off": bool(r["backing_off"])} for r in rows}
+
+
+def clear(provider: str, seat: str | None = None) -> int:
+    """清掉某源**今日**的额度锁 —— 误判 203 之后的逃生口(2026-08-02 审核补)。
+
+    为什么必须有:落库之前,一次误判/瞬时的 203 只会锁到下次容器重启(glmworker 一天
+    重启 14 次,等于随时能恢复)。落库之后权威在 DB,**重启不再有效、日界之前不会翻转** ——
+    改造顺手删掉了原来那个意外的逃生口,却没有补上一个有意的。结果会是:一次误判报废
+    整整一个沪日的付费额度,而运营者只能手工连库 DELETE。
+    返回删除的行数。
+    """
+    _ensure()
+    if seat is None:
+        db.execute(f"DELETE FROM provider_quota WHERE provider=%s AND cn_date={_CN_TODAY}",
+                   (provider,))
+    else:
+        db.execute("DELETE FROM provider_quota "
+                   f"WHERE provider=%s AND seat=%s AND cn_date={_CN_TODAY}", (provider, seat))
+    log.info("provider_quota 已清除今日额度锁: provider=%s seat=%s", provider, seat or "*")
+    return 1

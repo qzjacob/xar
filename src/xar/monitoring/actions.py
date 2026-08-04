@@ -81,6 +81,21 @@ def trigger_pull(source: str) -> dict:
         return {"error": f"{type(e).__name__}: {str(e)[:140]}", "source": source}
 
 
+def clear_quota(provider: str) -> dict:
+    """清掉某源今日的额度锁。误判一次 203 就报废一整个沪日的付费额度,
+    而落库之后重启不再能解锁 —— 这是那个逃生口的面板入口。"""
+    from ..storage import quota
+    if provider not in ("alphapai", "aifinmarket"):
+        return {"error": f"unknown quota provider: {provider}"}
+    try:
+        quota.clear(provider)
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {str(e)[:140]}"}
+    log.info("monitor: quota lock cleared for %s", provider)
+    return {"status": "cleared", "provider": provider,
+            "note": "今日额度锁已清;下一轮抓取链会重新尝试该源"}
+
+
 def dispatch(action_id: str) -> dict:
     """执行一个 catalog 声明的 action id。"""
     kind, _, arg = action_id.partition(":")
@@ -90,4 +105,6 @@ def dispatch(action_id: str) -> dict:
         return dagster_unstick()
     if kind == "pull":
         return trigger_pull(arg)
+    if kind == "quota" and arg.startswith("clear:"):
+        return clear_quota(arg.split(":", 1)[1])
     return {"error": f"unknown action: {action_id}"}

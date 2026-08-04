@@ -101,10 +101,13 @@ def _invalidate() -> None:
 
 def _seat_blocked(tid: str, cap: int) -> bool:
     """该席位今天还能不能用 —— DB 优先,读不到用进程内镜像。"""
-    row = _seats().get(tid)
-    if row is not None:
-        return bool(row.get("exhausted")) or bool(cap and int(row.get("calls", 0)) >= cap)
-    return tid in _cooldown or bool(cap and _usage.get(tid, 0) >= cap)
+    # ⚠️ **取较坏者**(2026-08-02 审核修正)。原写法是「有行就只信行」,而 `_bump_seat`
+    # 每次调用都会把今日行建出来 ⇒ `row is not None` 几乎恒成立 ⇒ `_cooldown` 镜像分支
+    # **从来走不到**。于是:席位刚被供应商拒绝、mark_exhausted 落库失败,下一次
+    # _pick_token 会把它立刻重新派出去;all_seats_exhausted 也随之假阴、链不 fallback。
+    row = _seats().get(tid) or {}
+    return (bool(row.get("exhausted")) or bool(cap and int(row.get("calls", 0)) >= cap)
+            or tid in _cooldown or bool(cap and _usage.get(tid, 0) >= cap))
 
 
 def _reset_if_new_day() -> None:
@@ -115,11 +118,20 @@ def _reset_if_new_day() -> None:
 
 
 def _bump_seat(tid: str) -> None:
-    """记一次席位调用。写失败只记日志 —— 退化为改造前的「仅进程内」现状。"""
+    """记一次席位调用。写失败只记日志 —— 退化为改造前的「仅进程内」现状。
+
+    ⚠️ 用 `bump()` 的 **RETURNING 行直接刷新缓存**,而不是 `_invalidate()` 后让下一次
+    读再全表 SELECT 一遍(2026-08-02 审核修正)。后者等于每次 MCP 调用要 2 次 DB 往返,
+    而 aifinmarket 的节流是 0.3s ⇒ 稳态约 3 次/秒 ⇒ 6 次往返/秒,还要叠在夜批分片上 ——
+    而那个时段 nvme 已实测 %util 174、Postgres 被拖到 unhealthy。
+    bump 早就把 calls/exhausted/backoff_until 带回来了,一次往返足够。
+    """
     try:
         from ..storage import quota as q
-        q.bump("aifinmarket", seat=tid)
-        _invalidate()
+        row = q.bump("aifinmarket", seat=tid)
+        _snap_cache["seats"][tid] = {"calls": int(row.get("calls", 0)),
+                                     "exhausted": bool(row.get("exhausted")),
+                                     "backing_off": bool(row.get("backoff_until"))}
     except Exception as e:  # noqa: BLE001
         log.warning("aifinmarket 席位计数落库失败(仅进程内生效): %s", str(e)[:120])
 
@@ -252,8 +264,6 @@ def _mcp_call(server_type: str, tool: str, arguments: dict, timeout: float = 90)
                         len(pool), server_type, tool)
             return None
         tid = _tok_id(tok)
-        _usage[tid] = _usage.get(tid, 0) + 1        # 镜像(DB 不可达时的兜底)
-        _bump_seat(tid)                             # 权威计数:DB 端原子累加
         _throttle()
         headers = {"Authorization": f"Bearer {tok}",
                    "Accept": "application/json, text/event-stream",
@@ -265,7 +275,13 @@ def _mcp_call(server_type: str, tool: str, arguments: dict, timeout: float = 90)
             r.raise_for_status()
         except Exception as e:  # noqa: BLE001 — transport error: don't burn other seats
             log.warning("aifinmarket %s.%s (seat %s) http failed: %s", server_type, tool, tid, e)
+            # ⚠️ 传输失败**不记账**(2026-08-02 审核修正):记账原先在发请求之前,
+            # 于是网络抖动/供应商 5xx 也会扣掉持久化的日帽。改造前这笔账重启即归零、
+            # 危害有限;落库之后它是永久的 —— 一夜连续超时能把 calls 刷到日帽,
+            # 而供应商侧一次也没真扣。日帽一旦启用(现配置为 0=不设帽),这就是额度自伤。
             return None
+        _usage[tid] = _usage.get(tid, 0) + 1        # 镜像(DB 不可达时的兜底)
+        _bump_seat(tid)                             # 权威计数:请求真的发出去了才记
         payload = _parse_sse(r.text)
         if _is_quota_error(payload):
             _cooldown.add(tid)                      # 镜像

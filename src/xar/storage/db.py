@@ -95,6 +95,23 @@ def execute(sql: str, params: Sequence[Any] | None = None) -> None:
         c.commit()
 
 
+def execute_returning(sql: str, params: Sequence[Any] | None = None) -> list[dict]:
+    """写语句 + 读回 RETURNING,**显式提交**。
+
+    存在的理由:`query()` 是只读辅助、**没有 commit** —— 用它跑 `INSERT ... RETURNING`
+    能落库纯粹是因为连接池的 `with conn()` 在退出时隐式提交。那是个隐式依赖:将来任何人
+    为读路径卫生给 `query()` 加一句 rollback 或只读事务,所有走它的写入会**静默归零**,
+    而单测发现不了(isolated_db 的代理把 commit 变成 no-op)。
+    写就走会提交的路径,这个不变量要显式表达出来。
+    """
+    with conn() as c:
+        cur = c.cursor(row_factory=dict_row)
+        cur.execute(sql, params or ())
+        rows = cur.fetchall()
+        c.commit()
+        return rows
+
+
 def executemany(sql: str, rows: Iterable[Sequence[Any]]) -> None:
     with conn() as c:
         c.cursor().executemany(sql, list(rows))
